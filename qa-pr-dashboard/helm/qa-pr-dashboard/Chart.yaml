@@ -1,0 +1,15 @@
+apiVersion: v2
+name: qa-pr-dashboard
+description: A Helm chart for QA PR Management Dashboard
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - qa
+  - pr
+  - dashboard
+  - jira
+  - github
+maintainers:
+  - name: QA Team
+

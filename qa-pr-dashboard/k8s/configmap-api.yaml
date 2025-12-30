@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qa-pr-dashboard-api-config
+  namespace: qa-pr-dashboard
+data:
+  NODE_ENV: "production"
+  PORT: "8000"
+  MONGODB_URI: "mongodb://mongodb-service:27017"
+  DB_NAME: "qa_pr_dashboard"
+  SKIP_MONGO: "false"
+  # Tracing configuration (same namespace - can use short service name)
+  TRACING_ENABLED: "true"
+  TRACING_SERVICE_NAME: "qa-pr-dashboard-api"
+  TRACING_EXPORTER: "tempo"
+  TEMPO_ENDPOINT: "http://tempo:4317"  # Short name works in same namespace
+  JAEGER_ENDPOINT: "http://jaeger:4317"  # Alternative if using Jaeger

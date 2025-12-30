@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qa-pr-dashboard-api
+  namespace: qa-pr-dashboard
+  labels:
+    app: qa-pr-dashboard
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: qa-pr-dashboard
+      component: api
+  template:
+    metadata:
+      labels:
+        app: qa-pr-dashboard
+        component: api
+    spec:
+      containers:
+      - name: api
+        image: amitngm/qa-pr-dashboard-api:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: qa-pr-dashboard-api-config
+        # Production secrets (uncomment and create secrets before deployment)
+        # MongoDB connection from secret
+        # kubectl create secret generic mongodb-secret --from-literal=mongodb-uri='your-connection-string'
+        # env:
+        # - name: MONGODB_URI
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: mongodb-secret
+        #       key: mongodb-uri
+        # JWT secret for authentication
+        # kubectl create secret generic jwt-secret --from-literal=jwt-secret='your-strong-random-key'
+        # env:
+        # - name: JWT_SECRET
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: jwt-secret
+        #       key: jwt-secret
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
