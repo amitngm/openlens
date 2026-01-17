@@ -9,27 +9,25 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        midnight: "#0f0f1a",
-        obsidian: "#1a1a2e",
-        slate: "#16213e",
-        electric: "#00d9ff",
-        neon: "#00ff88",
-        warning: "#ff6b35",
-        danger: "#ff3366",
+        // Docker Hub inspired palette
+        hub: {
+          blue: "#1d63ed",
+          "blue-dark": "#0d47a1",
+          "blue-light": "#e3f2fd",
+          nav: "#1d2939",
+          sidebar: "#f8fafc",
+          border: "#e2e8f0",
+          text: "#1e293b",
+          "text-muted": "#64748b",
+          success: "#22c55e",
+          warning: "#f59e0b",
+          danger: "#ef4444",
+          bg: "#ffffff",
+        },
       },
       fontFamily: {
-        mono: ["JetBrains Mono", "Fira Code", "monospace"],
-        display: ["Outfit", "system-ui", "sans-serif"],
-      },
-      animation: {
-        "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-        "glow": "glow 2s ease-in-out infinite alternate",
-      },
-      keyframes: {
-        glow: {
-          "0%": { boxShadow: "0 0 5px #00d9ff, 0 0 10px #00d9ff" },
-          "100%": { boxShadow: "0 0 10px #00d9ff, 0 0 20px #00d9ff, 0 0 30px #00d9ff" },
-        },
+        sans: ["Open Sans", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
+        mono: ["Source Code Pro", "monospace"],
       },
     },
   },

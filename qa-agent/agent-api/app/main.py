@@ -5,14 +5,16 @@ This service orchestrates QA test flows for cloud products,
 performing UI and API testing within a Kubernetes namespace.
 """
 
+import os
 import logging
+from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.routers import runs, catalog, artifacts, health, live_test
-from fastapi import HTTPException
 from app.services.discovery import DiscoveryService
 from app.services.rate_limiter import RateLimiter
 from app.utils.logging import setup_logging, RedactingFilter
@@ -271,3 +273,60 @@ async def discover_services(request: Request):
         "discovered_namespaces": list(results.keys()),
         "results": results
     }
+
+
+# ============================================
+# Static File Serving for UI
+# ============================================
+STATIC_DIR = Path("/app/static")
+
+# Check if static files exist (for combined image deployment)
+if STATIC_DIR.exists() and STATIC_DIR.is_dir():
+    logger.info(f"Serving static UI from {STATIC_DIR}")
+    
+    # Mount static assets (CSS, JS, images)
+    if (STATIC_DIR / "_next").exists():
+        app.mount("/_next", StaticFiles(directory=str(STATIC_DIR / "_next")), name="next-static")
+    
+    # Serve index.html for root and SPA routes
+    @app.get("/ui")
+    @app.get("/ui/{path:path}")
+    async def serve_ui(path: str = ""):
+        """Serve the UI for SPA routes."""
+        index_file = STATIC_DIR / "index.html"
+        if index_file.exists():
+            return FileResponse(index_file)
+        return HTMLResponse("<h1>QA Agent</h1><p>UI not available. Use /docs for API.</p>")
+else:
+    logger.info("Static UI not found - API-only mode")
+    
+    @app.get("/ui")
+    @app.get("/ui/{path:path}")
+    async def ui_not_available(path: str = ""):
+        """UI not available in API-only mode."""
+        return HTMLResponse(
+            """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>QA Agent</title>
+                <style>
+                    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+                           display: flex; justify-content: center; align-items: center; 
+                           height: 100vh; margin: 0; background: #1d63ed; color: white; }
+                    .container { text-align: center; }
+                    h1 { font-size: 3rem; margin-bottom: 1rem; }
+                    p { font-size: 1.2rem; opacity: 0.9; }
+                    a { color: #fff; text-decoration: underline; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>🧪 QA Agent API</h1>
+                    <p>API is running in standalone mode.</p>
+                    <p>Visit <a href="/docs">/docs</a> for the API documentation.</p>
+                </div>
+            </body>
+            </html>
+            """
+        )

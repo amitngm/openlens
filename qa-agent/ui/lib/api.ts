@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+// When served from same container, use relative URLs (empty string)
+// When running in dev mode, use localhost:8080
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (typeof window !== 'undefined' && window.location.port === '8080' ? '' : 'http://localhost:8080');
 
 export interface Flow {
   name: string;

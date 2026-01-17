@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "QA Agent | Test Automation Dashboard",
+  title: "QA Agent | Test Automation Hub",
   description: "Kubernetes-deployable QA automation system for UI and API testing",
 };
 
@@ -13,10 +13,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">
-        <div className="grid-pattern min-h-screen">
-          {children}
-        </div>
+      <body className="antialiased bg-white">
+        {children}
       </body>
     </html>
   );

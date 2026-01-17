@@ -6,14 +6,20 @@ import {
   Server, 
   History, 
   Settings,
-  Zap,
   Activity,
   Wand2,
   Layers,
   Scan,
-  Eye
+  Eye,
+  Box,
+  ChevronDown,
+  Search,
+  Bell,
+  HelpCircle,
+  User
 } from 'lucide-react';
 import clsx from 'clsx';
+import { useState } from 'react';
 
 interface SidebarProps {
   activeTab: string;
@@ -22,7 +28,7 @@ interface SidebarProps {
 }
 
 const navItems = [
-  { id: 'live', label: 'Live Testing', icon: Eye, highlight: true },
+  { id: 'live', label: 'Live Testing', icon: Eye },
   { id: 'autodiscover', label: 'Auto-Discover', icon: Scan },
   { id: 'smart', label: 'Smart Test', icon: Wand2 },
   { id: 'flows', label: 'Test Flows', icon: FileCode },
@@ -33,90 +39,158 @@ const navItems = [
 ];
 
 export default function Sidebar({ activeTab, onTabChange, apiStatus }: SidebarProps) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   return (
-    <aside className="w-64 bg-obsidian/60 backdrop-blur-md border-r border-slate/30 flex flex-col">
-      {/* Logo */}
-      <div className="p-6 border-b border-slate/30">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-electric to-neon flex items-center justify-center">
-            <Zap className="w-6 h-6 text-midnight" />
+    <div className="flex flex-col h-screen">
+      {/* Top Navigation Bar - Docker Hub style */}
+      <header className="bg-hub-nav h-14 flex items-center justify-between px-4 fixed top-0 left-0 right-0 z-50">
+        <div className="flex items-center gap-6">
+          {/* Logo */}
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-hub-blue rounded flex items-center justify-center">
+              <Box className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-white font-semibold text-lg">QA Agent</span>
           </div>
-          <div>
-            <h1 className="text-lg font-display font-bold text-white">QA Agent</h1>
-            <p className="text-xs text-zinc-500">Test Automation</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-2">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
           
-          const isHighlight = 'highlight' in item && item.highlight;
-          
-          return (
-            <button
-              key={item.id}
-              onClick={() => onTabChange(item.id)}
-              className={clsx(
-                'w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200',
-                'font-medium text-sm',
-                isActive
-                  ? isHighlight
-                    ? 'bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-400 border border-purple-500/30'
-                    : 'bg-electric/10 text-electric border border-electric/30 glow-electric'
-                  : isHighlight
-                    ? 'text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 border border-transparent hover:border-purple-500/20'
-                    : 'text-zinc-400 hover:text-white hover:bg-slate/30'
-              )}
-            >
-              <Icon className="w-5 h-5" />
-              {item.label}
-              {isHighlight && !isActive && (
-                <span className="ml-auto text-xs px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">
-                  AI
-                </span>
-              )}
+          {/* Main Nav */}
+          <nav className="hidden md:flex items-center gap-1">
+            <button className="px-3 py-1.5 text-white/80 hover:text-white text-sm font-medium rounded hover:bg-white/10 transition-colors">
+              Explore
             </button>
-          );
-        })}
-      </nav>
-
-      {/* Quick Run Button */}
-      <div className="p-4 border-t border-slate/30">
-        <button
-          onClick={() => onTabChange('flows')}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg
-                     bg-gradient-to-r from-electric to-neon text-midnight font-semibold
-                     hover:shadow-lg hover:shadow-electric/30 transition-all duration-200"
-        >
-          <Play className="w-5 h-5" />
-          Run Test
-        </button>
-      </div>
-
-      {/* API Status */}
-      <div className="p-4 border-t border-slate/30">
-        <div className="flex items-center gap-2 text-sm">
-          <Activity className={clsx(
-            'w-4 h-4',
-            apiStatus === 'healthy' && 'text-neon',
-            apiStatus === 'unhealthy' && 'text-danger',
-            apiStatus === 'loading' && 'text-warning animate-pulse'
-          )} />
-          <span className="text-zinc-500">API Status:</span>
-          <span className={clsx(
-            'font-medium',
-            apiStatus === 'healthy' && 'text-neon',
-            apiStatus === 'unhealthy' && 'text-danger',
-            apiStatus === 'loading' && 'text-warning'
-          )}>
-            {apiStatus === 'healthy' ? 'Connected' : apiStatus === 'unhealthy' ? 'Disconnected' : 'Checking...'}
-          </span>
+            <button className="px-3 py-1.5 text-white text-sm font-medium bg-white/10 rounded">
+              My Hub
+            </button>
+          </nav>
         </div>
+
+        {/* Right side */}
+        <div className="flex items-center gap-3">
+          {/* Search */}
+          <div className="hidden md:flex items-center bg-white/10 rounded px-3 py-1.5 gap-2">
+            <Search className="w-4 h-4 text-white/60" />
+            <input 
+              type="text" 
+              placeholder="Search..." 
+              className="bg-transparent border-none text-white text-sm placeholder:text-white/60 focus:outline-none w-48"
+            />
+            <kbd className="hidden lg:inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-white/10 rounded text-[10px] text-white/60">
+              ⌘K
+            </kbd>
+          </div>
+          
+          <button className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors">
+            <HelpCircle className="w-5 h-5" />
+          </button>
+          <button className="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors">
+            <Bell className="w-5 h-5" />
+          </button>
+          
+          {/* User menu */}
+          <button className="flex items-center gap-2 p-1 hover:bg-white/10 rounded transition-colors">
+            <div className="w-8 h-8 bg-hub-blue rounded-full flex items-center justify-center">
+              <User className="w-4 h-4 text-white" />
+            </div>
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <div className="flex flex-1 pt-14">
+        {/* Sidebar */}
+        <aside className="w-60 bg-hub-sidebar border-r border-hub-border flex flex-col fixed left-0 top-14 bottom-0 overflow-y-auto">
+          {/* User/Org Selector */}
+          <div className="p-4 border-b border-hub-border">
+            <button className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 transition-colors">
+              <div className="w-8 h-8 bg-hub-blue rounded flex items-center justify-center">
+                <span className="text-white font-semibold text-sm">QA</span>
+              </div>
+              <div className="flex-1 text-left">
+                <div className="text-sm font-medium text-hub-text">QA Agent</div>
+                <div className="text-xs text-hub-text-muted">Personal</div>
+              </div>
+              <ChevronDown className="w-4 h-4 text-hub-text-muted" />
+            </button>
+          </div>
+
+          {/* Navigation */}
+          <nav className="flex-1 p-3">
+            <div className="space-y-1">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onTabChange(item.id)}
+                    className={clsx(
+                      'w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-sm',
+                      isActive
+                        ? 'bg-hub-blue text-white font-medium'
+                        : 'text-hub-text hover:bg-gray-100'
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-hub-border my-4" />
+
+            {/* Settings Section */}
+            <div className="space-y-1">
+              <button
+                onClick={() => setSettingsOpen(!settingsOpen)}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-hub-text hover:bg-gray-100 transition-all text-sm"
+              >
+                <Settings className="w-4 h-4" />
+                <span className="flex-1 text-left">Settings</span>
+                <ChevronDown className={clsx(
+                  'w-4 h-4 transition-transform',
+                  settingsOpen && 'rotate-180'
+                )} />
+              </button>
+              
+              {settingsOpen && (
+                <div className="ml-7 space-y-1">
+                  <button className="w-full text-left px-3 py-1.5 text-sm text-hub-text-muted hover:text-hub-text rounded">
+                    Default privacy
+                  </button>
+                  <button className="w-full text-left px-3 py-1.5 text-sm text-hub-text-muted hover:text-hub-text rounded">
+                    Notifications
+                  </button>
+                </div>
+              )}
+            </div>
+          </nav>
+
+          {/* API Status - Bottom */}
+          <div className="p-4 border-t border-hub-border bg-white">
+            <div className="flex items-center gap-2 text-sm">
+              <Activity className={clsx(
+                'w-4 h-4',
+                apiStatus === 'healthy' && 'text-hub-success',
+                apiStatus === 'unhealthy' && 'text-hub-danger',
+                apiStatus === 'loading' && 'text-hub-warning animate-pulse'
+              )} />
+              <span className="text-hub-text-muted">API Status:</span>
+              <span className={clsx(
+                'font-medium',
+                apiStatus === 'healthy' && 'text-hub-success',
+                apiStatus === 'unhealthy' && 'text-hub-danger',
+                apiStatus === 'loading' && 'text-hub-warning'
+              )}>
+                {apiStatus === 'healthy' ? 'Connected' : apiStatus === 'unhealthy' ? 'Offline' : 'Checking...'}
+              </span>
+            </div>
+          </div>
+        </aside>
       </div>
-    </aside>
+    </div>
   );
 }

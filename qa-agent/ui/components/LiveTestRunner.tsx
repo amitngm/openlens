@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { 
   Play,
   Pause,
@@ -12,19 +12,11 @@ import {
   Globe,
   Key,
   Eye,
-  MousePointer2,
   MessageSquare,
-  ChevronRight,
   Monitor,
   Smartphone,
-  RefreshCw,
   ZoomIn,
   ZoomOut,
-  Move,
-  Target,
-  Plus,
-  X,
-  Send,
   Sparkles
 } from 'lucide-react';
 import clsx from 'clsx';
@@ -79,10 +71,8 @@ export default function LiveTestRunner() {
     setIsLoading(true);
     setPhase('login');
     
-    // Simulate loading
     await new Promise(r => setTimeout(r, 2000));
     
-    // Set a placeholder screenshot (in real implementation, this would be from Playwright)
     setCurrentScreenshot('/api/placeholder/800/600');
     setIsLoading(false);
   };
@@ -93,7 +83,6 @@ export default function LiveTestRunner() {
     
     setIsLoading(true);
     
-    // Simulate login steps
     setSteps([
       { id: '1', action: 'Navigate to login page', status: 'running' },
       { id: '2', action: 'Enter username', target: '#username', value: username, status: 'pending' },
@@ -111,16 +100,13 @@ export default function LiveTestRunner() {
       setCurrentStepIndex(i);
     }
 
-    // Mark all as passed
     setSteps(prev => prev.map(s => ({ ...s, status: 'passed' })));
     setLoginVerified(true);
     setIsLoading(false);
     
-    // Move to explore phase and show "logged in" view
     await new Promise(r => setTimeout(r, 500));
     setPhase('explore');
     
-    // Simulate discovered clickable areas on the dashboard
     setClickableAreas([
       { id: 'nav-dashboard', x: 10, y: 80, width: 120, height: 35, label: 'Dashboard', type: 'link' },
       { id: 'nav-users', x: 10, y: 120, width: 120, height: 35, label: 'Users', type: 'link' },
@@ -148,14 +134,9 @@ export default function LiveTestRunner() {
     setSelectedAreas(new Set(clickableAreas.map(a => a.id)));
   };
 
-  const startGuidedTesting = () => {
-    setPhase('guide');
-  };
-
   const runSelectedTests = async () => {
     setPhase('testing');
     
-    // Generate test steps based on selected areas
     const testSteps: TestStep[] = [];
     
     selectedAreas.forEach(areaId => {
@@ -178,7 +159,6 @@ export default function LiveTestRunner() {
 
     setSteps(testSteps);
 
-    // Execute tests
     for (let i = 0; i < testSteps.length; i++) {
       if (isPaused) {
         await new Promise(r => {
@@ -200,7 +180,6 @@ export default function LiveTestRunner() {
       await new Promise(r => setTimeout(r, 800 + Math.random() * 1200));
     }
 
-    // Final status
     setSteps(prev => prev.map(s => ({
       ...s,
       status: s.status === 'running' ? (Math.random() > 0.15 ? 'passed' : 'failed') : s.status
@@ -216,35 +195,30 @@ export default function LiveTestRunner() {
       case 'link': return 'border-purple-500 bg-purple-500/20';
       case 'menu': return 'border-orange-500 bg-orange-500/20';
       case 'table': return 'border-cyan-500 bg-cyan-500/20';
-      default: return 'border-zinc-500 bg-zinc-500/20';
+      default: return 'border-gray-500 bg-gray-500/20';
     }
   };
 
   return (
-    <div className="h-[calc(100vh-120px)] flex flex-col">
+    <div className="h-[calc(100vh-180px)] flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-gradient-to-br from-green-500 to-emerald-500">
-            <Eye className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h2 className="text-xl font-semibold text-white">Live Test Runner</h2>
-            <p className="text-xs text-zinc-500">
-              {phase === 'setup' && 'Connect to your application'}
-              {phase === 'login' && 'Verifying login...'}
-              {phase === 'explore' && '✓ Logged in! Select areas to test'}
-              {phase === 'guide' && 'Add guidance for testing'}
-              {phase === 'testing' && 'Running tests...'}
-              {phase === 'complete' && 'Testing complete!'}
-            </p>
-          </div>
+        <div>
+          <h1 className="text-2xl font-semibold text-hub-text">Live Test Runner</h1>
+          <p className="text-sm text-hub-text-muted">
+            {phase === 'setup' && 'Connect to your application'}
+            {phase === 'login' && 'Verifying login...'}
+            {phase === 'explore' && '✓ Logged in! Select areas to test'}
+            {phase === 'guide' && 'Add guidance for testing'}
+            {phase === 'testing' && 'Running tests...'}
+            {phase === 'complete' && 'Testing complete!'}
+          </p>
         </div>
 
         {/* Viewport controls */}
         {currentScreenshot && (
           <div className="flex items-center gap-2">
-            <div className="flex rounded-lg overflow-hidden border border-slate/50">
+            <div className="flex rounded-lg overflow-hidden border border-hub-border">
               {(['desktop', 'tablet', 'mobile'] as const).map(size => (
                 <button
                   key={size}
@@ -252,8 +226,8 @@ export default function LiveTestRunner() {
                   className={clsx(
                     'px-3 py-1.5 text-xs transition-colors',
                     viewportSize === size 
-                      ? 'bg-electric text-midnight' 
-                      : 'bg-slate/30 text-zinc-400 hover:text-white'
+                      ? 'bg-hub-blue text-white' 
+                      : 'bg-white text-hub-text-muted hover:text-hub-text'
                   )}
                 >
                   {size === 'desktop' && <Monitor className="w-4 h-4" />}
@@ -265,14 +239,14 @@ export default function LiveTestRunner() {
             <div className="flex items-center gap-1 ml-2">
               <button 
                 onClick={() => setZoom(z => Math.max(50, z - 10))}
-                className="p-1 rounded text-zinc-400 hover:text-white"
+                className="p-1 rounded text-hub-text-muted hover:text-hub-text"
               >
                 <ZoomOut className="w-4 h-4" />
               </button>
-              <span className="text-xs text-zinc-500 w-10 text-center">{zoom}%</span>
+              <span className="text-xs text-hub-text-muted w-10 text-center">{zoom}%</span>
               <button 
                 onClick={() => setZoom(z => Math.min(150, z + 10))}
-                className="p-1 rounded text-zinc-400 hover:text-white"
+                className="p-1 rounded text-hub-text-muted hover:text-hub-text"
               >
                 <ZoomIn className="w-4 h-4" />
               </button>
@@ -289,8 +263,8 @@ export default function LiveTestRunner() {
           {phase === 'setup' && (
             <>
               <div className="card">
-                <label className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-2">
-                  <Globe className="w-4 h-4" />
+                <label className="flex items-center gap-2 text-sm font-medium text-hub-text mb-2">
+                  <Globe className="w-4 h-4 text-hub-blue" />
                   Application URL
                 </label>
                 <input
@@ -298,14 +272,13 @@ export default function LiveTestRunner() {
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="https://your-app.com"
-                  className="w-full px-3 py-2 rounded-lg bg-slate/30 border border-slate/50
-                           text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-electric"
+                  className="input"
                 />
               </div>
 
               <div className="card">
-                <label className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-2">
-                  <Key className="w-4 h-4" />
+                <label className="flex items-center gap-2 text-sm font-medium text-hub-text mb-2">
+                  <Key className="w-4 h-4 text-hub-blue" />
                   Login Credentials
                 </label>
                 <input
@@ -313,16 +286,14 @@ export default function LiveTestRunner() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Username"
-                  className="w-full px-3 py-2 rounded-lg bg-slate/30 border border-slate/50
-                           text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-electric mb-2"
+                  className="input mb-2"
                 />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
-                  className="w-full px-3 py-2 rounded-lg bg-slate/30 border border-slate/50
-                           text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-electric"
+                  className="input"
                 />
               </div>
 
@@ -330,9 +301,7 @@ export default function LiveTestRunner() {
                 onClick={connectToApp}
                 disabled={!url}
                 className={clsx(
-                  'w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2',
-                  'bg-gradient-to-r from-green-500 to-emerald-500 text-white',
-                  'hover:shadow-lg hover:shadow-green-500/30 transition-all',
+                  'btn btn-primary w-full py-3',
                   !url && 'opacity-50 cursor-not-allowed'
                 )}
               >
@@ -345,17 +314,17 @@ export default function LiveTestRunner() {
           {/* Login Phase */}
           {phase === 'login' && (
             <div className="card">
-              <h3 className="text-sm font-medium text-white mb-3">Login Progress</h3>
+              <h3 className="text-sm font-medium text-hub-text mb-3">Login Progress</h3>
               <div className="space-y-2">
-                {steps.map((step, idx) => (
+                {steps.map((step) => (
                   <div key={step.id} className="flex items-center gap-2 text-sm">
-                    {step.status === 'passed' && <CheckCircle2 className="w-4 h-4 text-neon" />}
-                    {step.status === 'running' && <Loader2 className="w-4 h-4 text-electric animate-spin" />}
-                    {step.status === 'pending' && <div className="w-4 h-4 rounded-full border border-zinc-600" />}
+                    {step.status === 'passed' && <CheckCircle2 className="w-4 h-4 text-green-600" />}
+                    {step.status === 'running' && <Loader2 className="w-4 h-4 text-hub-blue animate-spin" />}
+                    {step.status === 'pending' && <div className="w-4 h-4 rounded-full border border-gray-300" />}
                     <span className={clsx(
-                      step.status === 'passed' && 'text-neon',
-                      step.status === 'running' && 'text-electric',
-                      step.status === 'pending' && 'text-zinc-500'
+                      step.status === 'passed' && 'text-green-600',
+                      step.status === 'running' && 'text-hub-blue',
+                      step.status === 'pending' && 'text-hub-text-muted'
                     )}>
                       {step.action}
                     </span>
@@ -368,22 +337,22 @@ export default function LiveTestRunner() {
           {/* Explore Phase - Area selection */}
           {phase === 'explore' && (
             <>
-              <div className="card border-neon/30 bg-neon/5">
-                <div className="flex items-center gap-2 text-neon">
+              <div className="card bg-green-50 border-green-200">
+                <div className="flex items-center gap-2 text-green-700">
                   <CheckCircle2 className="w-5 h-5" />
                   <span className="font-medium">Login Successful!</span>
                 </div>
-                <p className="text-xs text-zinc-400 mt-1">
+                <p className="text-xs text-green-600 mt-1">
                   Application is ready. Select areas to test.
                 </p>
               </div>
 
               <div className="card">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium text-white">Detected Elements</h3>
+                  <h3 className="text-sm font-medium text-hub-text">Detected Elements</h3>
                   <button 
                     onClick={selectAllAreas}
-                    className="text-xs text-electric hover:underline"
+                    className="text-xs text-hub-blue hover:underline"
                   >
                     Select All
                   </button>
@@ -397,13 +366,13 @@ export default function LiveTestRunner() {
                       className={clsx(
                         'w-full flex items-center gap-2 p-2 rounded text-left text-sm transition-colors',
                         selectedAreas.has(area.id) 
-                          ? 'bg-electric/20 text-electric' 
-                          : 'hover:bg-slate/30 text-zinc-400'
+                          ? 'bg-hub-blue-light text-hub-blue' 
+                          : 'hover:bg-gray-50 text-hub-text-muted'
                       )}
                     >
                       <div className={clsx(
                         'w-3 h-3 rounded-sm border',
-                        selectedAreas.has(area.id) ? 'bg-electric border-electric' : 'border-zinc-600'
+                        selectedAreas.has(area.id) ? 'bg-hub-blue border-hub-blue' : 'border-gray-400'
                       )} />
                       <span>{area.label}</span>
                       <span className="ml-auto text-xs opacity-60">{area.type}</span>
@@ -413,8 +382,8 @@ export default function LiveTestRunner() {
               </div>
 
               <div className="card">
-                <label className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-2">
-                  <MessageSquare className="w-4 h-4" />
+                <label className="flex items-center gap-2 text-sm font-medium text-hub-text mb-2">
+                  <MessageSquare className="w-4 h-4 text-hub-blue" />
                   Guidance Notes (Optional)
                 </label>
                 <textarea
@@ -422,8 +391,7 @@ export default function LiveTestRunner() {
                   onChange={(e) => setUserNotes(e.target.value)}
                   placeholder="E.g., 'Focus on the Create button flow' or 'Test search with special characters'"
                   rows={3}
-                  className="w-full px-3 py-2 rounded-lg bg-slate/30 border border-slate/50
-                           text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-electric resize-none"
+                  className="input resize-none"
                 />
               </div>
 
@@ -431,9 +399,7 @@ export default function LiveTestRunner() {
                 onClick={runSelectedTests}
                 disabled={selectedAreas.size === 0}
                 className={clsx(
-                  'w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2',
-                  'bg-gradient-to-r from-electric to-neon text-midnight',
-                  'hover:shadow-lg hover:shadow-electric/30 transition-all',
+                  'btn btn-primary w-full py-3',
                   selectedAreas.size === 0 && 'opacity-50 cursor-not-allowed'
                 )}
               >
@@ -450,12 +416,12 @@ export default function LiveTestRunner() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setIsPaused(!isPaused)}
-                    className="flex-1 py-2 rounded-lg bg-slate/30 text-zinc-400 hover:text-white flex items-center justify-center gap-2"
+                    className="btn btn-secondary flex-1"
                   >
                     {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
                     {isPaused ? 'Resume' : 'Pause'}
                   </button>
-                  <button className="flex-1 py-2 rounded-lg bg-slate/30 text-zinc-400 hover:text-white flex items-center justify-center gap-2">
+                  <button className="btn btn-secondary flex-1">
                     <SkipForward className="w-4 h-4" />
                     Skip
                   </button>
@@ -463,7 +429,7 @@ export default function LiveTestRunner() {
               )}
 
               <div className="card flex-1 overflow-hidden">
-                <h3 className="text-sm font-medium text-white mb-3">
+                <h3 className="text-sm font-medium text-hub-text mb-3">
                   {phase === 'complete' ? 'Test Results' : 'Running...'}
                 </h3>
                 <div className="space-y-1 overflow-y-auto max-h-64">
@@ -472,19 +438,19 @@ export default function LiveTestRunner() {
                       key={step.id} 
                       className={clsx(
                         'flex items-center gap-2 p-2 rounded text-sm',
-                        idx === currentStepIndex && phase === 'testing' && 'bg-electric/10'
+                        idx === currentStepIndex && phase === 'testing' && 'bg-hub-blue-light'
                       )}
                     >
-                      {step.status === 'passed' && <CheckCircle2 className="w-4 h-4 text-neon flex-shrink-0" />}
-                      {step.status === 'failed' && <XCircle className="w-4 h-4 text-danger flex-shrink-0" />}
-                      {step.status === 'running' && <Loader2 className="w-4 h-4 text-electric animate-spin flex-shrink-0" />}
-                      {step.status === 'pending' && <div className="w-4 h-4 rounded-full border border-zinc-600 flex-shrink-0" />}
+                      {step.status === 'passed' && <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />}
+                      {step.status === 'failed' && <XCircle className="w-4 h-4 text-red-600 flex-shrink-0" />}
+                      {step.status === 'running' && <Loader2 className="w-4 h-4 text-hub-blue animate-spin flex-shrink-0" />}
+                      {step.status === 'pending' && <div className="w-4 h-4 rounded-full border border-gray-300 flex-shrink-0" />}
                       <span className={clsx(
                         'truncate',
-                        step.status === 'passed' && 'text-neon',
-                        step.status === 'failed' && 'text-danger',
-                        step.status === 'running' && 'text-electric',
-                        step.status === 'pending' && 'text-zinc-500'
+                        step.status === 'passed' && 'text-green-600',
+                        step.status === 'failed' && 'text-red-600',
+                        step.status === 'running' && 'text-hub-blue',
+                        step.status === 'pending' && 'text-hub-text-muted'
                       )}>
                         {step.action}
                       </span>
@@ -494,15 +460,15 @@ export default function LiveTestRunner() {
               </div>
 
               {phase === 'complete' && (
-                <div className="card bg-gradient-to-r from-neon/10 to-electric/10 border-neon/30">
+                <div className="card bg-green-50 border-green-200">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-white font-medium">Testing Complete!</p>
-                      <p className="text-xs text-zinc-400">
+                      <p className="text-hub-text font-medium">Testing Complete!</p>
+                      <p className="text-xs text-hub-text-muted">
                         {steps.filter(s => s.status === 'passed').length}/{steps.length} passed
                       </p>
                     </div>
-                    <div className="text-2xl font-bold text-neon">
+                    <div className="text-2xl font-bold text-green-600">
                       {Math.round((steps.filter(s => s.status === 'passed').length / steps.length) * 100)}%
                     </div>
                   </div>
@@ -514,21 +480,21 @@ export default function LiveTestRunner() {
 
         {/* Right panel - Preview */}
         <div className="flex-1 card p-2 flex flex-col min-h-0">
-          <div className="flex-1 relative bg-slate/50 rounded-lg overflow-hidden">
+          <div className="flex-1 relative bg-gray-100 rounded-lg overflow-hidden">
             {!currentScreenshot && phase === 'setup' && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
-                  <Monitor className="w-16 h-16 text-zinc-700 mx-auto mb-4" />
-                  <p className="text-zinc-500">Enter URL to connect</p>
+                  <Monitor className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                  <p className="text-hub-text-muted">Enter URL to connect</p>
                 </div>
               </div>
             )}
 
             {isLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-midnight/80 z-10">
+              <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
                 <div className="text-center">
-                  <Loader2 className="w-8 h-8 text-electric animate-spin mx-auto mb-2" />
-                  <p className="text-zinc-400 text-sm">Loading...</p>
+                  <Loader2 className="w-8 h-8 text-hub-blue animate-spin mx-auto mb-2" />
+                  <p className="text-hub-text-muted text-sm">Loading...</p>
                 </div>
               </div>
             )}
@@ -540,26 +506,26 @@ export default function LiveTestRunner() {
                 style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top left' }}
               >
                 {/* Mock app header */}
-                <div className="bg-slate-800 h-12 flex items-center px-4 justify-between">
+                <div className="bg-hub-nav h-12 flex items-center px-4 justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded bg-electric/20 flex items-center justify-center">
-                      <span className="text-electric font-bold text-sm">A</span>
+                    <div className="w-8 h-8 rounded bg-hub-blue flex items-center justify-center">
+                      <span className="text-white font-bold text-sm">A</span>
                     </div>
                     <span className="text-white font-medium">Your App</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-slate-700" />
+                    <div className="w-8 h-8 rounded-full bg-gray-600" />
                   </div>
                 </div>
 
                 {/* Mock app content */}
                 <div className="flex h-[calc(100%-48px)]">
                   {/* Sidebar */}
-                  <div className="w-40 bg-slate-100 p-3 space-y-1">
+                  <div className="w-40 bg-gray-50 border-r border-hub-border p-3 space-y-1">
                     {['Dashboard', 'Users', 'Settings', 'Reports'].map((item, idx) => (
                       <div key={item} className={clsx(
                         'px-3 py-2 rounded text-sm',
-                        idx === 0 ? 'bg-blue-500 text-white' : 'text-slate-600 hover:bg-slate-200'
+                        idx === 0 ? 'bg-hub-blue text-white' : 'text-hub-text-muted hover:bg-gray-100'
                       )}>
                         {item}
                       </div>
@@ -567,36 +533,36 @@ export default function LiveTestRunner() {
                   </div>
 
                   {/* Main content */}
-                  <div className="flex-1 p-4 bg-slate-50">
+                  <div className="flex-1 p-4 bg-white">
                     <div className="flex items-center justify-between mb-4">
                       <input 
-                        className="px-3 py-2 rounded border border-slate-300 w-64 text-sm"
+                        className="input w-64"
                         placeholder="Search..."
                       />
                       <div className="flex gap-2">
-                        <button className="px-4 py-2 bg-blue-500 text-white rounded text-sm">
+                        <button className="btn btn-primary text-sm">
                           Create New
                         </button>
-                        <button className="px-4 py-2 bg-slate-200 text-slate-700 rounded text-sm">
+                        <button className="btn btn-secondary text-sm">
                           Export
                         </button>
                       </div>
                     </div>
 
                     {/* Mock table */}
-                    <div className="bg-white rounded border border-slate-200">
-                      <div className="grid grid-cols-4 gap-4 p-3 border-b border-slate-200 bg-slate-50 text-xs font-medium text-slate-500">
+                    <div className="bg-white rounded-lg border border-hub-border">
+                      <div className="grid grid-cols-4 gap-4 p-3 border-b border-hub-border bg-gray-50 text-xs font-semibold text-hub-text-muted uppercase">
                         <div>Name</div>
                         <div>Status</div>
                         <div>Date</div>
                         <div>Actions</div>
                       </div>
                       {[1, 2, 3, 4, 5].map(i => (
-                        <div key={i} className="grid grid-cols-4 gap-4 p-3 border-b border-slate-100 text-sm">
-                          <div className="text-slate-700">Item {i}</div>
-                          <div><span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs">Active</span></div>
-                          <div className="text-slate-500">Jan {10 + i}, 2026</div>
-                          <div className="text-blue-500 text-xs">Edit | Delete</div>
+                        <div key={i} className="grid grid-cols-4 gap-4 p-3 border-b border-hub-border text-sm">
+                          <div className="text-hub-text">Item {i}</div>
+                          <div><span className="badge badge-success">Active</span></div>
+                          <div className="text-hub-text-muted">Jan {10 + i}, 2026</div>
+                          <div className="text-hub-blue text-xs">Edit | Delete</div>
                         </div>
                       ))}
                     </div>
@@ -613,16 +579,16 @@ export default function LiveTestRunner() {
                         className={clsx(
                           'absolute border-2 rounded transition-all pointer-events-auto',
                           getAreaColor(area.type),
-                          selectedAreas.has(area.id) && 'ring-2 ring-white ring-offset-1'
+                          selectedAreas.has(area.id) && 'ring-2 ring-hub-blue ring-offset-1'
                         )}
                         style={{
                           left: area.x,
-                          top: area.y + 48, // Account for header
+                          top: area.y + 48,
                           width: area.width,
                           height: area.height,
                         }}
                       >
-                        <span className="absolute -top-5 left-0 text-xs bg-black/70 text-white px-1 rounded whitespace-nowrap">
+                        <span className="absolute -top-5 left-0 text-xs bg-hub-nav text-white px-1 rounded whitespace-nowrap">
                           {area.label}
                         </span>
                       </button>
@@ -634,17 +600,17 @@ export default function LiveTestRunner() {
 
             {/* Login overlay */}
             {phase === 'login' && loginVerified && (
-              <div className="absolute inset-0 flex items-center justify-center bg-neon/10 z-20">
+              <div className="absolute inset-0 flex items-center justify-center bg-green-50/80 z-20">
                 <div className="text-center">
-                  <CheckCircle2 className="w-16 h-16 text-neon mx-auto mb-2 animate-bounce" />
-                  <p className="text-neon font-medium text-lg">Login Verified!</p>
+                  <CheckCircle2 className="w-16 h-16 text-green-600 mx-auto mb-2 animate-bounce" />
+                  <p className="text-green-700 font-medium text-lg">Login Verified!</p>
                 </div>
               </div>
             )}
           </div>
 
           {/* Preview footer */}
-          <div className="flex items-center justify-between mt-2 text-xs text-zinc-500">
+          <div className="flex items-center justify-between mt-2 text-xs text-hub-text-muted">
             <span>
               {viewportSize === 'desktop' && '1920×1080'}
               {viewportSize === 'tablet' && '768×1024'}

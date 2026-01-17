@@ -8,11 +8,11 @@ global:
   # Namespace to deploy into (also used for service discovery)
   namespace: qa-agent
 
-# Agent API configuration
+# Agent API configuration (includes UI in combined image)
 agentApi:
   # Image settings
   image:
-    repository: amitngm/qa-agent-api
+    repository: amitngm/qa-agent
     tag: latest
     pullPolicy: Always
   

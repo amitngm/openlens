@@ -21,7 +21,8 @@ import {
   RefreshCw,
   CheckSquare,
   Square,
-  Layers
+  Layers,
+  Box
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -75,21 +76,21 @@ const CATEGORY_ICONS: Record<string, React.ElementType> = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  auth: 'text-purple-400 bg-purple-500/20 border-purple-500/30',
-  navigation: 'text-blue-400 bg-blue-500/20 border-blue-500/30',
-  crud: 'text-green-400 bg-green-500/20 border-green-500/30',
-  form: 'text-cyan-400 bg-cyan-500/20 border-cyan-500/30',
-  api: 'text-orange-400 bg-orange-500/20 border-orange-500/30',
-  k8s: 'text-pink-400 bg-pink-500/20 border-pink-500/30',
-  validation: 'text-yellow-400 bg-yellow-500/20 border-yellow-500/30',
-  performance: 'text-red-400 bg-red-500/20 border-red-500/30',
+  auth: 'bg-purple-100 text-purple-800 border-purple-200',
+  navigation: 'bg-blue-100 text-blue-800 border-blue-200',
+  crud: 'bg-green-100 text-green-800 border-green-200',
+  form: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+  api: 'bg-orange-100 text-orange-800 border-orange-200',
+  k8s: 'bg-pink-100 text-pink-800 border-pink-200',
+  validation: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+  performance: 'bg-red-100 text-red-800 border-red-200',
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-  critical: 'text-red-400',
-  high: 'text-orange-400',
-  medium: 'text-yellow-400',
-  low: 'text-zinc-400',
+  critical: 'text-red-600',
+  high: 'text-orange-600',
+  medium: 'text-yellow-600',
+  low: 'text-gray-500',
 };
 
 export default function AutoDiscoveryTest() {
@@ -204,16 +205,6 @@ export default function AutoDiscoveryTest() {
           checks: ['Logout button works', 'Session destroyed', 'Redirect to login'],
           selected: true,
         },
-        {
-          id: 'auth-4',
-          name: 'Session Persistence',
-          description: 'Test session survives page refresh',
-          category: 'auth',
-          priority: 'medium',
-          estimatedTime: '20s',
-          checks: ['Refresh page', 'Still logged in', 'Session valid'],
-          selected: false,
-        },
         
         // Navigation scenarios
         {
@@ -225,26 +216,6 @@ export default function AutoDiscoveryTest() {
           estimatedTime: '45s',
           checks: ['Dashboard accessible', 'Settings accessible', 'Profile accessible', 'No broken links'],
           selected: true,
-        },
-        {
-          id: 'nav-2',
-          name: 'Breadcrumb Navigation',
-          description: 'Test breadcrumb links work correctly',
-          category: 'navigation',
-          priority: 'low',
-          estimatedTime: '20s',
-          checks: ['Breadcrumbs visible', 'Links work', 'Correct hierarchy'],
-          selected: false,
-        },
-        {
-          id: 'nav-3',
-          name: 'Back Button',
-          description: 'Test browser back button behavior',
-          category: 'navigation',
-          priority: 'medium',
-          estimatedTime: '15s',
-          checks: ['Back navigation works', 'State preserved', 'No errors'],
-          selected: false,
         },
 
         // CRUD scenarios
@@ -300,16 +271,6 @@ export default function AutoDiscoveryTest() {
           checks: ['Submit empty form', 'Error messages shown', 'Fields highlighted'],
           selected: true,
         },
-        {
-          id: 'form-2',
-          name: 'Email Validation',
-          description: 'Test email field format validation',
-          category: 'validation',
-          priority: 'medium',
-          estimatedTime: '20s',
-          checks: ['Invalid email rejected', 'Valid email accepted', 'Error message clear'],
-          selected: false,
-        },
 
         // API scenarios
         {
@@ -331,16 +292,6 @@ export default function AutoDiscoveryTest() {
           estimatedTime: '25s',
           checks: ['Token required', 'Invalid token rejected', 'Valid token accepted'],
           selected: true,
-        },
-        {
-          id: 'api-3',
-          name: 'API Error Handling',
-          description: 'Test API error responses',
-          category: 'api',
-          priority: 'medium',
-          estimatedTime: '30s',
-          checks: ['404 for missing resources', 'Proper error format', 'No stack traces exposed'],
-          selected: false,
         },
 
         // Kubernetes scenarios
@@ -374,18 +325,6 @@ export default function AutoDiscoveryTest() {
           checks: ['Frontend → Backend', 'Backend → Database', 'No connection timeouts'],
           selected: true,
         },
-
-        // Performance
-        {
-          id: 'perf-1',
-          name: 'Page Load Time',
-          description: 'Measure initial page load performance',
-          category: 'performance',
-          priority: 'medium',
-          estimatedTime: '20s',
-          checks: ['Load time < 3s', 'First paint < 1s', 'No render blocking'],
-          selected: false,
-        },
       ],
     };
 
@@ -418,13 +357,6 @@ export default function AutoDiscoveryTest() {
     setScenarios(scenarios.map(s => ({ ...s, selected: false })));
   };
 
-  const selectByPriority = (priority: string) => {
-    setScenarios(scenarios.map(s => ({
-      ...s,
-      selected: s.priority === priority || (priority === 'critical' ? false : s.selected)
-    })));
-  };
-
   const selectCriticalAndHigh = () => {
     setScenarios(scenarios.map(s => ({
       ...s,
@@ -442,15 +374,12 @@ export default function AutoDiscoveryTest() {
       const scenario = selected[i];
       setTestProgress({ current: i + 1, total: selected.length, currentScenario: scenario.name });
       
-      // Update status to running
       setScenarios(prev => prev.map(s => 
         s.id === scenario.id ? { ...s, status: 'running' } : s
       ));
 
-      // Simulate test execution
       await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1500));
 
-      // Random pass/fail (80% pass rate for demo)
       const passed = Math.random() > 0.2;
       
       setScenarios(prev => prev.map(s => 
@@ -486,20 +415,15 @@ export default function AutoDiscoveryTest() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-3 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500">
-          <Scan className="w-6 h-6 text-white" />
-        </div>
-        <div>
-          <h2 className="text-2xl font-semibold text-white">Auto-Discovery Testing</h2>
-          <p className="text-sm text-zinc-500">
-            AI analyzes your app, discovers test scenarios, you select, we test
-          </p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-semibold text-hub-text">Auto-Discovery Testing</h1>
+        <p className="text-sm text-hub-text-muted mt-1">
+          AI analyzes your app, discovers test scenarios, you select, we test
+        </p>
       </div>
 
       {/* Progress Steps */}
-      <div className="flex items-center gap-2 p-4 rounded-lg bg-slate/30 border border-slate/50">
+      <div className="flex items-center gap-2 p-4 rounded-lg bg-gray-50 border border-hub-border">
         {['Configure', 'Discover', 'Select Tests', 'Run', 'Report'].map((label, idx) => {
           const stepNames = ['config', 'discovering', 'select', 'running', 'report'];
           const currentIdx = stepNames.indexOf(step);
@@ -510,9 +434,9 @@ export default function AutoDiscoveryTest() {
             <div key={label} className="flex items-center">
               <div className={clsx(
                 'flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all',
-                isComplete && 'bg-neon/20 text-neon',
-                isCurrent && 'bg-electric/20 text-electric',
-                !isComplete && !isCurrent && 'text-zinc-600'
+                isComplete && 'bg-green-100 text-green-700',
+                isCurrent && 'bg-hub-blue text-white',
+                !isComplete && !isCurrent && 'text-gray-400'
               )}>
                 {isComplete ? (
                   <CheckCircle2 className="w-4 h-4" />
@@ -524,7 +448,7 @@ export default function AutoDiscoveryTest() {
                 {label}
               </div>
               {idx < 4 && (
-                <ChevronRight className="w-4 h-4 text-zinc-600 mx-1" />
+                <ChevronRight className="w-4 h-4 text-gray-400 mx-1" />
               )}
             </div>
           );
@@ -536,8 +460,8 @@ export default function AutoDiscoveryTest() {
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="space-y-4">
             <div className="card">
-              <label className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-3">
-                <Globe className="w-4 h-4" />
+              <label className="flex items-center gap-2 text-sm font-medium text-hub-text mb-3">
+                <Globe className="w-4 h-4 text-hub-blue" />
                 Application URL
               </label>
               <input
@@ -545,15 +469,13 @@ export default function AutoDiscoveryTest() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://your-app.example.com"
-                className="w-full px-4 py-3 rounded-lg bg-slate/30 border border-slate/50
-                         text-white placeholder-zinc-600 focus:outline-none focus:border-electric
-                         transition-colors font-mono text-sm"
+                className="input font-mono"
               />
             </div>
 
             <div className="card">
-              <label className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-3">
-                <Key className="w-4 h-4" />
+              <label className="flex items-center gap-2 text-sm font-medium text-hub-text mb-3">
+                <Key className="w-4 h-4 text-hub-blue" />
                 Test Account Credentials
               </label>
               <div className="space-y-3">
@@ -562,16 +484,14 @@ export default function AutoDiscoveryTest() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Username"
-                  className="w-full px-4 py-2 rounded-lg bg-slate/30 border border-slate/50
-                           text-white placeholder-zinc-600 focus:outline-none focus:border-electric"
+                  className="input"
                 />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
-                  className="w-full px-4 py-2 rounded-lg bg-slate/30 border border-slate/50
-                           text-white placeholder-zinc-600 focus:outline-none focus:border-electric"
+                  className="input"
                 />
               </div>
             </div>
@@ -579,58 +499,58 @@ export default function AutoDiscoveryTest() {
 
           <div className="space-y-4">
             <div className="card">
-              <label className="text-sm font-medium text-zinc-400 mb-3 block">
+              <label className="text-sm font-medium text-hub-text mb-3 block">
                 What to Analyze
               </label>
               <div className="space-y-3">
-                <label className="flex items-center gap-3 p-3 rounded-lg bg-slate/20 cursor-pointer hover:bg-slate/30 transition-colors">
+                <label className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 border border-hub-border cursor-pointer hover:bg-gray-100 transition-colors">
                   <input
                     type="checkbox"
                     checked={true}
                     disabled
-                    className="w-4 h-4 rounded"
+                    className="w-4 h-4 rounded text-hub-blue"
                   />
-                  <div>
-                    <span className="text-white font-medium">UI Elements</span>
-                    <span className="block text-xs text-zinc-500">Forms, buttons, navigation, tables</span>
+                  <div className="flex-1">
+                    <span className="text-hub-text font-medium">UI Elements</span>
+                    <span className="block text-xs text-hub-text-muted">Forms, buttons, navigation, tables</span>
                   </div>
-                  <Eye className="w-5 h-5 text-electric ml-auto" />
+                  <Eye className="w-5 h-5 text-hub-blue" />
                 </label>
                 
-                <label className="flex items-center gap-3 p-3 rounded-lg bg-slate/20 cursor-pointer hover:bg-slate/30 transition-colors">
+                <label className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 border border-hub-border cursor-pointer hover:bg-gray-100 transition-colors">
                   <input
                     type="checkbox"
                     checked={includeApi}
                     onChange={(e) => setIncludeApi(e.target.checked)}
-                    className="w-4 h-4 rounded"
+                    className="w-4 h-4 rounded text-hub-blue"
                   />
-                  <div>
-                    <span className="text-white font-medium">API Endpoints</span>
-                    <span className="block text-xs text-zinc-500">REST APIs, health checks, auth</span>
+                  <div className="flex-1">
+                    <span className="text-hub-text font-medium">API Endpoints</span>
+                    <span className="block text-xs text-hub-text-muted">REST APIs, health checks, auth</span>
                   </div>
-                  <Code className="w-5 h-5 text-orange-400 ml-auto" />
+                  <Code className="w-5 h-5 text-orange-500" />
                 </label>
 
-                <label className="flex items-center gap-3 p-3 rounded-lg bg-slate/20 cursor-pointer hover:bg-slate/30 transition-colors">
+                <label className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 border border-hub-border cursor-pointer hover:bg-gray-100 transition-colors">
                   <input
                     type="checkbox"
                     checked={includeK8s}
                     onChange={(e) => setIncludeK8s(e.target.checked)}
-                    className="w-4 h-4 rounded"
+                    className="w-4 h-4 rounded text-hub-blue"
                   />
-                  <div>
-                    <span className="text-white font-medium">Kubernetes Resources</span>
-                    <span className="block text-xs text-zinc-500">Pods, services, logs</span>
+                  <div className="flex-1">
+                    <span className="text-hub-text font-medium">Kubernetes Resources</span>
+                    <span className="block text-xs text-hub-text-muted">Pods, services, logs</span>
                   </div>
-                  <Server className="w-5 h-5 text-pink-400 ml-auto" />
+                  <Server className="w-5 h-5 text-pink-500" />
                 </label>
               </div>
             </div>
 
             {includeK8s && (
               <div className="card">
-                <label className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-3">
-                  <Layers className="w-4 h-4" />
+                <label className="flex items-center gap-2 text-sm font-medium text-hub-text mb-3">
+                  <Layers className="w-4 h-4 text-hub-blue" />
                   Namespaces to Check
                 </label>
                 <input
@@ -638,8 +558,7 @@ export default function AutoDiscoveryTest() {
                   value={selectedNamespaces.join(', ')}
                   onChange={(e) => setSelectedNamespaces(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
                   placeholder="default, production, staging"
-                  className="w-full px-4 py-2 rounded-lg bg-slate/30 border border-slate/50
-                           text-white placeholder-zinc-600 focus:outline-none focus:border-electric"
+                  className="input"
                 />
               </div>
             )}
@@ -649,14 +568,14 @@ export default function AutoDiscoveryTest() {
 
       {step === 'discovering' && (
         <div className="card text-center py-16">
-          <Loader2 className="w-12 h-12 text-electric animate-spin mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-white mb-2">Analyzing Application...</h3>
-          <p className="text-zinc-500">Discovering UI elements, APIs, and generating test scenarios</p>
-          <div className="mt-6 space-y-2 text-sm text-zinc-400">
+          <Loader2 className="w-12 h-12 text-hub-blue animate-spin mx-auto mb-4" />
+          <h3 className="text-xl font-semibold text-hub-text mb-2">Analyzing Application...</h3>
+          <p className="text-hub-text-muted">Discovering UI elements, APIs, and generating test scenarios</p>
+          <div className="mt-6 space-y-2 text-sm text-hub-text-muted">
             <p className="animate-pulse">🔍 Scanning page structure...</p>
-            <p className="animate-pulse delay-500">📋 Identifying forms and inputs...</p>
-            <p className="animate-pulse delay-1000">🔗 Discovering API endpoints...</p>
-            <p className="animate-pulse delay-1500">🎯 Generating test scenarios...</p>
+            <p className="animate-pulse">📋 Identifying forms and inputs...</p>
+            <p className="animate-pulse">🔗 Discovering API endpoints...</p>
+            <p className="animate-pulse">🎯 Generating test scenarios...</p>
           </div>
         </div>
       )}
@@ -664,72 +583,78 @@ export default function AutoDiscoveryTest() {
       {step === 'select' && discovery && (
         <div className="space-y-4">
           {/* Discovery Summary */}
-          <div className="card bg-gradient-to-r from-electric/10 to-neon/10 border-electric/30">
+          <div className="card bg-hub-blue-light border-hub-blue/20">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-white">Discovery Complete!</h3>
-                <p className="text-sm text-zinc-400">
+                <h3 className="text-lg font-semibold text-hub-text">Discovery Complete!</h3>
+                <p className="text-sm text-hub-text-muted">
                   Found {scenarios.length} test scenarios for {discovery.appName}
                 </p>
               </div>
-              <div className="flex gap-4 text-center">
+              <div className="flex gap-6 text-center">
                 <div>
-                  <p className="text-2xl font-bold text-electric">{discovery.uiElements.forms}</p>
-                  <p className="text-xs text-zinc-500">Forms</p>
+                  <p className="text-2xl font-bold text-hub-blue">{discovery.uiElements.forms}</p>
+                  <p className="text-xs text-hub-text-muted">Forms</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-purple-400">{discovery.uiElements.buttons}</p>
-                  <p className="text-xs text-zinc-500">Buttons</p>
+                  <p className="text-2xl font-bold text-purple-600">{discovery.uiElements.buttons}</p>
+                  <p className="text-xs text-hub-text-muted">Buttons</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-orange-400">{discovery.apiEndpoints.length}</p>
-                  <p className="text-xs text-zinc-500">APIs</p>
+                  <p className="text-2xl font-bold text-orange-600">{discovery.apiEndpoints.length}</p>
+                  <p className="text-xs text-hub-text-muted">APIs</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-pink-400">{discovery.k8sResources.pods.length}</p>
-                  <p className="text-xs text-zinc-500">Pods</p>
+                  <p className="text-2xl font-bold text-pink-600">{discovery.k8sResources.pods.length}</p>
+                  <p className="text-xs text-hub-text-muted">Pods</p>
                 </div>
               </div>
             </div>
             
             {/* Detailed Resources */}
-            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate/30">
+            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-hub-border">
               {/* Pods */}
-              <div className="p-3 rounded-lg bg-pink-500/10 border border-pink-500/20">
-                <h4 className="text-xs font-medium text-pink-400 mb-2 flex items-center gap-1">
-                  <Server className="w-3 h-3" /> Pods
+              <div className="p-3 rounded-lg bg-white border border-pink-200">
+                <h4 className="text-xs font-medium text-pink-700 mb-2 flex items-center gap-1">
+                  <Box className="w-3 h-3" /> Pods
                 </h4>
-                <div className="space-y-1">
+                <div className="space-y-1 max-h-24 overflow-y-auto">
                   {discovery.k8sResources.pods.map((pod, idx) => (
-                    <p key={idx} className="text-xs text-zinc-300 font-mono truncate" title={pod}>
+                    <p key={idx} className="text-xs text-hub-text font-mono truncate" title={pod}>
                       • {pod}
                     </p>
                   ))}
+                  {discovery.k8sResources.pods.length === 0 && (
+                    <p className="text-xs text-hub-text-muted italic">No pods discovered</p>
+                  )}
                 </div>
               </div>
               
               {/* Services */}
-              <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
-                <h4 className="text-xs font-medium text-cyan-400 mb-2 flex items-center gap-1">
-                  <Globe className="w-3 h-3" /> Services
+              <div className="p-3 rounded-lg bg-white border border-cyan-200">
+                <h4 className="text-xs font-medium text-cyan-700 mb-2 flex items-center gap-1">
+                  <Server className="w-3 h-3" /> Services
                 </h4>
-                <div className="space-y-1">
+                <div className="space-y-1 max-h-24 overflow-y-auto">
                   {discovery.k8sResources.services.map((svc, idx) => (
-                    <p key={idx} className="text-xs text-zinc-300 font-mono truncate" title={svc}>
+                    <p key={idx} className="text-xs text-hub-text font-mono truncate" title={svc}>
                       • {svc}
                     </p>
                   ))}
+                  {discovery.k8sResources.services.length === 0 && (
+                    <p className="text-xs text-hub-text-muted italic">No services discovered</p>
+                  )}
                 </div>
               </div>
               
               {/* API Endpoints */}
-              <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
-                <h4 className="text-xs font-medium text-orange-400 mb-2 flex items-center gap-1">
+              <div className="p-3 rounded-lg bg-white border border-orange-200">
+                <h4 className="text-xs font-medium text-orange-700 mb-2 flex items-center gap-1">
                   <Code className="w-3 h-3" /> API Endpoints
                 </h4>
-                <div className="space-y-1">
+                <div className="space-y-1 max-h-24 overflow-y-auto">
                   {discovery.apiEndpoints.map((ep, idx) => (
-                    <p key={idx} className="text-xs text-zinc-300 font-mono truncate" title={ep}>
+                    <p key={idx} className="text-xs text-hub-text font-mono truncate" title={ep}>
                       • {ep}
                     </p>
                   ))}
@@ -739,17 +664,17 @@ export default function AutoDiscoveryTest() {
           </div>
 
           {/* Quick Selection */}
-          <div className="flex flex-wrap gap-2">
-            <button onClick={selectAll} className="px-3 py-1.5 rounded-lg bg-slate/30 text-zinc-400 hover:text-white text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={selectAll} className="btn btn-secondary text-sm">
               Select All
             </button>
-            <button onClick={selectNone} className="px-3 py-1.5 rounded-lg bg-slate/30 text-zinc-400 hover:text-white text-sm">
+            <button onClick={selectNone} className="btn btn-secondary text-sm">
               Select None
             </button>
-            <button onClick={selectCriticalAndHigh} className="px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 text-sm">
+            <button onClick={selectCriticalAndHigh} className="btn btn-secondary text-sm text-red-600 border-red-200 hover:bg-red-50">
               Critical + High Priority
             </button>
-            <span className="ml-auto text-sm text-zinc-500">
+            <span className="ml-auto text-sm text-hub-text-muted">
               {selectedCount} of {scenarios.length} selected
             </span>
           </div>
@@ -766,52 +691,52 @@ export default function AutoDiscoveryTest() {
                   {/* Category Header */}
                   <button
                     onClick={() => toggleCategory(category)}
-                    className="w-full flex items-center gap-3 p-4 hover:bg-slate/20 transition-colors"
+                    className="w-full flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className={clsx('p-2 rounded-lg border', CATEGORY_COLORS[category])}>
                       <Icon className="w-4 h-4" />
                     </div>
                     <div className="flex-1 text-left">
-                      <span className="font-medium text-white capitalize">{category}</span>
-                      <span className="ml-2 text-sm text-zinc-500">
+                      <span className="font-medium text-hub-text capitalize">{category}</span>
+                      <span className="ml-2 text-sm text-hub-text-muted">
                         {selectedInCategory}/{categoryScenarios.length} selected
                       </span>
                     </div>
                     {isExpanded ? (
-                      <ChevronDown className="w-5 h-5 text-zinc-500" />
+                      <ChevronDown className="w-5 h-5 text-hub-text-muted" />
                     ) : (
-                      <ChevronRight className="w-5 h-5 text-zinc-500" />
+                      <ChevronRight className="w-5 h-5 text-hub-text-muted" />
                     )}
                   </button>
 
                   {/* Scenarios */}
                   {isExpanded && (
-                    <div className="border-t border-slate/30">
+                    <div className="border-t border-hub-border">
                       {categoryScenarios.map((scenario) => (
                         <button
                           key={scenario.id}
                           onClick={() => toggleScenario(scenario.id)}
-                          className="w-full flex items-start gap-3 p-4 hover:bg-slate/10 transition-colors border-b border-slate/20 last:border-0"
+                          className="w-full flex items-start gap-3 p-4 hover:bg-gray-50 transition-colors border-b border-hub-border last:border-0"
                         >
                           {scenario.selected ? (
-                            <CheckSquare className="w-5 h-5 text-electric flex-shrink-0 mt-0.5" />
+                            <CheckSquare className="w-5 h-5 text-hub-blue flex-shrink-0 mt-0.5" />
                           ) : (
-                            <Square className="w-5 h-5 text-zinc-600 flex-shrink-0 mt-0.5" />
+                            <Square className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
                           )}
                           <div className="flex-1 text-left">
                             <div className="flex items-center gap-2">
-                              <span className={clsx('font-medium', scenario.selected ? 'text-white' : 'text-zinc-400')}>
+                              <span className={clsx('font-medium', scenario.selected ? 'text-hub-text' : 'text-hub-text-muted')}>
                                 {scenario.name}
                               </span>
-                              <span className={clsx('text-xs', PRIORITY_COLORS[scenario.priority])}>
+                              <span className={clsx('text-xs font-medium', PRIORITY_COLORS[scenario.priority])}>
                                 {scenario.priority}
                               </span>
-                              <span className="text-xs text-zinc-600">~{scenario.estimatedTime}</span>
+                              <span className="text-xs text-hub-text-muted">~{scenario.estimatedTime}</span>
                             </div>
-                            <p className="text-sm text-zinc-500 mt-0.5">{scenario.description}</p>
+                            <p className="text-sm text-hub-text-muted mt-0.5">{scenario.description}</p>
                             <div className="flex flex-wrap gap-1 mt-2">
                               {scenario.checks.map((check, idx) => (
-                                <span key={idx} className="text-xs px-2 py-0.5 rounded bg-slate/30 text-zinc-500">
+                                <span key={idx} className="text-xs px-2 py-0.5 rounded bg-gray-100 text-hub-text-muted">
                                   {check}
                                 </span>
                               ))}
@@ -834,17 +759,17 @@ export default function AutoDiscoveryTest() {
           <div className="card">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-white">Running Tests...</h3>
-                <p className="text-sm text-zinc-500">{testProgress.currentScenario}</p>
+                <h3 className="text-lg font-semibold text-hub-text">Running Tests...</h3>
+                <p className="text-sm text-hub-text-muted">{testProgress.currentScenario}</p>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold text-electric">{testProgress.current}/{testProgress.total}</p>
-                <p className="text-xs text-zinc-500">tests completed</p>
+                <p className="text-2xl font-bold text-hub-blue">{testProgress.current}/{testProgress.total}</p>
+                <p className="text-xs text-hub-text-muted">tests completed</p>
               </div>
             </div>
-            <div className="h-2 bg-slate/50 rounded-full overflow-hidden">
+            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
               <div 
-                className="h-full bg-gradient-to-r from-electric to-neon transition-all duration-500"
+                className="h-full bg-hub-blue transition-all duration-500"
                 style={{ width: `${(testProgress.current / testProgress.total) * 100}%` }}
               />
             </div>
@@ -857,29 +782,29 @@ export default function AutoDiscoveryTest() {
                 key={scenario.id}
                 className={clsx(
                   'flex items-center gap-3 p-3 rounded-lg border transition-all',
-                  scenario.status === 'passed' && 'bg-neon/5 border-neon/30',
-                  scenario.status === 'failed' && 'bg-danger/5 border-danger/30',
-                  scenario.status === 'running' && 'bg-electric/5 border-electric/30',
-                  !scenario.status && 'bg-slate/20 border-slate/30'
+                  scenario.status === 'passed' && 'bg-green-50 border-green-200',
+                  scenario.status === 'failed' && 'bg-red-50 border-red-200',
+                  scenario.status === 'running' && 'bg-blue-50 border-blue-200',
+                  !scenario.status && 'bg-gray-50 border-gray-200'
                 )}
               >
-                {scenario.status === 'passed' && <CheckCircle2 className="w-5 h-5 text-neon" />}
-                {scenario.status === 'failed' && <XCircle className="w-5 h-5 text-danger" />}
-                {scenario.status === 'running' && <Loader2 className="w-5 h-5 text-electric animate-spin" />}
-                {!scenario.status && <Circle className="w-5 h-5 text-zinc-600" />}
+                {scenario.status === 'passed' && <CheckCircle2 className="w-5 h-5 text-green-600" />}
+                {scenario.status === 'failed' && <XCircle className="w-5 h-5 text-red-600" />}
+                {scenario.status === 'running' && <Loader2 className="w-5 h-5 text-hub-blue animate-spin" />}
+                {!scenario.status && <Circle className="w-5 h-5 text-gray-400" />}
                 
                 <span className={clsx(
                   'flex-1 text-sm',
-                  scenario.status === 'passed' && 'text-neon',
-                  scenario.status === 'failed' && 'text-danger',
-                  scenario.status === 'running' && 'text-electric',
-                  !scenario.status && 'text-zinc-500'
+                  scenario.status === 'passed' && 'text-green-700',
+                  scenario.status === 'failed' && 'text-red-700',
+                  scenario.status === 'running' && 'text-hub-blue',
+                  !scenario.status && 'text-hub-text-muted'
                 )}>
                   {scenario.name}
                 </span>
                 
                 {scenario.result && (
-                  <span className="text-xs text-zinc-500">{scenario.result.duration}ms</span>
+                  <span className="text-xs text-hub-text-muted">{scenario.result.duration}ms</span>
                 )}
               </div>
             ))}
@@ -892,30 +817,30 @@ export default function AutoDiscoveryTest() {
           {/* Summary */}
           <div className="grid grid-cols-4 gap-4">
             <div className="card text-center">
-              <p className="text-3xl font-bold text-white">{selectedCount}</p>
-              <p className="text-sm text-zinc-500">Total Tests</p>
+              <p className="text-3xl font-bold text-hub-text">{selectedCount}</p>
+              <p className="text-sm text-hub-text-muted">Total Tests</p>
             </div>
-            <div className="card text-center border-neon/30 bg-neon/5">
-              <p className="text-3xl font-bold text-neon">{passedCount}</p>
-              <p className="text-sm text-zinc-500">Passed</p>
+            <div className="card text-center border-green-200 bg-green-50">
+              <p className="text-3xl font-bold text-green-600">{passedCount}</p>
+              <p className="text-sm text-hub-text-muted">Passed</p>
             </div>
-            <div className="card text-center border-danger/30 bg-danger/5">
-              <p className="text-3xl font-bold text-danger">{failedCount}</p>
-              <p className="text-sm text-zinc-500">Failed</p>
+            <div className="card text-center border-red-200 bg-red-50">
+              <p className="text-3xl font-bold text-red-600">{failedCount}</p>
+              <p className="text-sm text-hub-text-muted">Failed</p>
             </div>
             <div className="card text-center">
-              <p className="text-3xl font-bold text-electric">
+              <p className="text-3xl font-bold text-hub-blue">
                 {Math.round((passedCount / selectedCount) * 100)}%
               </p>
-              <p className="text-sm text-zinc-500">Pass Rate</p>
+              <p className="text-sm text-hub-text-muted">Pass Rate</p>
             </div>
           </div>
 
           {/* Detailed Results */}
           <div className="card">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Test Results</h3>
-              <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-electric/20 text-electric text-sm hover:bg-electric/30 transition-colors">
+              <h3 className="text-lg font-semibold text-hub-text">Test Results</h3>
+              <button className="btn btn-primary">
                 <Download className="w-4 h-4" />
                 Export Report
               </button>
@@ -927,29 +852,29 @@ export default function AutoDiscoveryTest() {
                   key={scenario.id}
                   className={clsx(
                     'p-4 rounded-lg border',
-                    scenario.status === 'passed' ? 'border-neon/30' : 'border-danger/30'
+                    scenario.status === 'passed' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
                   )}
                 >
                   <div className="flex items-center gap-3">
                     {scenario.status === 'passed' ? (
-                      <CheckCircle2 className="w-5 h-5 text-neon" />
+                      <CheckCircle2 className="w-5 h-5 text-green-600" />
                     ) : (
-                      <XCircle className="w-5 h-5 text-danger" />
+                      <XCircle className="w-5 h-5 text-red-600" />
                     )}
-                    <span className="font-medium text-white">{scenario.name}</span>
-                    <span className={clsx('text-xs px-2 py-0.5 rounded', CATEGORY_COLORS[scenario.category])}>
+                    <span className="font-medium text-hub-text">{scenario.name}</span>
+                    <span className={clsx('badge text-xs', CATEGORY_COLORS[scenario.category])}>
                       {scenario.category}
                     </span>
-                    <span className="ml-auto text-sm text-zinc-500">
+                    <span className="ml-auto text-sm text-hub-text-muted">
                       {scenario.result?.duration}ms
                     </span>
                   </div>
                   
                   {scenario.status === 'failed' && scenario.result && (
-                    <div className="mt-3 p-3 rounded bg-danger/10 border border-danger/20">
-                      <p className="text-sm text-danger font-mono">{scenario.result.errors[0]}</p>
+                    <div className="mt-3 p-3 rounded bg-red-100 border border-red-200">
+                      <p className="text-sm text-red-700 font-mono">{scenario.result.errors[0]}</p>
                       {scenario.result.screenshots.length > 0 && (
-                        <p className="text-xs text-zinc-500 mt-2">
+                        <p className="text-xs text-red-600 mt-2">
                           📸 Screenshot: {scenario.result.screenshots[0]}
                         </p>
                       )}
@@ -963,11 +888,11 @@ export default function AutoDiscoveryTest() {
       )}
 
       {/* Action Buttons */}
-      <div className="flex justify-between pt-4 border-t border-slate/30">
+      <div className="flex justify-between pt-4 border-t border-hub-border">
         {step !== 'config' && step !== 'running' && (
           <button
             onClick={() => setStep('config')}
-            className="px-4 py-2 rounded-lg border border-slate/50 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors"
+            className="btn btn-secondary"
           >
             Start Over
           </button>
@@ -978,9 +903,7 @@ export default function AutoDiscoveryTest() {
               onClick={startDiscovery}
               disabled={!url}
               className={clsx(
-                'flex items-center gap-2 px-6 py-3 rounded-lg font-semibold',
-                'bg-gradient-to-r from-cyan-500 to-blue-500 text-white',
-                'hover:shadow-lg hover:shadow-cyan-500/30 transition-all',
+                'btn btn-primary',
                 !url && 'opacity-50 cursor-not-allowed'
               )}
             >
@@ -993,9 +916,7 @@ export default function AutoDiscoveryTest() {
               onClick={runTests}
               disabled={selectedCount === 0}
               className={clsx(
-                'flex items-center gap-2 px-6 py-3 rounded-lg font-semibold',
-                'bg-gradient-to-r from-electric to-neon text-midnight',
-                'hover:shadow-lg hover:shadow-electric/30 transition-all',
+                'btn btn-primary',
                 selectedCount === 0 && 'opacity-50 cursor-not-allowed'
               )}
             >
@@ -1006,7 +927,7 @@ export default function AutoDiscoveryTest() {
           {step === 'report' && (
             <button
               onClick={() => setStep('config')}
-              className="flex items-center gap-2 px-6 py-3 rounded-lg font-semibold bg-electric/20 text-electric hover:bg-electric/30 transition-colors"
+              className="btn btn-primary"
             >
               <RefreshCw className="w-5 h-5" />
               Run New Tests
