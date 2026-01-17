@@ -1,57 +1,108 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { proxyToBackend, errorResponse } from '@/lib/api-client';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080';
-
+/**
+ * POST /api/run
+ * Proxy to QA_AGENT_API_URL/run
+ * 
+ * Body: { discovery_id, suite?, prompt? }
+ * Returns: { run_id, status }
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     
-    const res = await fetch(`${BACKEND_URL}/run`, {
+    // Validate required fields
+    if (!body.discovery_id) {
+      return errorResponse('discovery_id is required', 400);
+    }
+    
+    console.log('[POST /api/run]', { 
+      discovery_id: body.discovery_id, 
+      suite: body.suite || 'smoke' 
+    });
+    
+    // Forward to backend
+    const response = await proxyToBackend('/run', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     
-    const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
+    const data = await response.json();
+    
+    // Handle backend errors
+    if (!response.ok) {
+      // Special handling for rate limit
+      if (response.status === 429) {
+        return NextResponse.json(
+          { 
+            error: 'A test run is already in progress',
+            detail: data.detail,
+            status: 429 
+          },
+          { status: 429 }
+        );
+      }
+      
+      return NextResponse.json(
+        { 
+          error: data.detail || 'Run failed to start',
+          status: response.status 
+        },
+        { status: response.status }
+      );
+    }
+    
+    return NextResponse.json(data);
+    
   } catch (error) {
-    console.error('Run proxy error:', error);
-    return NextResponse.json(
-      { detail: 'Failed to connect to backend' },
-      { status: 502 }
+    console.error('[POST /api/run] Error:', error);
+    
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      return errorResponse(
+        'Cannot connect to QA Agent backend',
+        502,
+        'Make sure the backend is running'
+      );
+    }
+    
+    return errorResponse(
+      error instanceof Error ? error.message : 'Unknown error',
+      500
     );
   }
 }
 
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get('id');
-  
-  if (!id) {
-    // List all runs
-    try {
-      const res = await fetch(`${BACKEND_URL}/runs`);
-      const data = await res.json();
-      return NextResponse.json(data, { status: res.status });
-    } catch (error) {
-      console.error('Runs list proxy error:', error);
+/**
+ * GET /api/run
+ * Proxy to QA_AGENT_API_URL/runs (list all runs)
+ */
+export async function GET() {
+  try {
+    console.log('[GET /api/run] Listing runs');
+    
+    const response = await proxyToBackend('/runs');
+    const data = await response.json();
+    
+    if (!response.ok) {
       return NextResponse.json(
-        { detail: 'Failed to connect to backend' },
-        { status: 502 }
+        { error: data.detail || 'Failed to list runs', status: response.status },
+        { status: response.status }
       );
     }
-  }
-  
-  // Get specific run
-  try {
-    const res = await fetch(`${BACKEND_URL}/run/${id}`);
-    const data = await res.json();
-    return NextResponse.json(data, { status: res.status });
+    
+    return NextResponse.json(data);
+    
   } catch (error) {
-    console.error('Run GET proxy error:', error);
-    return NextResponse.json(
-      { detail: 'Failed to connect to backend' },
-      { status: 502 }
+    console.error('[GET /api/run] Error:', error);
+    
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      return errorResponse('Cannot connect to QA Agent backend', 502);
+    }
+    
+    return errorResponse(
+      error instanceof Error ? error.message : 'Unknown error',
+      500
     );
   }
 }

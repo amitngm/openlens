@@ -2,36 +2,33 @@ import { NextRequest, NextResponse } from 'next/server';
 import { proxyToBackend, errorResponse } from '@/lib/api-client';
 
 /**
- * POST /api/generate-tests
- * Proxy to QA_AGENT_API_URL/generate-tests
+ * GET /api/run/[id]
+ * Proxy to QA_AGENT_API_URL/run/{id}
  * 
- * Body: { discovery_id, templates? }
- * Returns: { total_tests, tests_by_type, preview }
+ * Returns: { run_id, status, summary, test_results }
  */
-export async function POST(request: NextRequest) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    const body = await request.json();
+    const { id } = params;
     
-    // Validate required fields
-    if (!body.discovery_id) {
-      return errorResponse('discovery_id is required', 400);
+    if (!id) {
+      return errorResponse('Run ID is required', 400);
     }
     
-    console.log('[POST /api/generate-tests]', { discovery_id: body.discovery_id });
+    console.log(`[GET /api/run/${id}]`);
     
     // Forward to backend
-    const response = await proxyToBackend('/generate-tests', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
-    
+    const response = await proxyToBackend(`/run/${id}`);
     const data = await response.json();
     
     // Handle backend errors
     if (!response.ok) {
       return NextResponse.json(
         { 
-          error: data.detail || 'Test generation failed',
+          error: data.detail || 'Run not found',
           status: response.status 
         },
         { status: response.status }
@@ -41,7 +38,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(data);
     
   } catch (error) {
-    console.error('[POST /api/generate-tests] Error:', error);
+    console.error(`[GET /api/run/${params.id}] Error:`, error);
     
     if (error instanceof TypeError && error.message.includes('fetch')) {
       return errorResponse(
