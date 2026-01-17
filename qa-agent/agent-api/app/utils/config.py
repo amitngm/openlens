@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     API_PORT: int = Field(default=8080, description="API port")
     ENABLE_DOCS: bool = Field(default=True, description="Enable OpenAPI docs")
     ALLOWED_ORIGINS: List[str] = Field(
-        default=["http://localhost:*"],
+        default=["http://localhost:3000", "http://localhost:8080", "http://127.0.0.1:3000", "http://127.0.0.1:8080"],
         description="CORS allowed origins"
     )
     

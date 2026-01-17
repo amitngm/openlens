@@ -56,6 +56,16 @@ class K8sClient:
         """Get the configured namespace."""
         return settings.NAMESPACE
     
+    # Namespace operations
+    async def list_namespaces(self):
+        """List all namespaces in the cluster."""
+        try:
+            namespaces = self.core_v1.list_namespace()
+            return namespaces.items
+        except ApiException as e:
+            logger.error(f"Failed to list namespaces: {e}")
+            return []
+    
     # Service operations
     def list_services(
         self,
