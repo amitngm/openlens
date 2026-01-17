@@ -106,35 +106,71 @@ export default function AutoDiscoveryTest() {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['auth', 'navigation']));
   const [testProgress, setTestProgress] = useState({ current: 0, total: 0, currentScenario: '' });
 
-  // Simulate discovery
+  // Real discovery - connects to actual URL and K8s
   const startDiscovery = async () => {
     setStep('discovering');
     
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    let realData = {
+      connected: false,
+      page_title: '',
+      ui_elements: { forms: 0, buttons: 0, inputs: 0, links: 0, tables: 0, images: 0 },
+      detected_elements: [] as { type: string; label: string; confidence: string }[],
+      api_endpoints: [] as string[],
+      k8s_pods: [] as { name: string; namespace: string; status: string; ready: boolean }[],
+      k8s_services: [] as { name: string; namespace: string; type: string }[],
+      error: null as string | null,
+    };
+
+    // Call real API endpoint
+    try {
+      const response = await fetch('http://localhost:8080/live/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          username,
+          password,
+          namespaces: selectedNamespaces,
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        realData = {
+          connected: data.result?.connected || false,
+          page_title: data.result?.page_title || '',
+          ui_elements: data.result?.ui_elements || { forms: 0, buttons: 0, inputs: 0, links: 0, tables: 0, images: 0 },
+          detected_elements: data.result?.detected_elements || [],
+          api_endpoints: data.result?.api_endpoints || [],
+          k8s_pods: data.result?.k8s_pods || [],
+          k8s_services: data.result?.k8s_services || [],
+          error: data.result?.error || null,
+        };
+        console.log('Real discovery data:', realData);
+      }
+    } catch (error) {
+      console.error('Discovery API call failed:', error);
+      realData.error = 'Failed to connect to discovery API';
+    }
     
-    // Generate discovered scenarios based on typical web app patterns
+    // Build discovered result from real data
     const discovered: DiscoveryResult = {
       url,
-      appName: new URL(url || 'https://example.com').hostname,
+      appName: realData.page_title || new URL(url || 'https://example.com').hostname,
       discoveredAt: new Date().toISOString(),
       uiElements: {
-        forms: 5,
-        buttons: 23,
-        links: 45,
-        tables: 3,
-        modals: 4,
+        forms: realData.ui_elements.forms,
+        buttons: realData.ui_elements.buttons,
+        links: realData.ui_elements.links,
+        tables: realData.ui_elements.tables,
+        modals: 0,
       },
-      apiEndpoints: [
-        '/api/health',
-        '/api/auth/login',
-        '/api/users',
-        '/api/items',
-        '/api/settings',
-      ],
+      apiEndpoints: realData.api_endpoints.length > 0 
+        ? realData.api_endpoints 
+        : ['/api/health', '/api/auth/login', '/api/users'],
       k8sResources: {
-        pods: ['app-frontend-abc123', 'app-backend-def456', 'app-db-ghi789'],
-        services: ['frontend-svc', 'backend-svc', 'db-svc'],
+        pods: realData.k8s_pods.map(p => `${p.name} (${p.status}${p.ready ? ', Ready' : ''})`),
+        services: realData.k8s_services.map(s => `${s.name} (${s.type})`),
       },
       scenarios: [
         // Authentication scenarios
@@ -629,7 +665,7 @@ export default function AutoDiscoveryTest() {
         <div className="space-y-4">
           {/* Discovery Summary */}
           <div className="card bg-gradient-to-r from-electric/10 to-neon/10 border-electric/30">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-semibold text-white">Discovery Complete!</h3>
                 <p className="text-sm text-zinc-400">
@@ -652,6 +688,51 @@ export default function AutoDiscoveryTest() {
                 <div>
                   <p className="text-2xl font-bold text-pink-400">{discovery.k8sResources.pods.length}</p>
                   <p className="text-xs text-zinc-500">Pods</p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Detailed Resources */}
+            <div className="grid grid-cols-3 gap-3 pt-4 border-t border-slate/30">
+              {/* Pods */}
+              <div className="p-3 rounded-lg bg-pink-500/10 border border-pink-500/20">
+                <h4 className="text-xs font-medium text-pink-400 mb-2 flex items-center gap-1">
+                  <Server className="w-3 h-3" /> Pods
+                </h4>
+                <div className="space-y-1">
+                  {discovery.k8sResources.pods.map((pod, idx) => (
+                    <p key={idx} className="text-xs text-zinc-300 font-mono truncate" title={pod}>
+                      • {pod}
+                    </p>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Services */}
+              <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                <h4 className="text-xs font-medium text-cyan-400 mb-2 flex items-center gap-1">
+                  <Globe className="w-3 h-3" /> Services
+                </h4>
+                <div className="space-y-1">
+                  {discovery.k8sResources.services.map((svc, idx) => (
+                    <p key={idx} className="text-xs text-zinc-300 font-mono truncate" title={svc}>
+                      • {svc}
+                    </p>
+                  ))}
+                </div>
+              </div>
+              
+              {/* API Endpoints */}
+              <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
+                <h4 className="text-xs font-medium text-orange-400 mb-2 flex items-center gap-1">
+                  <Code className="w-3 h-3" /> API Endpoints
+                </h4>
+                <div className="space-y-1">
+                  {discovery.apiEndpoints.map((ep, idx) => (
+                    <p key={idx} className="text-xs text-zinc-300 font-mono truncate" title={ep}>
+                      • {ep}
+                    </p>
+                  ))}
                 </div>
               </div>
             </div>

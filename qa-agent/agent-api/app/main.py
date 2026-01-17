@@ -11,7 +11,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routers import runs, catalog, artifacts, health
+from app.routers import runs, catalog, artifacts, health, live_test
+from fastapi import HTTPException
 from app.services.discovery import DiscoveryService
 from app.services.rate_limiter import RateLimiter
 from app.utils.logging import setup_logging, RedactingFilter
@@ -93,6 +94,7 @@ app.include_router(health.router, tags=["Health"])
 app.include_router(runs.router, prefix="/runs", tags=["Test Runs"])
 app.include_router(catalog.router, prefix="/catalog", tags=["Service Catalog"])
 app.include_router(artifacts.router, prefix="/artifacts", tags=["Artifacts"])
+app.include_router(live_test.router, prefix="/live", tags=["Live Testing"])
 
 
 @app.get("/")
