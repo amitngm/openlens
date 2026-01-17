@@ -1,6 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: qa-pr-dashboard
-  labels:
-    name: qa-pr-dashboard
