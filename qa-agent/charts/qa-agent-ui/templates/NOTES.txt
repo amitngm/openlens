@@ -1,0 +1,71 @@
+🎨 QA Agent UI has been deployed!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📍 Service Details:
+   Name:      {{ include "qa-agent-ui.fullname" . }}
+   Namespace: {{ .Release.Namespace }}
+   Type:      {{ .Values.service.type }}
+   Port:      {{ .Values.service.port }}
+
+🔗 Backend API:
+   URL:       {{ include "qa-agent-ui.apiUrl" . }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🌐 Access the UI:
+
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+   URL: http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
+{{- end }}
+
+   ⚠️  Note: Ingress is configured for internal access only
+   Whitelisted IPs: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+{{- else }}
+
+   # Port forward (recommended for development)
+   kubectl port-forward svc/{{ include "qa-agent-ui.fullname" . }} 3000:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+
+   # Then open:
+   http://localhost:3000
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔒 Network Policy:
+{{- if .Values.networkPolicy.enabled }}
+   ✅ Enabled
+   - Allows traffic from same-namespace pods
+{{- if .Values.ingress.enabled }}
+   - Allows traffic from ingress-nginx namespace
+{{- end }}
+   - Egress allowed to qa-agent-api only
+{{- else }}
+   ⚠️  Disabled
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🧪 Verify Connectivity:
+
+   # Check UI can reach API
+   kubectl exec -it deploy/{{ include "qa-agent-ui.fullname" . }} -n {{ .Release.Namespace }} -- \
+     wget -qO- {{ include "qa-agent-ui.apiUrl" . }}/health
+
+   # View logs
+   kubectl logs -l app.kubernetes.io/name={{ include "qa-agent-ui.name" . }} -n {{ .Release.Namespace }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{{- if not .Values.ingress.enabled }}
+💡 To enable Ingress (internal users only):
+
+   helm upgrade {{ .Release.Name }} ./charts/qa-agent-ui -n {{ .Release.Namespace }} \
+     --set ingress.enabled=true \
+     --set ingress.hosts[0].host=qa-agent.internal.yourcompany.com \
+     --set ingress.hosts[0].paths[0].path=/ \
+     --set ingress.hosts[0].paths[0].pathType=Prefix
+{{- end }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

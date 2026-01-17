@@ -1,295 +1,362 @@
-# QA Agent Setup Guide
+# QA Agent - Kubernetes Setup Guide
+
+This guide covers deploying the QA Agent (API + UI) to a Kubernetes cluster using Helm.
 
 ## Prerequisites
 
-- Kubernetes cluster (1.24+)
+- Kubernetes cluster (1.21+)
 - Helm 3.x
-- kubectl configured for your cluster
-- Container registry for images
+- `kubectl` configured to access your cluster
+- Sufficient RBAC permissions to create ServiceAccounts, Roles, and PVCs
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Kubernetes Cluster                      │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                   qa-agent namespace                 │    │
+│  │                                                      │    │
+│  │  ┌──────────────┐        ┌──────────────────────┐   │    │
+│  │  │  qa-agent-ui │───────▶│   qa-agent-api       │   │    │
+│  │  │  (Next.js)   │        │   (FastAPI+Playwright)│   │    │
+│  │  │  ClusterIP   │        │   ClusterIP          │   │    │
+│  │  └──────────────┘        └──────────────────────┘   │    │
+│  │         │                         │                 │    │
+│  │         │                    ┌────┴────┐            │    │
+│  │   (optional)                 │   PVC   │            │    │
+│  │    Ingress                   │  /data  │            │    │
+│  │  (internal only)             └─────────┘            │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                                                              │
+│  NetworkPolicy: Only same-namespace pods can access API     │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Quick Start
 
-### 1. Build Docker Images
-
-```bash
-# Build Agent API image
-cd qa-agent/agent-api
-docker build -t qa-agent-api:latest .
-
-# Build Runner image
-cd ../runner
-docker build -t qa-agent-runner:latest .
-
-# Push to your registry
-docker tag qa-agent-api:latest your-registry/qa-agent-api:latest
-docker tag qa-agent-runner:latest your-registry/qa-agent-runner:latest
-docker push your-registry/qa-agent-api:latest
-docker push your-registry/qa-agent-runner:latest
-```
-
-### 2. Create Namespace
+### 1. Create Namespace
 
 ```bash
 kubectl create namespace qa-agent
 ```
 
-### 3. Configure Values
+### 2. Deploy QA Agent API
 
-Create a `values-custom.yaml` file:
+```bash
+# From repository root
+cd qa-agent
 
-```yaml
-global:
-  environment: staging
+# Install API chart
+helm install qa-agent-api ./charts/qa-agent-api \
+  --namespace qa-agent \
+  --set image.repository=amitngm/qa-agent \
+  --set image.tag=latest
+```
+
+### 3. Deploy QA Agent UI
+
+```bash
+# Install UI chart
+helm install qa-agent-ui ./charts/qa-agent-ui \
+  --namespace qa-agent \
+  --set image.repository=amitngm/qa-agent-ui \
+  --set image.tag=latest \
+  --set qaAgentApi.serviceName=qa-agent-api-qa-agent-api
+```
+
+### 4. Access the UI
+
+**Option A: Port Forward (Development)**
+
+```bash
+kubectl port-forward svc/qa-agent-ui-qa-agent-ui 3000:3000 -n qa-agent
+# Open http://localhost:3000
+```
+
+**Option B: Ingress (Internal Production)**
+
+```bash
+helm upgrade qa-agent-ui ./charts/qa-agent-ui \
+  --namespace qa-agent \
+  --set ingress.enabled=true \
+  --set ingress.hosts[0].host=qa-agent.internal.yourcompany.com \
+  --set ingress.hosts[0].paths[0].path=/ \
+  --set ingress.hosts[0].paths[0].pathType=Prefix
+```
+
+---
+
+## Detailed Configuration
+
+### QA Agent API Values
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `image.repository` | Docker image repository | `amitngm/qa-agent` |
+| `image.tag` | Docker image tag | `latest` |
+| `replicaCount` | Number of replicas | `1` |
+| `persistence.enabled` | Enable PVC for /data | `true` |
+| `persistence.size` | PVC size | `5Gi` |
+| `persistence.storageClass` | Storage class (empty = default) | `""` |
+| `networkPolicy.enabled` | Enable NetworkPolicy | `true` |
+| `rbac.create` | Create Role/RoleBinding | `true` |
+| `env` | Environment variables | See values.yaml |
+
+### QA Agent UI Values
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `image.repository` | Docker image repository | `amitngm/qa-agent-ui` |
+| `image.tag` | Docker image tag | `latest` |
+| `qaAgentApi.serviceName` | API service name | `qa-agent-api` |
+| `qaAgentApi.port` | API service port | `8080` |
+| `ingress.enabled` | Enable Ingress | `false` |
+| `ingress.className` | Ingress class | `nginx` |
+| `networkPolicy.enabled` | Enable NetworkPolicy | `true` |
+
+---
+
+## Installation Examples
+
+### Basic Installation
+
+```bash
+# Create namespace
+kubectl create namespace qa-agent
+
+# Install API
+helm install qa-agent-api ./charts/qa-agent-api -n qa-agent
+
+# Install UI
+helm install qa-agent-ui ./charts/qa-agent-ui -n qa-agent \
+  --set qaAgentApi.serviceName=qa-agent-api-qa-agent-api
+```
+
+### Custom Storage Class
+
+```bash
+helm install qa-agent-api ./charts/qa-agent-api -n qa-agent \
+  --set persistence.storageClass=fast-ssd \
+  --set persistence.size=10Gi
+```
+
+### Allow Production Testing
+
+```bash
+helm install qa-agent-api ./charts/qa-agent-api -n qa-agent \
+  --set env[0].name=ALLOW_PROD \
+  --set env[0].value="true"
+```
+
+### Internal Ingress with TLS
+
+```bash
+helm install qa-agent-ui ./charts/qa-agent-ui -n qa-agent \
+  --set ingress.enabled=true \
+  --set ingress.className=nginx \
+  --set ingress.annotations."nginx\.ingress\.kubernetes\.io/whitelist-source-range"="10.0.0.0/8" \
+  --set ingress.hosts[0].host=qa-agent.internal.example.com \
+  --set ingress.hosts[0].paths[0].path=/ \
+  --set ingress.hosts[0].paths[0].pathType=Prefix \
+  --set ingress.tls[0].secretName=qa-agent-tls \
+  --set ingress.tls[0].hosts[0]=qa-agent.internal.example.com
+```
+
+### Use Existing PVC
+
+```bash
+# First create PVC manually
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-qa-agent-data
   namespace: qa-agent
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
+EOF
 
-# Update image references to your registry
-agentApi:
-  image:
-    repository: your-registry/qa-agent-api
-    tag: latest
-
-runner:
-  image:
-    repository: your-registry/qa-agent-runner
-    tag: latest
-
-# REQUIRED: Configure target URLs
-config:
-  uiBaseUrl: "https://your-cmp-ui.example.com"
-  apiBaseUrl: "https://your-cmp-api.example.com"
-
-# REQUIRED: Configure test credentials
-secrets:
-  create: true
-  # Use test account credentials ONLY
-  uiUsername: "qa-test-user@example.com"
-  uiPassword: "test-password-here"
-  apiToken: "your-api-token-here"
+# Then install with existing claim
+helm install qa-agent-api ./charts/qa-agent-api -n qa-agent \
+  --set persistence.existingClaim=my-qa-agent-data
 ```
 
-### 4. Install Helm Chart
+---
+
+## Verify Installation
+
+### Check Pods
 
 ```bash
-cd qa-agent/charts/qa-agent
-
-# Validate the chart
-helm lint .
-
-# Dry run to preview
-helm install qa-agent . \
-  --namespace qa-agent \
-  --values values-custom.yaml \
-  --dry-run
-
-# Install
-helm install qa-agent . \
-  --namespace qa-agent \
-  --values values-custom.yaml
-```
-
-### 5. Verify Installation
-
-```bash
-# Check pods
 kubectl get pods -n qa-agent
+```
 
-# Check service
+Expected output:
+```
+NAME                                        READY   STATUS    RESTARTS   AGE
+qa-agent-api-qa-agent-api-xxx-xxx           1/1     Running   0          2m
+qa-agent-ui-qa-agent-ui-xxx-xxx             1/1     Running   0          1m
+```
+
+### Check Services
+
+```bash
 kubectl get svc -n qa-agent
-
-# Check logs
-kubectl logs -f deployment/qa-agent-api -n qa-agent
-
-# Test health endpoint
-kubectl port-forward svc/qa-agent-api 8080:8080 -n qa-agent
-curl http://localhost:8080/health
 ```
 
-## Configuration Reference
-
-### Global Settings
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `global.environment` | Environment name | `staging` |
-| `global.namespace` | Target namespace | `qa-agent` |
-
-### Agent API Settings
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `agentApi.image.repository` | Image repository | `qa-agent-api` |
-| `agentApi.image.tag` | Image tag | `latest` |
-| `agentApi.replicaCount` | Number of replicas | `1` |
-| `agentApi.service.type` | Service type | `ClusterIP` |
-| `agentApi.service.port` | Service port | `8080` |
-| `agentApi.resources.limits.cpu` | CPU limit | `500m` |
-| `agentApi.resources.limits.memory` | Memory limit | `512Mi` |
-
-### Runner Settings
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `runner.image.repository` | Image repository | `qa-agent-runner` |
-| `runner.image.tag` | Image tag | `latest` |
-| `runner.timeout` | Job timeout (seconds) | `600` |
-| `runner.resources.limits.cpu` | CPU limit | `1` |
-| `runner.resources.limits.memory` | Memory limit | `2Gi` |
-
-### Configuration Settings
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `config.uiBaseUrl` | CMP UI base URL | (required) |
-| `config.apiBaseUrl` | CMP API base URL | (required) |
-| `config.maxConcurrentRuns` | Max concurrent runs | `5` |
-| `config.maxRunsPerFlow` | Max runs per flow | `1` |
-| `config.envGuardEnabled` | Enable env guard | `true` |
-| `config.testAccountGuardEnabled` | Enable test account guard | `true` |
-| `config.logLevel` | Log level | `INFO` |
-
-### Secret Settings
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `secrets.create` | Create secrets | `true` |
-| `secrets.name` | Secret name | `qa-agent-secrets` |
-| `secrets.uiUsername` | UI test username | (required) |
-| `secrets.uiPassword` | UI test password | (required) |
-| `secrets.apiToken` | API bearer token | (required) |
-
-### Artifact Storage
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `artifacts.enabled` | Enable PVC | `true` |
-| `artifacts.storageClass` | Storage class | (default) |
-| `artifacts.size` | PVC size | `10Gi` |
-| `artifacts.retentionDays` | Retention period | `7` |
-
-## Adding Custom Flows
-
-### 1. Create Flow Definition
-
-Create a YAML file in `flows/samples/`:
-
-```yaml
-name: my-custom-flow
-description: "My custom test flow"
-version: "1.0.0"
-
-allowed_environments:
-  - dev
-  - staging
-
-required_variables:
-  - testTenant
-
-default_variables:
-  testTenant: true
-
-steps:
-  - name: "Navigate to home"
-    type: ui
-    ui:
-      action: navigate
-      url: "${UI_BASE_URL}"
-      screenshot: true
+Expected output:
+```
+NAME                        TYPE        CLUSTER-IP     PORT(S)    AGE
+qa-agent-api-qa-agent-api   ClusterIP   10.96.x.x      8080/TCP   2m
+qa-agent-ui-qa-agent-ui     ClusterIP   10.96.x.x      3000/TCP   1m
 ```
 
-### 2. Add to ConfigMap
-
-Option A: Include in Helm chart
-```yaml
-# In values-custom.yaml
-extraVolumes:
-  - name: custom-flows
-    configMap:
-      name: qa-agent-custom-flows
-
-extraVolumeMounts:
-  - name: custom-flows
-    mountPath: /app/flows/custom
-```
-
-Option B: Create separate ConfigMap
-```bash
-kubectl create configmap qa-agent-custom-flows \
-  --from-file=my-flow.yaml=flows/samples/my-flow.yaml \
-  -n qa-agent
-```
-
-### 3. Reload Flows
+### Check PVC
 
 ```bash
-curl -X POST http://localhost:8080/runs/flows/reload
+kubectl get pvc -n qa-agent
 ```
 
-## Upgrading
-
-```bash
-# Update values
-vim values-custom.yaml
-
-# Upgrade release
-helm upgrade qa-agent . \
-  --namespace qa-agent \
-  --values values-custom.yaml
+Expected output:
+```
+NAME                            STATUS   VOLUME     CAPACITY   ACCESS MODES
+qa-agent-api-qa-agent-api-data  Bound    pvc-xxx    5Gi        RWO
 ```
 
-## Uninstalling
+### Check RBAC
 
 ```bash
-# Delete Helm release
-helm uninstall qa-agent --namespace qa-agent
+kubectl get role,rolebinding -n qa-agent
+```
 
-# Delete PVC (if not needed)
-kubectl delete pvc qa-agent-artifacts -n qa-agent
+### Check NetworkPolicy
+
+```bash
+kubectl get networkpolicy -n qa-agent
+```
+
+### Test API Health
+
+```bash
+kubectl exec -it deploy/qa-agent-ui-qa-agent-ui -n qa-agent -- \
+  curl -s http://qa-agent-api-qa-agent-api:8080/health
+```
+
+---
+
+## Upgrade
+
+```bash
+# Upgrade API
+helm upgrade qa-agent-api ./charts/qa-agent-api -n qa-agent \
+  --set image.tag=v2.1.0
+
+# Upgrade UI
+helm upgrade qa-agent-ui ./charts/qa-agent-ui -n qa-agent \
+  --set image.tag=v2.1.0
+```
+
+---
+
+## Uninstall
+
+```bash
+# Remove UI
+helm uninstall qa-agent-ui -n qa-agent
+
+# Remove API
+helm uninstall qa-agent-api -n qa-agent
+
+# Optionally delete PVC (WARNING: deletes all artifacts!)
+kubectl delete pvc qa-agent-api-qa-agent-api-data -n qa-agent
 
 # Delete namespace
 kubectl delete namespace qa-agent
 ```
 
+---
+
 ## Troubleshooting
+
+### UI Cannot Reach API
+
+1. Check NetworkPolicy is allowing traffic:
+```bash
+kubectl describe networkpolicy -n qa-agent
+```
+
+2. Verify service names match:
+```bash
+kubectl get svc -n qa-agent
+```
+
+3. Test connectivity from UI pod:
+```bash
+kubectl exec -it deploy/qa-agent-ui-qa-agent-ui -n qa-agent -- \
+  curl -v http://qa-agent-api-qa-agent-api:8080/health
+```
+
+### PVC Not Binding
+
+1. Check storage class:
+```bash
+kubectl get storageclass
+```
+
+2. Check PVC events:
+```bash
+kubectl describe pvc -n qa-agent
+```
 
 ### Pod Not Starting
 
+1. Check pod events:
 ```bash
-# Check events
-kubectl describe pod -l app.kubernetes.io/name=qa-agent -n qa-agent
-
-# Check logs
-kubectl logs -f deployment/qa-agent-api -n qa-agent
+kubectl describe pod -l app.kubernetes.io/name=qa-agent-api -n qa-agent
 ```
 
-### Runner Jobs Failing
-
+2. Check logs:
 ```bash
-# List runner jobs
-kubectl get jobs -n qa-agent
-
-# Check job logs
-kubectl logs job/qa-runner-<run_id> -n qa-agent
-
-# Describe job
-kubectl describe job/qa-runner-<run_id> -n qa-agent
+kubectl logs -l app.kubernetes.io/name=qa-agent-api -n qa-agent
 ```
 
-### Discovery Not Working
+### Permission Denied (RBAC)
 
+1. Check ServiceAccount:
 ```bash
-# Check RBAC
-kubectl auth can-i list services --as=system:serviceaccount:qa-agent:qa-agent -n qa-agent
-
-# Manual discovery trigger
-curl -X POST http://localhost:8080/catalog/discover
+kubectl get sa -n qa-agent
 ```
 
-### Network Issues
+2. Check Role bindings:
+```bash
+kubectl get rolebinding -n qa-agent -o yaml
+```
+
+---
+
+## Security Notes
+
+1. **No Public Exposure**: API is ClusterIP only - never expose directly to internet
+2. **Internal Ingress**: UI ingress whitelists private IP ranges by default
+3. **NetworkPolicy**: Only same-namespace pods can access the API
+4. **RBAC**: API has read-only access to K8s resources (pods, services, etc.)
+5. **Secrets**: Passwords are never logged; ALLOW_PROD blocks production by default
+
+---
+
+## Single-Chart Installation (Alternative)
+
+If you prefer a single Helm release, use values file:
+
+```yaml
+# values-combined.yaml
+# Install both API and UI with one command
+```
 
 ```bash
-# Check NetworkPolicy
-kubectl get networkpolicy -n qa-agent -o yaml
-
-# Test connectivity
-kubectl run test --rm -it --image=busybox -n qa-agent -- wget -O- http://qa-agent-api:8080/health
+# Not yet implemented - use separate charts for now
 ```
