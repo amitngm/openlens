@@ -1,6 +1,19 @@
-// When served from same container, use relative URLs (empty string)
-// When running in dev mode, use localhost:8080
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? (typeof window !== 'undefined' && window.location.port === '8080' ? '' : 'http://localhost:8080');
+// Get API base URL dynamically at runtime
+// - In production (Docker): Uses relative URLs (same origin)
+// - In dev mode (port 3000): Uses localhost:8080
+const getApiBase = (): string => {
+  if (typeof window === 'undefined') {
+    return '';  // SSR/build time - will be re-evaluated in browser
+  }
+  
+  // Dev mode: Next.js runs on port 3000, API on 8080
+  if (window.location.port === '3000') {
+    return 'http://localhost:8080';
+  }
+  
+  // Production: UI and API on same origin, use relative URLs
+  return '';
+};
 
 export interface Flow {
   name: string;
@@ -89,14 +102,12 @@ export interface HealthResponse {
 }
 
 class ApiClient {
-  private baseUrl: string;
-
-  constructor(baseUrl: string = API_BASE) {
-    this.baseUrl = baseUrl;
+  private getBaseUrl(): string {
+    return getApiBase();
   }
 
   private async request<T>(path: string, options?: RequestInit): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
+    const url = `${this.getBaseUrl()}${path}`;
     const response = await fetch(url, {
       ...options,
       headers: {
