@@ -1,0 +1,210 @@
+# QA Agent Helm Chart Values
+# Default configuration for the QA Agent
+
+# Global settings
+global:
+  # Environment name (dev, staging, prod)
+  environment: staging
+  # Namespace to deploy into (also used for service discovery)
+  namespace: qa-agent
+
+# Agent API configuration
+agentApi:
+  # Image settings
+  image:
+    repository: qa-agent-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  # Replica count (1 recommended for state management)
+  replicaCount: 1
+  
+  # Resource limits
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  
+  # Service configuration (ClusterIP only - no external exposure)
+  service:
+    type: ClusterIP
+    port: 8080
+  
+  # Pod security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  
+  # Container security context
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+# Runner configuration
+runner:
+  # Image settings
+  image:
+    repository: qa-agent-runner
+    tag: latest
+    pullPolicy: IfNotPresent
+  
+  # Resource limits for runner jobs
+  resources:
+    limits:
+      cpu: "1"
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  
+  # Job timeout in seconds
+  timeout: 600
+  
+  # TTL for completed jobs (cleanup)
+  ttlSecondsAfterFinished: 3600
+  
+  # Backoff limit for job retries
+  backoffLimit: 0
+
+# Artifact storage (PVC)
+artifacts:
+  enabled: true
+  # Storage class (leave empty for default)
+  storageClass: ""
+  # Storage size
+  size: 10Gi
+  # Access mode
+  accessMode: ReadWriteOnce
+  # Retention period in days
+  retentionDays: 7
+
+# Configuration
+config:
+  # Target URLs (REQUIRED - configure for your environment)
+  uiBaseUrl: "https://cmp.internal.example.com"
+  apiBaseUrl: "https://api.internal.example.com"
+  
+  # Service discovery rules
+  discoveryRules: "services,ingress,endpoints,configmaps"
+  
+  # Auto-discover on startup
+  autoDiscoverOnStartup: true
+  
+  # Rate limiting
+  maxConcurrentRuns: 5
+  maxRunsPerFlow: 1
+  
+  # Security guards
+  envGuardEnabled: true
+  envGuardProdAllowlist: []
+  testAccountGuardEnabled: true
+  
+  # Logging
+  logLevel: INFO
+  logFormat: json
+  
+  # Enable API docs (disable in production)
+  enableDocs: true
+
+# Secrets (REQUIRED - configure for your environment)
+secrets:
+  # Create secrets (set to false if using external secrets)
+  create: true
+  
+  # Secret name (if not creating, specify existing secret name)
+  name: qa-agent-secrets
+  
+  # UI test account credentials (base64 encoded in actual deployment)
+  # IMPORTANT: Use test accounts only, never production credentials
+  uiUsername: ""
+  uiPassword: ""
+  
+  # API token for bearer authentication
+  apiToken: ""
+
+# Service Account
+serviceAccount:
+  # Create service account
+  create: true
+  # Service account name
+  name: qa-agent
+  # Annotations
+  annotations: {}
+
+# RBAC configuration
+rbac:
+  # Create RBAC resources
+  create: true
+  
+  # Read-only by default (get/list/watch)
+  readOnly: true
+  
+  # Additional rules (if needed)
+  additionalRules: []
+  #   - apiGroups: [""]
+  #     resources: ["pods/log"]
+  #     verbs: ["get"]
+
+# Network Policy
+networkPolicy:
+  # Enable network policy (recommended)
+  enabled: true
+  
+  # Allow ingress only from same namespace
+  allowInNamespace: true
+  
+  # Additional ingress rules
+  additionalIngress: []
+  
+  # Additional egress rules (default allows all egress for API calls)
+  additionalEgress: []
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Probes
+probes:
+  liveness:
+    enabled: true
+    path: /health/live
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readiness:
+    enabled: true
+    path: /health/ready
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Extra environment variables
+extraEnv: []
+#   - name: EXTRA_VAR
+#     value: "value"
+
+# Extra volumes
+extraVolumes: []
+
+# Extra volume mounts
+extraVolumeMounts: []

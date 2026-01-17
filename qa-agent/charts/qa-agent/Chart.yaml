@@ -1,0 +1,23 @@
+apiVersion: v2
+name: qa-agent
+description: Kubernetes-deployable QA Agent for automated UI and API testing
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+
+keywords:
+  - qa
+  - testing
+  - automation
+  - playwright
+  - api-testing
+
+home: https://github.com/example/qa-agent
+sources:
+  - https://github.com/example/qa-agent
+
+maintainers:
+  - name: QA Agent Team
+    email: qa-team@example.com
+
+dependencies: []

@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "qa-agent.configMapName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "qa-agent.labels" . | nindent 4 }}
+data:
+  # Environment
+  ENVIRONMENT: {{ .Values.global.environment | quote }}
+  NAMESPACE: {{ .Values.global.namespace | quote }}
+  
+  # Target URLs
+  UI_BASE_URL: {{ .Values.config.uiBaseUrl | quote }}
+  API_BASE_URL: {{ .Values.config.apiBaseUrl | quote }}
+  
+  # Discovery
+  DISCOVERY_RULES: {{ .Values.config.discoveryRules | quote }}
+  AUTO_DISCOVER_ON_STARTUP: {{ .Values.config.autoDiscoverOnStartup | quote }}
+  
+  # Rate Limiting
+  MAX_CONCURRENT_RUNS: {{ .Values.config.maxConcurrentRuns | quote }}
+  MAX_RUNS_PER_FLOW: {{ .Values.config.maxRunsPerFlow | quote }}
+  
+  # Security Guards
+  ENV_GUARD_ENABLED: {{ .Values.config.envGuardEnabled | quote }}
+  {{- if .Values.config.envGuardProdAllowlist }}
+  ENV_GUARD_PROD_ALLOWLIST: {{ .Values.config.envGuardProdAllowlist | join "," | quote }}
+  {{- end }}
+  TEST_ACCOUNT_GUARD_ENABLED: {{ .Values.config.testAccountGuardEnabled | quote }}
+  
+  # Logging
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  
+  # API Settings
+  ENABLE_DOCS: {{ .Values.config.enableDocs | quote }}
+  IN_CLUSTER: "true"
+  
+  # Artifacts
+  ARTIFACTS_PATH: "/data/artifacts"
+  ARTIFACTS_RETENTION_DAYS: {{ .Values.artifacts.retentionDays | quote }}
+  
+  # Runner
+  RUNNER_IMAGE: "{{ .Values.runner.image.repository }}:{{ .Values.runner.image.tag }}"
+  RUNNER_TIMEOUT_SECONDS: {{ .Values.runner.timeout | quote }}
+  RUNNER_MEMORY_LIMIT: {{ .Values.runner.resources.limits.memory | quote }}
+  RUNNER_CPU_LIMIT: {{ .Values.runner.resources.limits.cpu | quote }}

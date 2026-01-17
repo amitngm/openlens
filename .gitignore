@@ -45,3 +45,38 @@ api-server/logs/
 *.swo
 *~
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+venv_*/
+ENV/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# QA Agent specific
+qa-agent/data/
+qa-agent/agent-api/.env
+qa-agent/runner/node_modules/
+
+# Artifacts
+/data/artifacts/
+
+
+
+
+
+
+
+
+
+
+
+

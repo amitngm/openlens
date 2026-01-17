@@ -1,0 +1,18 @@
+{{- if .Values.artifacts.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "qa-agent.pvcName" . }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "qa-agent.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.artifacts.accessMode }}
+  {{- if .Values.artifacts.storageClass }}
+  storageClassName: {{ .Values.artifacts.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.artifacts.size }}
+{{- end }}
