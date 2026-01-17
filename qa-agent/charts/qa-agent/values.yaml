@@ -32,7 +32,7 @@ agentApi:
   service:
     type: NodePort
     port: 8080
-    nodePort: 30080  # Access via http://<node-ip>:30080
+    # nodePort: auto-assigned by Kubernetes (use kubectl get svc to find it)
   
   # Pod security context
   securityContext:
