@@ -1,34 +1,26 @@
-@import url('https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  /* Docker Hub inspired colors */
-  --hub-blue: #1d63ed;
-  --hub-blue-dark: #0d47a1;
-  --hub-blue-light: #e3f2fd;
-  --hub-nav: #1d2939;
-  --hub-sidebar: #f8fafc;
-  --hub-border: #e2e8f0;
-  --hub-text: #1e293b;
-  --hub-text-muted: #64748b;
-  --hub-success: #22c55e;
-  --hub-warning: #f59e0b;
-  --hub-danger: #ef4444;
-  --hub-bg: #ffffff;
-}
-
+/* Clean, minimal design */
 * {
   box-sizing: border-box;
 }
 
 body {
-  background: var(--hub-bg);
-  min-height: 100vh;
-  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color: var(--hub-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Focus styles */
+input:focus, button:focus {
+  outline: none;
+}
+
+/* Smooth transitions */
+button, input, a {
+  transition: all 0.15s ease;
 }
 
 /* Custom scrollbar */
@@ -38,125 +30,14 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #f1f1f1;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #ccc;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-/* Card styles */
-.card {
-  @apply bg-white border border-hub-border rounded-lg p-6 shadow-sm;
-  transition: all 0.2s ease;
-}
-
-.card:hover {
-  @apply shadow-md border-hub-blue/30;
-}
-
-/* Status badges */
-.badge {
-  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
-}
-
-.badge-success {
-  @apply bg-green-100 text-green-800;
-}
-
-.badge-warning {
-  @apply bg-yellow-100 text-yellow-800;
-}
-
-.badge-danger {
-  @apply bg-red-100 text-red-800;
-}
-
-.badge-info {
-  @apply bg-blue-100 text-blue-800;
-}
-
-.badge-neutral {
-  @apply bg-gray-100 text-gray-800;
-}
-
-/* Button styles */
-.btn {
-  @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md font-medium text-sm transition-all;
-}
-
-.btn-primary {
-  @apply bg-hub-blue text-white hover:bg-hub-blue-dark;
-}
-
-.btn-secondary {
-  @apply bg-white border border-hub-border text-hub-text hover:bg-gray-50;
-}
-
-.btn-ghost {
-  @apply text-hub-text-muted hover:text-hub-text hover:bg-gray-100;
-}
-
-/* Table styles */
-.table-container {
-  @apply w-full overflow-x-auto;
-}
-
-.table {
-  @apply w-full border-collapse;
-}
-
-.table th {
-  @apply px-4 py-3 text-left text-xs font-semibold text-hub-text-muted uppercase tracking-wider bg-gray-50 border-b border-hub-border;
-}
-
-.table td {
-  @apply px-4 py-3 text-sm border-b border-hub-border;
-}
-
-.table tbody tr:hover {
-  @apply bg-gray-50;
-}
-
-/* Input styles */
-.input {
-  @apply w-full px-3 py-2 border border-hub-border rounded-md text-sm;
-  @apply focus:outline-none focus:ring-2 focus:ring-hub-blue/20 focus:border-hub-blue;
-}
-
-.input-with-icon {
-  @apply pl-10;
-}
-
-/* Code/mono text */
-.font-mono {
-  font-family: 'Source Code Pro', monospace;
-}
-
-/* Pulse animation for running status */
-.pulse-running {
-  animation: pulse-running 2s ease-in-out infinite;
-}
-
-@keyframes pulse-running {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-/* Tab styles */
-.tab {
-  @apply px-4 py-2 text-sm font-medium border-b-2 transition-colors;
-}
-
-.tab-active {
-  @apply text-hub-blue border-hub-blue;
-}
-
-.tab-inactive {
-  @apply text-hub-text-muted border-transparent hover:text-hub-text hover:border-gray-300;
+  background: #999;
 }

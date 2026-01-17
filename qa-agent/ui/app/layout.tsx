@@ -1,21 +1,19 @@
-import type { Metadata } from "next";
-import "./globals.css";
+import type { Metadata } from 'next'
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: "QA Agent | Test Automation Hub",
-  description: "Kubernetes-deployable QA automation system for UI and API testing",
-};
+  title: 'QA Agent - Test Any Web Application',
+  description: 'Intelligent QA testing that works like a human tester',
+}
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: {
+  children: React.ReactNode
+}) {
   return (
     <html lang="en">
-      <body className="antialiased bg-white">
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
-  );
+  )
 }

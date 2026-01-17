@@ -1,37 +1,29 @@
-import type { Config } from "tailwindcss";
+import type { Config } from 'tailwindcss'
 
 const config: Config = {
   content: [
-    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
-    "./components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    './pages/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
     extend: {
       colors: {
-        // Docker Hub inspired palette
-        hub: {
-          blue: "#1d63ed",
-          "blue-dark": "#0d47a1",
-          "blue-light": "#e3f2fd",
-          nav: "#1d2939",
-          sidebar: "#f8fafc",
-          border: "#e2e8f0",
-          text: "#1e293b",
-          "text-muted": "#64748b",
-          success: "#22c55e",
-          warning: "#f59e0b",
-          danger: "#ef4444",
-          bg: "#ffffff",
+        blue: {
+          50: '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+          800: '#1e40af',
+          900: '#1e3a8a',
         },
-      },
-      fontFamily: {
-        sans: ["Open Sans", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
-        mono: ["Source Code Pro", "monospace"],
       },
     },
   },
   plugins: [],
-};
-
-export default config;
+}
+export default config
