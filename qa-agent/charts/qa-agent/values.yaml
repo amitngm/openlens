@@ -28,10 +28,11 @@ agentApi:
       cpu: 100m
       memory: 256Mi
   
-  # Service configuration (ClusterIP only - no external exposure)
+  # Service configuration
   service:
-    type: ClusterIP
+    type: NodePort
     port: 8080
+    nodePort: 30080  # Access via http://<node-ip>:30080
   
   # Pod security context
   securityContext:

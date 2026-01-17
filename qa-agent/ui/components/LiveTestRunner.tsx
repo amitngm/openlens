@@ -200,7 +200,7 @@ export default function LiveTestRunner() {
   };
 
   return (
-    <div className="h-[calc(100vh-180px)] flex flex-col">
+    <div className="flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -256,7 +256,7 @@ export default function LiveTestRunner() {
       </div>
 
       {/* Main content - Split view */}
-      <div className="flex-1 flex gap-4 min-h-0">
+      <div className="flex gap-4" style={{ minHeight: '500px' }}>
         {/* Left panel - Controls */}
         <div className="w-80 flex flex-col gap-4 overflow-y-auto">
           {/* Setup Phase */}

@@ -263,9 +263,13 @@ export default function Home() {
       />
 
       {/* Main Content - offset for fixed sidebar and header */}
-      <main className="ml-60 pt-14">
-        <div className="p-8 max-w-7xl">
-          {renderContent()}
+      <main className="ml-60 pt-14 min-h-screen">
+        <div className="p-6">
+          {renderContent() || (
+            <div className="flex items-center justify-center h-64">
+              <p className="text-hub-text-muted">Select an option from the sidebar</p>
+            </div>
+          )}
         </div>
       </main>
 
