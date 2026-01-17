@@ -12,9 +12,9 @@ global:
 agentApi:
   # Image settings
   image:
-    repository: qa-agent-api
+    repository: amitngm/qa-agent-api
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   
   # Replica count (1 recommended for state management)
   replicaCount: 1
@@ -51,9 +51,9 @@ agentApi:
 runner:
   # Image settings
   image:
-    repository: qa-agent-runner
+    repository: amitngm/qa-agent-runner
     tag: latest
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
   
   # Resource limits for runner jobs
   resources:
