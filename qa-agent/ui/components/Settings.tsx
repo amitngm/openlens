@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Save, AlertTriangle, CheckCircle, ExternalLink } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -14,7 +14,7 @@ interface SettingsForm {
 
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsForm>({
-    apiUrl: 'http://localhost:8080',
+    apiUrl: '',
     defaultEnv: 'dev',
     defaultTenant: '',
     allowProd: false,
@@ -22,8 +22,19 @@ export default function Settings() {
   });
   const [saved, setSaved] = useState(false);
 
+  // Load settings on mount
+  useEffect(() => {
+    const savedSettings = localStorage.getItem('qa-agent-settings');
+    if (savedSettings) {
+      try {
+        setSettings(JSON.parse(savedSettings));
+      } catch {
+        // Ignore parse errors
+      }
+    }
+  }, []);
+
   const handleSave = () => {
-    // In a real app, save to localStorage or backend
     localStorage.setItem('qa-agent-settings', JSON.stringify(settings));
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
@@ -34,16 +45,14 @@ export default function Settings() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-2xl font-semibold text-white">Settings</h2>
-          <p className="text-sm text-zinc-500 mt-1">Configure QA Agent preferences</p>
+          <h1 className="text-2xl font-semibold text-hub-text">Settings</h1>
+          <p className="text-sm text-hub-text-muted mt-1">Configure QA Agent preferences</p>
         </div>
         <button
           onClick={handleSave}
           className={clsx(
-            'flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all',
-            saved
-              ? 'bg-neon/20 text-neon border border-neon/30'
-              : 'bg-electric/10 text-electric border border-electric/30 hover:bg-electric/20'
+            'btn',
+            saved ? 'btn-primary bg-green-600 hover:bg-green-700' : 'btn-primary'
           )}
         >
           {saved ? (
@@ -63,28 +72,27 @@ export default function Settings() {
       <div className="space-y-6">
         {/* API Configuration */}
         <div className="card">
-          <h3 className="text-lg font-semibold text-white mb-4">API Configuration</h3>
+          <h3 className="text-lg font-semibold text-hub-text mb-4">API Configuration</h3>
           
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-2">
+              <label className="block text-sm font-medium text-hub-text-muted mb-2">
                 API Base URL
               </label>
               <input
                 type="text"
                 value={settings.apiUrl}
                 onChange={(e) => setSettings({ ...settings, apiUrl: e.target.value })}
-                className="w-full px-4 py-2 rounded-lg bg-slate/30 border border-slate/50
-                         text-white placeholder-zinc-600 focus:outline-none focus:border-electric
-                         transition-colors font-mono"
+                placeholder="Leave empty to use current origin"
+                className="input font-mono"
               />
-              <p className="text-xs text-zinc-600 mt-1">
-                The base URL of the QA Agent API
+              <p className="text-xs text-hub-text-muted mt-1">
+                The base URL of the QA Agent API (leave empty for same-origin)
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-2">
+              <label className="block text-sm font-medium text-hub-text-muted mb-2">
                 Polling Interval (ms)
               </label>
               <input
@@ -94,11 +102,9 @@ export default function Settings() {
                 min={500}
                 max={10000}
                 step={500}
-                className="w-full px-4 py-2 rounded-lg bg-slate/30 border border-slate/50
-                         text-white placeholder-zinc-600 focus:outline-none focus:border-electric
-                         transition-colors"
+                className="input"
               />
-              <p className="text-xs text-zinc-600 mt-1">
+              <p className="text-xs text-hub-text-muted mt-1">
                 How often to check for run status updates
               </p>
             </div>
@@ -107,18 +113,17 @@ export default function Settings() {
 
         {/* Default Values */}
         <div className="card">
-          <h3 className="text-lg font-semibold text-white mb-4">Default Values</h3>
+          <h3 className="text-lg font-semibold text-hub-text mb-4">Default Values</h3>
           
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-2">
+              <label className="block text-sm font-medium text-hub-text-muted mb-2">
                 Default Environment
               </label>
               <select
                 value={settings.defaultEnv}
                 onChange={(e) => setSettings({ ...settings, defaultEnv: e.target.value })}
-                className="w-full px-4 py-2 rounded-lg bg-slate/30 border border-slate/50
-                         text-white focus:outline-none focus:border-electric transition-colors"
+                className="input"
               >
                 <option value="dev">Development</option>
                 <option value="staging">Staging</option>
@@ -127,7 +132,7 @@ export default function Settings() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-2">
+              <label className="block text-sm font-medium text-hub-text-muted mb-2">
                 Default Tenant
               </label>
               <input
@@ -135,41 +140,39 @@ export default function Settings() {
                 value={settings.defaultTenant}
                 onChange={(e) => setSettings({ ...settings, defaultTenant: e.target.value })}
                 placeholder="e.g., test-tenant-001"
-                className="w-full px-4 py-2 rounded-lg bg-slate/30 border border-slate/50
-                         text-white placeholder-zinc-600 focus:outline-none focus:border-electric
-                         transition-colors"
+                className="input"
               />
             </div>
           </div>
         </div>
 
         {/* Safety Settings */}
-        <div className="card border-warning/30">
-          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-warning" />
+        <div className="card border-yellow-300">
+          <h3 className="text-lg font-semibold text-hub-text mb-4 flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-yellow-600" />
             Safety Settings
           </h3>
           
           <div className="space-y-4">
-            <div className="flex items-start gap-3 p-4 rounded-lg bg-warning/10 border border-warning/30">
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-yellow-50 border border-yellow-200">
               <input
                 type="checkbox"
                 id="allowProd"
                 checked={settings.allowProd}
                 onChange={(e) => setSettings({ ...settings, allowProd: e.target.checked })}
-                className="mt-1 w-4 h-4 rounded border-warning/50 text-warning focus:ring-warning"
+                className="mt-1 w-4 h-4 rounded border-yellow-400 text-yellow-600 focus:ring-yellow-500"
               />
               <label htmlFor="allowProd" className="flex-1">
-                <span className="block text-sm font-medium text-warning">
+                <span className="block text-sm font-medium text-yellow-800">
                   Allow Production Environment
                 </span>
-                <span className="block text-xs text-zinc-400 mt-0.5">
+                <span className="block text-xs text-yellow-700 mt-0.5">
                   Enable running tests against production. Use with extreme caution and only with test accounts.
                 </span>
               </label>
             </div>
 
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-hub-text-muted">
               Note: Even with this enabled, the TEST_ACCOUNT_GUARD still requires explicit testTenant=true flag.
             </p>
           </div>
@@ -177,27 +180,26 @@ export default function Settings() {
 
         {/* Documentation Links */}
         <div className="card">
-          <h3 className="text-lg font-semibold text-white mb-4">Documentation</h3>
+          <h3 className="text-lg font-semibold text-hub-text mb-4">Documentation</h3>
           
           <div className="space-y-2">
             {[
-              { label: 'Architecture Guide', href: '#' },
-              { label: 'Security Best Practices', href: '#' },
-              { label: 'Flow Definition Reference', href: '#' },
-              { label: 'API Documentation', href: '/api/docs' },
+              { label: 'API Documentation', href: '/docs' },
+              { label: 'Health Check', href: '/health' },
+              { label: 'GitHub Repository', href: 'https://github.com/amitngm/openlens' },
             ].map((link, idx) => (
               <a
                 key={idx}
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-between p-3 rounded-lg bg-slate/30 border border-slate/50
-                         hover:border-electric/50 transition-colors group"
+                className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-hub-border
+                         hover:border-hub-blue hover:bg-hub-blue-light transition-colors group"
               >
-                <span className="text-sm text-zinc-400 group-hover:text-white transition-colors">
+                <span className="text-sm text-hub-text-muted group-hover:text-hub-blue transition-colors">
                   {link.label}
                 </span>
-                <ExternalLink className="w-4 h-4 text-zinc-600 group-hover:text-electric transition-colors" />
+                <ExternalLink className="w-4 h-4 text-hub-text-muted group-hover:text-hub-blue transition-colors" />
               </a>
             ))}
           </div>

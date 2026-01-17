@@ -312,6 +312,87 @@ async def get_real_services(namespace: str = "default"):
         }
 
 
+class TestUrlRequest(BaseModel):
+    url: str
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+
+@router.post("/test-url")
+async def test_url(body: TestUrlRequest):
+    """
+    Test a URL and return real response information.
+    This actually makes an HTTP request to the specified URL.
+    """
+    import time
+    start_time = time.time()
+    
+    try:
+        import httpx
+        
+        headers = {}
+        auth = None
+        
+        # Set up authentication if provided
+        if body.username and body.password:
+            # Try Bearer token first (if password looks like a token)
+            if body.password.startswith('Bearer ') or len(body.password) > 50:
+                headers['Authorization'] = f'Bearer {body.password}'
+            else:
+                # Use Basic Auth
+                auth = (body.username, body.password)
+        elif body.password:
+            # Just password/token provided
+            headers['Authorization'] = f'Bearer {body.password}'
+        
+        async with httpx.AsyncClient(
+            timeout=30.0, 
+            follow_redirects=True, 
+            verify=False,
+            auth=auth
+        ) as client:
+            response = await client.get(body.url, headers=headers)
+            
+            response_time = int((time.time() - start_time) * 1000)
+            
+            return {
+                "success": response.status_code < 400,
+                "status_code": response.status_code,
+                "status_text": response.reason_phrase or "OK",
+                "response_time_ms": response_time,
+                "headers": dict(response.headers),
+                "content_type": response.headers.get("content-type", "unknown"),
+                "content_length": len(response.content),
+                "url": str(response.url),
+                "redirected": str(response.url) != body.url,
+            }
+            
+    except httpx.ConnectError:
+        return {
+            "success": False,
+            "status_code": 0,
+            "status_text": "Connection Failed",
+            "response_time_ms": int((time.time() - start_time) * 1000),
+            "error": f"Cannot connect to {body.url}. Check if the URL is correct and the server is running."
+        }
+    except httpx.TimeoutException:
+        return {
+            "success": False,
+            "status_code": 0,
+            "status_text": "Timeout",
+            "response_time_ms": 30000,
+            "error": f"Request to {body.url} timed out after 30 seconds."
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "status_code": 0,
+            "status_text": "Error",
+            "response_time_ms": int((time.time() - start_time) * 1000),
+            "error": str(e)
+        }
+
+
 @router.get("/k8s/namespaces")
 async def get_real_namespaces():
     """

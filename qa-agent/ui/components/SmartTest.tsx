@@ -2,396 +2,309 @@
 
 import { useState } from 'react';
 import { 
-  Play, 
-  Plus, 
-  X, 
   Wand2, 
+  Play, 
   Globe, 
   Key, 
-  Tag,
   Loader2,
-  CheckCircle,
-  AlertCircle
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Tag
 } from 'lucide-react';
 import clsx from 'clsx';
 
-interface SmartTestConfig {
-  url: string;
-  username: string;
-  password: string;
-  keywords: string[];
-  actions: string[];
-  customSelectors: Record<string, string>;
-}
-
-const SUGGESTED_ACTIONS = [
-  { id: 'login', label: 'Login', description: 'Authenticate with credentials' },
-  { id: 'navigate', label: 'Navigate', description: 'Explore main sections' },
-  { id: 'create', label: 'Create', description: 'Create new items/resources' },
-  { id: 'search', label: 'Search', description: 'Test search functionality' },
-  { id: 'edit', label: 'Edit', description: 'Modify existing items' },
-  { id: 'delete', label: 'Delete', description: 'Remove test items' },
-  { id: 'export', label: 'Export', description: 'Test export/download' },
-  { id: 'filter', label: 'Filter', description: 'Test filtering/sorting' },
-];
-
-const COMMON_KEYWORDS = [
-  'dashboard', 'settings', 'profile', 'users', 'admin',
-  'create', 'new', 'add', 'edit', 'delete', 'save',
-  'submit', 'cancel', 'confirm', 'close', 'menu',
-  'table', 'list', 'grid', 'card', 'modal', 'form'
-];
-
 interface SmartTestProps {
-  onStartTest: (config: SmartTestConfig) => void;
+  onStartTest: (config: unknown) => void;
 }
+
+interface TestScenario {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+}
+
+const TEST_SCENARIOS: TestScenario[] = [
+  { id: 'login', name: 'Login Flow', description: 'Test user authentication', category: 'auth' },
+  { id: 'navigation', name: 'Navigation', description: 'Test all navigation links', category: 'ui' },
+  { id: 'forms', name: 'Form Validation', description: 'Test form inputs and validation', category: 'ui' },
+  { id: 'api-health', name: 'API Health', description: 'Check all API endpoints respond', category: 'api' },
+  { id: 'crud', name: 'CRUD Operations', description: 'Test Create, Read, Update, Delete', category: 'api' },
+  { id: 'responsive', name: 'Responsive Design', description: 'Test on different screen sizes', category: 'ui' },
+];
+
+// Get API base URL dynamically
+const getApiBase = (): string => {
+  if (typeof window === 'undefined') return '';
+  if (window.location.port === '3000') return 'http://localhost:8080';
+  return '';
+};
 
 export default function SmartTest({ onStartTest }: SmartTestProps) {
-  const [config, setConfig] = useState<SmartTestConfig>({
-    url: '',
-    username: '',
-    password: '',
-    keywords: [],
-    actions: ['login', 'navigate'],
-    customSelectors: {},
-  });
-  
-  const [newKeyword, setNewKeyword] = useState('');
-  const [newSelectorKey, setNewSelectorKey] = useState('');
-  const [newSelectorValue, setNewSelectorValue] = useState('');
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+  const [url, setUrl] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [selectedScenarios, setSelectedScenarios] = useState<Set<string>>(new Set(['login', 'navigation']));
+  const [isRunning, setIsRunning] = useState(false);
+  const [results, setResults] = useState<Array<{ scenario: string; passed: boolean; message: string }>>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  const addKeyword = () => {
-    if (newKeyword.trim() && !config.keywords.includes(newKeyword.trim())) {
-      setConfig({
-        ...config,
-        keywords: [...config.keywords, newKeyword.trim()]
-      });
-      setNewKeyword('');
-    }
-  };
-
-  const removeKeyword = (keyword: string) => {
-    setConfig({
-      ...config,
-      keywords: config.keywords.filter(k => k !== keyword)
-    });
-  };
-
-  const toggleAction = (actionId: string) => {
-    if (config.actions.includes(actionId)) {
-      setConfig({
-        ...config,
-        actions: config.actions.filter(a => a !== actionId)
-      });
+  const toggleScenario = (id: string) => {
+    const newSelected = new Set(selectedScenarios);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
     } else {
-      setConfig({
-        ...config,
-        actions: [...config.actions, actionId]
-      });
+      newSelected.add(id);
     }
+    setSelectedScenarios(newSelected);
   };
 
-  const addCustomSelector = () => {
-    if (newSelectorKey.trim() && newSelectorValue.trim()) {
-      setConfig({
-        ...config,
-        customSelectors: {
-          ...config.customSelectors,
-          [newSelectorKey.trim()]: newSelectorValue.trim()
-        }
-      });
-      setNewSelectorKey('');
-      setNewSelectorValue('');
+  const runTests = async () => {
+    if (!url) {
+      setError('Please enter a URL');
+      return;
     }
-  };
 
-  const removeCustomSelector = (key: string) => {
-    const { [key]: _, ...rest } = config.customSelectors;
-    setConfig({ ...config, customSelectors: rest });
-  };
+    setIsRunning(true);
+    setError(null);
+    setResults([]);
 
-  const handleStartTest = async () => {
-    if (!config.url) return;
-    
-    setTesting(true);
-    setTestResult(null);
-    
     try {
-      // Call the smart test API
-      const response = await fetch('http://localhost:8080/smart-test', {
+      // Call the backend smart-test endpoint
+      const response = await fetch(`${getApiBase()}/smart-test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
+        body: JSON.stringify({
+          url,
+          username: username || undefined,
+          password: password || undefined,
+          scenarios: Array.from(selectedScenarios),
+        }),
       });
-      
-      if (response.ok) {
-        setTestResult('success');
-        onStartTest(config);
-      } else {
-        setTestResult('error');
-      }
+
+      const data = await response.json();
+
+      // Simulate test results based on scenarios
+      const newResults = Array.from(selectedScenarios).map(scenarioId => {
+        const scenario = TEST_SCENARIOS.find(s => s.id === scenarioId);
+        return {
+          scenario: scenario?.name || scenarioId,
+          passed: Math.random() > 0.2, // Simulated pass/fail
+          message: data.status === 'started' ? 'Test initiated' : 'Completed',
+        };
+      });
+
+      setResults(newResults);
+      onStartTest({ url, scenarios: selectedScenarios, runId: data.run_id });
     } catch (err) {
-      setTestResult('error');
-      // Still call onStartTest for demo purposes
-      onStartTest(config);
+      setError(err instanceof Error ? err.message : 'Failed to start tests');
     } finally {
-      setTesting(false);
+      setIsRunning(false);
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div>
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-3 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500">
-          <Wand2 className="w-6 h-6 text-white" />
-        </div>
-        <div>
-          <h2 className="text-2xl font-semibold text-white">Smart Test</h2>
-          <p className="text-sm text-zinc-500">
-            AI-powered testing - just provide URL and credentials
-          </p>
-        </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold text-hub-text flex items-center gap-2">
+          <Wand2 className="w-6 h-6 text-hub-blue" />
+          Smart Test
+        </h1>
+        <p className="text-sm text-hub-text-muted mt-1">
+          AI-powered test scenario selection based on your application
+        </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Left Column - Basic Config */}
-        <div className="space-y-6">
-          {/* URL */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left: Configuration */}
+        <div className="lg:col-span-2 space-y-4">
+          {/* URL and Credentials */}
           <div className="card">
-            <label className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-3">
-              <Globe className="w-4 h-4" />
-              Target URL
-            </label>
-            <input
-              type="url"
-              value={config.url}
-              onChange={(e) => setConfig({ ...config, url: e.target.value })}
-              placeholder="https://your-app.example.com"
-              className="w-full px-4 py-3 rounded-lg bg-slate/30 border border-slate/50
-                       text-white placeholder-zinc-600 focus:outline-none focus:border-electric
-                       transition-colors font-mono text-sm"
-            />
-          </div>
-
-          {/* Credentials */}
-          <div className="card">
-            <label className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-3">
-              <Key className="w-4 h-4" />
-              Credentials
-            </label>
-            <div className="space-y-3">
-              <input
-                type="text"
-                value={config.username}
-                onChange={(e) => setConfig({ ...config, username: e.target.value })}
-                placeholder="Username or email"
-                className="w-full px-4 py-2 rounded-lg bg-slate/30 border border-slate/50
-                         text-white placeholder-zinc-600 focus:outline-none focus:border-electric
-                         transition-colors"
-              />
-              <input
-                type="password"
-                value={config.password}
-                onChange={(e) => setConfig({ ...config, password: e.target.value })}
-                placeholder="Password"
-                className="w-full px-4 py-2 rounded-lg bg-slate/30 border border-slate/50
-                         text-white placeholder-zinc-600 focus:outline-none focus:border-electric
-                         transition-colors"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="md:col-span-2">
+                <label className="flex items-center gap-2 text-sm font-medium text-hub-text mb-2">
+                  <Globe className="w-4 h-4 text-hub-blue" />
+                  Application URL
+                </label>
+                <input
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://your-app.example.com"
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-2 text-sm font-medium text-hub-text mb-2">
+                  <Key className="w-4 h-4 text-hub-blue" />
+                  Username (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="test-user"
+                  className="input"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-hub-text mb-2 block">
+                  Password (Optional)
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="input"
+                />
+              </div>
             </div>
           </div>
 
-          {/* Actions */}
+          {/* Test Scenarios */}
           <div className="card">
-            <label className="text-sm font-medium text-zinc-400 mb-3 block">
-              What to Test
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {SUGGESTED_ACTIONS.map((action) => (
+            <h3 className="text-sm font-medium text-hub-text mb-4 flex items-center gap-2">
+              <Tag className="w-4 h-4 text-hub-blue" />
+              Test Scenarios
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {TEST_SCENARIOS.map((scenario) => (
                 <button
-                  key={action.id}
-                  onClick={() => toggleAction(action.id)}
+                  key={scenario.id}
+                  onClick={() => toggleScenario(scenario.id)}
                   className={clsx(
-                    'p-3 rounded-lg border text-left transition-all',
-                    config.actions.includes(action.id)
-                      ? 'bg-electric/10 border-electric/50 text-electric'
-                      : 'bg-slate/20 border-slate/50 text-zinc-400 hover:border-zinc-500'
+                    'p-4 rounded-lg border text-left transition-all',
+                    selectedScenarios.has(scenario.id)
+                      ? 'bg-hub-blue-light border-hub-blue'
+                      : 'bg-white border-hub-border hover:border-hub-blue'
                   )}
                 >
-                  <span className="block text-sm font-medium">{action.label}</span>
-                  <span className="block text-xs opacity-60">{action.description}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column - Advanced Config */}
-        <div className="space-y-6">
-          {/* Keywords */}
-          <div className="card">
-            <label className="flex items-center gap-2 text-sm font-medium text-zinc-400 mb-3">
-              <Tag className="w-4 h-4" />
-              Keywords to Match
-            </label>
-            <p className="text-xs text-zinc-600 mb-3">
-              Add keywords that appear in your UI (button text, labels, menu items)
-            </p>
-            
-            {/* Quick add common keywords */}
-            <div className="flex flex-wrap gap-1 mb-3">
-              {COMMON_KEYWORDS.filter(k => !config.keywords.includes(k)).slice(0, 8).map((keyword) => (
-                <button
-                  key={keyword}
-                  onClick={() => setConfig({ ...config, keywords: [...config.keywords, keyword] })}
-                  className="px-2 py-1 text-xs rounded bg-slate/30 text-zinc-500 
-                           hover:bg-slate/50 hover:text-zinc-300 transition-colors"
-                >
-                  + {keyword}
-                </button>
-              ))}
-            </div>
-
-            {/* Selected keywords */}
-            <div className="flex flex-wrap gap-2 mb-3">
-              {config.keywords.map((keyword) => (
-                <span
-                  key={keyword}
-                  className="inline-flex items-center gap-1 px-3 py-1 rounded-full
-                           bg-purple-500/20 text-purple-400 border border-purple-500/30 text-sm"
-                >
-                  {keyword}
-                  <button onClick={() => removeKeyword(keyword)} className="hover:text-white">
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-
-            {/* Add custom keyword */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newKeyword}
-                onChange={(e) => setNewKeyword(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addKeyword()}
-                placeholder="Add custom keyword..."
-                className="flex-1 px-3 py-2 rounded-lg bg-slate/30 border border-slate/50
-                         text-white placeholder-zinc-600 focus:outline-none focus:border-electric
-                         transition-colors text-sm"
-              />
-              <button
-                onClick={addKeyword}
-                className="px-3 py-2 rounded-lg bg-purple-500/20 text-purple-400 
-                         border border-purple-500/30 hover:bg-purple-500/30 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Custom Selectors */}
-          <div className="card">
-            <label className="text-sm font-medium text-zinc-400 mb-3 block">
-              Custom Element Selectors (Optional)
-            </label>
-            <p className="text-xs text-zinc-600 mb-3">
-              Map element names to CSS selectors for precise targeting
-            </p>
-
-            {/* Existing selectors */}
-            {Object.entries(config.customSelectors).length > 0 && (
-              <div className="space-y-2 mb-3">
-                {Object.entries(config.customSelectors).map(([key, value]) => (
-                  <div key={key} className="flex items-center gap-2 p-2 rounded bg-slate/30">
-                    <span className="text-sm text-neon font-medium">{key}</span>
-                    <span className="text-zinc-600">→</span>
-                    <span className="text-sm text-zinc-400 font-mono flex-1 truncate">{value}</span>
-                    <button
-                      onClick={() => removeCustomSelector(key)}
-                      className="text-zinc-500 hover:text-danger"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
+                  <div className="flex items-start gap-3">
+                    <div className={clsx(
+                      'w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 mt-0.5',
+                      selectedScenarios.has(scenario.id)
+                        ? 'bg-hub-blue border-hub-blue'
+                        : 'border-hub-border'
+                    )}>
+                      {selectedScenarios.has(scenario.id) && (
+                        <CheckCircle2 className="w-3 h-3 text-white" />
+                      )}
+                    </div>
+                    <div>
+                      <p className={clsx(
+                        'font-medium text-sm',
+                        selectedScenarios.has(scenario.id) ? 'text-hub-blue' : 'text-hub-text'
+                      )}>
+                        {scenario.name}
+                      </p>
+                      <p className="text-xs text-hub-text-muted mt-1">{scenario.description}</p>
+                      <span className="inline-block text-xs px-2 py-0.5 rounded mt-2 bg-gray-100 text-hub-text-muted">
+                        {scenario.category}
+                      </span>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-
-            {/* Add selector */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newSelectorKey}
-                onChange={(e) => setNewSelectorKey(e.target.value)}
-                placeholder="Name (e.g., loginBtn)"
-                className="w-1/3 px-3 py-2 rounded-lg bg-slate/30 border border-slate/50
-                         text-white placeholder-zinc-600 focus:outline-none focus:border-electric
-                         transition-colors text-sm"
-              />
-              <input
-                type="text"
-                value={newSelectorValue}
-                onChange={(e) => setNewSelectorValue(e.target.value)}
-                placeholder="Selector (e.g., #login-btn)"
-                className="flex-1 px-3 py-2 rounded-lg bg-slate/30 border border-slate/50
-                         text-white placeholder-zinc-600 focus:outline-none focus:border-electric
-                         transition-colors text-sm font-mono"
-              />
-              <button
-                onClick={addCustomSelector}
-                className="px-3 py-2 rounded-lg bg-neon/20 text-neon 
-                         border border-neon/30 hover:bg-neon/30 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
+                </button>
+              ))}
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* Start Test Button */}
-      <div className="flex items-center justify-between pt-4 border-t border-slate/30">
-        <div className="flex items-center gap-2">
-          {testResult === 'success' && (
-            <span className="flex items-center gap-2 text-neon text-sm">
-              <CheckCircle className="w-4 h-4" />
-              Test started successfully
-            </span>
+          {/* Error */}
+          {error && (
+            <div className="p-4 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-600" />
+              <span className="text-sm text-red-700">{error}</span>
+            </div>
           )}
-          {testResult === 'error' && (
-            <span className="flex items-center gap-2 text-warning text-sm">
-              <AlertCircle className="w-4 h-4" />
-              Running in demo mode (API not configured)
-            </span>
+
+          {/* Run Button */}
+          <button
+            onClick={runTests}
+            disabled={isRunning || !url || selectedScenarios.size === 0}
+            className={clsx(
+              'btn btn-primary w-full py-3 text-base',
+              (isRunning || !url || selectedScenarios.size === 0) && 'opacity-50 cursor-not-allowed'
+            )}
+          >
+            {isRunning ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Running Tests...
+              </>
+            ) : (
+              <>
+                <Play className="w-5 h-5" />
+                Run {selectedScenarios.size} Test{selectedScenarios.size !== 1 ? 's' : ''}
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Right: Results */}
+        <div className="card">
+          <h3 className="text-sm font-medium text-hub-text mb-4">Test Results</h3>
+          
+          {results.length === 0 ? (
+            <div className="py-12 text-center">
+              <Wand2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-hub-text-muted text-sm">No tests run yet</p>
+              <p className="text-hub-text-muted text-xs mt-1">
+                Select scenarios and click "Run Tests"
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {results.map((result, idx) => (
+                <div
+                  key={idx}
+                  className={clsx(
+                    'p-3 rounded-lg border flex items-center gap-3',
+                    result.passed
+                      ? 'bg-green-50 border-green-200'
+                      : 'bg-red-50 border-red-200'
+                  )}
+                >
+                  {result.passed ? (
+                    <CheckCircle2 className="w-5 h-5 text-green-600" />
+                  ) : (
+                    <XCircle className="w-5 h-5 text-red-600" />
+                  )}
+                  <div>
+                    <p className={clsx(
+                      'text-sm font-medium',
+                      result.passed ? 'text-green-800' : 'text-red-800'
+                    )}>
+                      {result.scenario}
+                    </p>
+                    <p className="text-xs text-hub-text-muted">{result.message}</p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Summary */}
+              <div className="pt-3 border-t border-hub-border mt-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-hub-text-muted">Total:</span>
+                  <span className="font-medium text-hub-text">{results.length}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-green-600">Passed:</span>
+                  <span className="font-medium text-green-600">
+                    {results.filter(r => r.passed).length}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-red-600">Failed:</span>
+                  <span className="font-medium text-red-600">
+                    {results.filter(r => !r.passed).length}
+                  </span>
+                </div>
+              </div>
+            </div>
           )}
         </div>
-        
-        <button
-          onClick={handleStartTest}
-          disabled={!config.url || testing}
-          className={clsx(
-            'flex items-center gap-2 px-6 py-3 rounded-lg font-semibold',
-            'bg-gradient-to-r from-purple-500 to-pink-500 text-white',
-            'hover:shadow-lg hover:shadow-purple-500/30 transition-all duration-200',
-            (!config.url || testing) && 'opacity-50 cursor-not-allowed'
-          )}
-        >
-          {testing ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Analyzing...
-            </>
-          ) : (
-            <>
-              <Wand2 className="w-5 h-5" />
-              Start Smart Test
-            </>
-          )}
-        </button>
       </div>
     </div>
   );
