@@ -1,5 +1,37 @@
 {{- if .Values.rbac.create }}
-# Role for QA Agent API - read-only access for discovery
+# ClusterRole for listing namespaces (cluster-scoped resource)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "qa-agent.fullname" . }}-cluster
+  labels:
+    {{- include "qa-agent.labels" . | nindent 4 }}
+rules:
+  # List all namespaces
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  # List pods across namespaces for discovery
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "qa-agent.fullname" . }}-cluster
+  labels:
+    {{- include "qa-agent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "qa-agent.fullname" . }}-cluster
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "qa-agent.serviceAccountName" . }}
+    namespace: {{ .Values.global.namespace }}
+---
+# Role for QA Agent API - read-only access for discovery (namespace-scoped)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
