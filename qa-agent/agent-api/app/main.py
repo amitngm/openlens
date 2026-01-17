@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import runs, catalog, artifacts, health, live_test, intelligent_qa
+from app.routers import runs, catalog, artifacts, health, live_test, intelligent_qa, discovery_controller, testcase_generator
 from app.services.discovery import DiscoveryService
 from app.services.rate_limiter import RateLimiter
 from app.utils.logging import setup_logging, RedactingFilter
@@ -98,6 +98,8 @@ app.include_router(catalog.router, prefix="/catalog", tags=["Service Catalog"])
 app.include_router(artifacts.router, prefix="/artifacts", tags=["Artifacts"])
 app.include_router(live_test.router, prefix="/live", tags=["Live Testing"])
 app.include_router(intelligent_qa.router, prefix="/qa", tags=["Intelligent QA"])
+app.include_router(discovery_controller.router, tags=["Discovery Controller"])
+app.include_router(testcase_generator.router, tags=["Testcase Generator"])
 
 
 @app.get("/")
