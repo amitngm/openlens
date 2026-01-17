@@ -707,6 +707,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include Auto QA router
+from app.routers.auto_qa import router as auto_qa_router
+app.include_router(auto_qa_router)
+
 
 @app.get("/")
 async def root():
@@ -714,7 +718,7 @@ async def root():
         "service": "QA Agent API",
         "version": "2.0.0",
         "docs": "/docs",
-        "endpoints": ["/discover", "/generate-tests", "/run"]
+        "endpoints": ["/discover", "/generate-tests", "/run", "/auto/discover", "/auto/run"]
     }
 
 

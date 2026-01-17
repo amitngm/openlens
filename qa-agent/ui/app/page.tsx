@@ -139,6 +139,54 @@ interface Artifact {
 
 type WorkflowState = 'idle' | 'discovering' | 'discovered' | 'generating' | 'generated' | 'running' | 'completed';
 
+// Auto QA Types
+interface AutoDiscovery {
+  discovery_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  ui_url?: string;
+  env?: string;
+  login_success?: boolean;
+  pages?: Array<{
+    url: string;
+    nav_text: string;
+    title: string;
+    has_table: boolean;
+    table_info?: { tables: number; rows: number; columns: number };
+    has_form: boolean;
+    has_search: boolean;
+    has_pagination: boolean;
+    has_filters: boolean;
+    crud_actions: string[];
+  }>;
+  api_endpoints?: Array<{ method: string; url: string; status?: number }>;
+  summary?: {
+    total_pages: number;
+    pages_with_tables: number;
+    pages_with_forms: number;
+    pages_with_crud: number;
+    total_apis: number;
+    testable_actions: number;
+  };
+  warnings?: string[];
+  error?: string;
+}
+
+interface AutoRun {
+  run_id: string;
+  discovery_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  mode: 'quick' | 'full';
+  safety: 'read-only' | 'safe-crud';
+  started_at: string;
+  completed_at?: string;
+  total_tests: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  current_test?: string;
+  planned_tests?: number;
+}
+
 // =============================================================================
 // API Functions (using Next.js API routes - NEVER logs credentials)
 // =============================================================================
@@ -203,6 +251,14 @@ export default function Dashboard() {
   
   // Auto-refresh interval ref
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Auto QA Mode state
+  const [autoMode, setAutoMode] = useState<'quick' | 'full'>('quick');
+  const [autoSafety, setAutoSafety] = useState<'read-only' | 'safe-crud'>('read-only');
+  const [autoDiscovery, setAutoDiscovery] = useState<AutoDiscovery | null>(null);
+  const [autoRun, setAutoRun] = useState<AutoRun | null>(null);
+  const [isAutoRunning, setIsAutoRunning] = useState(false);
+  const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
 
   // ==========================================================================
   // Auto-refresh running items every 3 seconds
@@ -479,6 +535,144 @@ export default function Dashboard() {
   }, []);
 
   // ==========================================================================
+  // Auto QA Handlers
+  // ==========================================================================
+
+  const handleAutoTest = async () => {
+    if (!connection.ui_url) {
+      addToast('warning', 'URL Required', 'Please enter a target URL');
+      return;
+    }
+    
+    setIsAutoRunning(true);
+    setAutoDiscovery(null);
+    setAutoRun(null);
+    
+    try {
+      // Step 1: Start Auto Discovery
+      addToast('info', 'Auto Test Started', 'Starting enhanced discovery...');
+      
+      const discoverData = await apiCall<{ discovery_id: string; status: string }>('/auto/discover', {
+        method: 'POST',
+        body: JSON.stringify({
+          ui_url: connection.ui_url,
+          username: connection.username,
+          password: connection.password,
+          env: connection.env
+        })
+      });
+      
+      // Poll discovery
+      const discoveryResult = await pollAutoDiscovery(discoverData.discovery_id);
+      
+      if (discoveryResult.status !== 'completed') {
+        setIsAutoRunning(false);
+        return;
+      }
+      
+      // Step 2: Start Auto Run
+      addToast('info', 'Discovery Complete', `Found ${discoveryResult.summary?.testable_actions || 0} testable actions. Running tests...`);
+      
+      const runData = await apiCall<{ run_id: string; status: string; planned_tests: number }>('/auto/run', {
+        method: 'POST',
+        body: JSON.stringify({
+          discovery_id: discoverData.discovery_id,
+          mode: autoMode,
+          safety: autoSafety
+        })
+      });
+      
+      setAutoRun({
+        run_id: runData.run_id,
+        discovery_id: discoverData.discovery_id,
+        status: 'running',
+        mode: autoMode,
+        safety: autoSafety,
+        started_at: new Date().toISOString(),
+        total_tests: runData.planned_tests,
+        planned_tests: runData.planned_tests,
+        passed: 0,
+        failed: 0,
+        skipped: 0
+      });
+      
+      // Poll run
+      pollAutoRun(runData.run_id);
+      
+    } catch (error) {
+      showError(error);
+      setIsAutoRunning(false);
+    }
+  };
+
+  const pollAutoDiscovery = async (id: string): Promise<AutoDiscovery> => {
+    let attempts = 0;
+    const maxAttempts = 120;
+    
+    return new Promise((resolve) => {
+      const poll = async () => {
+        try {
+          const data = await apiCall<AutoDiscovery>(`/auto/discover/${id}`);
+          setAutoDiscovery(data);
+          
+          if (data.status === 'completed') {
+            addToast('success', 'Discovery Completed', 
+              `Found ${data.summary?.total_pages || 0} pages, ${data.summary?.testable_actions || 0} testable actions`);
+            resolve(data);
+          } else if (data.status === 'failed') {
+            addToast('error', 'Discovery Failed', data.error);
+            setIsAutoRunning(false);
+            resolve(data);
+          } else if (attempts < maxAttempts) {
+            attempts++;
+            setTimeout(poll, 2000);
+          } else {
+            addToast('error', 'Discovery Timeout', 'Discovery took too long');
+            setIsAutoRunning(false);
+            resolve({ ...data, status: 'failed', error: 'Timeout' });
+          }
+        } catch (error) {
+          showError(error);
+          setIsAutoRunning(false);
+          resolve({ discovery_id: id, status: 'failed', error: 'Poll error' });
+        }
+      };
+      poll();
+    });
+  };
+
+  const pollAutoRun = async (runId: string) => {
+    const poll = async () => {
+      try {
+        const data = await apiCall<AutoRun>(`/auto/run/${runId}`);
+        setAutoRun(prev => ({ ...prev, ...data }));
+        
+        if (data.status === 'completed' || data.status === 'failed') {
+          setIsAutoRunning(false);
+          addToast(
+            data.status === 'completed' ? 'success' : 'error',
+            `Auto Test ${data.status}`,
+            `${data.passed} passed, ${data.failed} failed, ${data.skipped || 0} skipped`
+          );
+          
+          // Load artifacts
+          try {
+            const artifactsData = await apiCall<{ artifacts: Artifact[] }>(`/auto/run/${runId}/artifacts`);
+            setArtifacts(artifactsData.artifacts || []);
+          } catch (e) {
+            // Silently handle
+          }
+        } else {
+          setTimeout(poll, 2000);
+        }
+      } catch (error) {
+        setIsAutoRunning(false);
+      }
+    };
+    poll();
+  };
+
+  // ==========================================================================
   // Render
   // ==========================================================================
 
@@ -598,10 +792,93 @@ export default function Dashboard() {
               <textarea
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
-                disabled={isLoading}
+                disabled={isLoading || isAutoRunning}
                 placeholder="Describe what you want to test...&#10;&#10;Examples:&#10;• Focus on authentication flows&#10;• Test all CRUD operations&#10;• Check form validations"
                 className="w-full h-36 px-3 py-2.5 border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-50"
               />
+            </div>
+
+            {/* Auto Test Panel */}
+            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-purple-500" />
+                Auto QA Mode
+                <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">One-Click</span>
+              </h2>
+              
+              <p className="text-xs text-slate-600 mb-4">
+                Automatically discover, analyze, and test your application. Detects tables, forms, CRUD operations, and more.
+              </p>
+              
+              {/* Mode Selection */}
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Mode</label>
+                  <select
+                    value={autoMode}
+                    onChange={e => setAutoMode(e.target.value as 'quick' | 'full')}
+                    disabled={isAutoRunning}
+                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-slate-50"
+                  >
+                    <option value="quick">Quick (Essential tests)</option>
+                    <option value="full">Full (All tests)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Safety</label>
+                  <select
+                    value={autoSafety}
+                    onChange={e => setAutoSafety(e.target.value as 'read-only' | 'safe-crud')}
+                    disabled={isAutoRunning}
+                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-slate-50"
+                  >
+                    <option value="read-only">Read-Only (No mutations)</option>
+                    <option value="safe-crud">Safe CRUD (Test create/delete)</option>
+                  </select>
+                </div>
+              </div>
+              
+              {/* Auto Test Button */}
+              <button
+                onClick={handleAutoTest}
+                disabled={isAutoRunning || !connection.ui_url}
+                className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg text-sm font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-purple-200 transition-all"
+              >
+                {isAutoRunning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    {autoDiscovery?.status === 'running' ? 'Discovering...' : autoRun?.status === 'running' ? 'Running Tests...' : 'Starting...'}
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4" />
+                    Auto Test
+                  </>
+                )}
+              </button>
+              
+              {/* Auto Progress */}
+              {isAutoRunning && autoRun && (
+                <div className="mt-4 p-3 bg-white/50 rounded-lg">
+                  <div className="flex items-center justify-between text-xs mb-2">
+                    <span className="text-slate-600">Progress</span>
+                    <span className="font-medium text-slate-900">
+                      {autoRun.passed + autoRun.failed + (autoRun.skipped || 0)} / {autoRun.total_tests}
+                    </span>
+                  </div>
+                  <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+                      style={{ width: `${((autoRun.passed + autoRun.failed + (autoRun.skipped || 0)) / autoRun.total_tests) * 100}%` }}
+                    />
+                  </div>
+                  {autoRun.current_test && (
+                    <p className="text-xs text-slate-500 mt-2 truncate">
+                      Running: {autoRun.current_test}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Actions Panel */}
@@ -693,8 +970,13 @@ export default function Dashboard() {
           {/* Right Column - Output */}
           <div className="col-span-8 space-y-6">
             
+            {/* Auto Discovery Output */}
+            {autoDiscovery && (
+              <AutoDiscoveryOutput discovery={autoDiscovery} run={autoRun} />
+            )}
+            
             {/* Discovery Output */}
-            {discovery && (
+            {discovery && !autoDiscovery && (
               <DiscoveryOutput discovery={discovery} />
             )}
             
@@ -1113,6 +1395,219 @@ function DiscoveryOutput({ discovery }: { discovery: Discovery }) {
                 ))}
               </div>
             )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Auto Discovery Output Component
+// =============================================================================
+
+function AutoDiscoveryOutput({ discovery, run }: { discovery: AutoDiscovery; run: AutoRun | null }) {
+  const [expandedSection, setExpandedSection] = useState<string | null>('summary');
+  
+  if (discovery.status === 'running' || discovery.status === 'pending') {
+    return (
+      <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-5">
+        <div className="flex items-center gap-3">
+          <Loader2 className="w-5 h-5 text-purple-500 animate-spin" />
+          <div>
+            <p className="text-sm font-medium text-slate-900">Auto Discovery in progress...</p>
+            <p className="text-xs text-slate-500">Crawling {discovery.ui_url}, detecting UI elements</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (discovery.status === 'failed') {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-5">
+        <div className="flex items-start gap-3">
+          <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-medium text-red-800">Auto Discovery Failed</p>
+            <p className="text-xs text-red-600 mt-1">{discovery.error || 'Unknown error'}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  const summary = discovery.summary || { total_pages: 0, pages_with_tables: 0, pages_with_forms: 0, pages_with_crud: 0, total_apis: 0, testable_actions: 0 };
+  
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100 bg-gradient-to-r from-purple-50 to-indigo-50">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+            <Zap className="w-4 h-4 text-purple-500" />
+            Auto Discovery Results
+          </h2>
+          <div className="flex items-center gap-2">
+            {discovery.login_success && (
+              <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" /> Login OK
+              </span>
+            )}
+            <span className="text-xs text-slate-500">{discovery.discovery_id}</span>
+          </div>
+        </div>
+      </div>
+      
+      {/* Warnings */}
+      {discovery.warnings && discovery.warnings.length > 0 && (
+        <div className="px-5 py-3 bg-amber-50 border-b border-amber-100">
+          {discovery.warnings.map((warning, i) => (
+            <div key={i} className="flex items-start gap-2 text-xs text-amber-800">
+              <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+              <span>{warning}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {/* Summary Stats */}
+      <div className="grid grid-cols-6 gap-3 p-5 bg-slate-50 border-b border-slate-100">
+        {[
+          { label: 'Pages', value: summary.total_pages, icon: Layout },
+          { label: 'Tables', value: summary.pages_with_tables, icon: List },
+          { label: 'Forms', value: summary.pages_with_forms, icon: FileText },
+          { label: 'CRUD', value: summary.pages_with_crud, icon: Code },
+          { label: 'APIs', value: summary.total_apis, icon: Globe },
+          { label: 'Tests', value: summary.testable_actions, icon: CheckCircle2, highlight: true },
+        ].map(({ label, value, icon: Icon, highlight }) => (
+          <div key={label} className={`text-center p-2 rounded-lg ${highlight ? 'bg-purple-100' : 'bg-white'}`}>
+            <Icon className={`w-4 h-4 mx-auto mb-1 ${highlight ? 'text-purple-600' : 'text-slate-400'}`} />
+            <p className={`text-lg font-bold ${highlight ? 'text-purple-600' : 'text-slate-900'}`}>{value}</p>
+            <p className="text-xs text-slate-500">{label}</p>
+          </div>
+        ))}
+      </div>
+      
+      <div className="p-5 space-y-4">
+        {/* Detected Pages */}
+        <div>
+          <button 
+            onClick={() => setExpandedSection(expandedSection === 'pages' ? null : 'pages')}
+            className="w-full flex items-center justify-between text-left mb-2"
+          >
+            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide flex items-center gap-2">
+              <Layout className="w-3.5 h-3.5" />
+              Detected Pages ({discovery.pages?.length || 0})
+            </span>
+            <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${expandedSection === 'pages' ? 'rotate-90' : ''}`} />
+          </button>
+          
+          {expandedSection === 'pages' && (
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {discovery.pages?.map((page, i) => (
+                <div key={i} className="p-3 bg-slate-50 rounded-lg">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{page.nav_text || page.title}</p>
+                      <p className="text-xs text-slate-500 truncate max-w-md">{page.url}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1 ml-2">
+                      {page.has_table && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                          Table {page.table_info && `(${page.table_info.rows}r)`}
+                        </span>
+                      )}
+                      {page.has_search && (
+                        <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Search</span>
+                      )}
+                      {page.has_pagination && (
+                        <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Pagination</span>
+                      )}
+                      {page.has_form && (
+                        <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">Form</span>
+                      )}
+                      {page.crud_actions.map(action => (
+                        <span key={action} className="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded capitalize">
+                          {action}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        
+        {/* APIs */}
+        {discovery.api_endpoints && discovery.api_endpoints.length > 0 && (
+          <div>
+            <button 
+              onClick={() => setExpandedSection(expandedSection === 'apis' ? null : 'apis')}
+              className="w-full flex items-center justify-between text-left mb-2"
+            >
+              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide flex items-center gap-2">
+                <Code className="w-3.5 h-3.5" />
+                API Endpoints ({discovery.api_endpoints.length})
+              </span>
+              <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${expandedSection === 'apis' ? 'rotate-90' : ''}`} />
+            </button>
+            
+            {expandedSection === 'apis' && (
+              <div className="border border-slate-200 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="py-2 px-3 text-left font-medium text-slate-600 w-16">Method</th>
+                      <th className="py-2 px-3 text-left font-medium text-slate-600">URL</th>
+                      <th className="py-2 px-3 text-left font-medium text-slate-600 w-14">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {discovery.api_endpoints.slice(0, 30).map((api, i) => (
+                      <tr key={i} className="hover:bg-slate-50">
+                        <td className="py-1.5 px-3">
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-mono font-medium ${
+                            api.method === 'GET' ? 'bg-emerald-100 text-emerald-700' :
+                            api.method === 'POST' ? 'bg-blue-100 text-blue-700' :
+                            api.method === 'PUT' ? 'bg-amber-100 text-amber-700' :
+                            api.method === 'DELETE' ? 'bg-red-100 text-red-700' :
+                            'bg-slate-100 text-slate-700'
+                          }`}>
+                            {api.method}
+                          </span>
+                        </td>
+                        <td className="py-1.5 px-3 font-mono text-slate-600 truncate max-w-xs">{api.url}</td>
+                        <td className="py-1.5 px-3 text-slate-500">{api.status || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Run Results */}
+        {run && run.status === 'completed' && (
+          <div className="pt-4 border-t border-slate-200">
+            <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3 flex items-center gap-2">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Auto Test Results
+            </h3>
+            <div className="grid grid-cols-4 gap-3">
+              {[
+                { label: 'Total', value: run.total_tests, color: 'text-slate-900' },
+                { label: 'Passed', value: run.passed, color: 'text-emerald-600' },
+                { label: 'Failed', value: run.failed, color: 'text-red-600' },
+                { label: 'Skipped', value: run.skipped || 0, color: 'text-slate-500' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="text-center p-2 bg-slate-50 rounded-lg">
+                  <p className={`text-xl font-bold ${color}`}>{value}</p>
+                  <p className="text-xs text-slate-500">{label}</p>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
