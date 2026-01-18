@@ -238,7 +238,88 @@ async def run_auto_discovery(discovery_id: str, request: AutoDiscoverRequest):
             if not result["login_success"]:
                 result["warnings"].append("Login may have failed - no success indicator found")
             
-            # Step 3: Crawl navigation
+            # Step 3: Detect tenant/project context
+            safe_log(f"[{discovery_id}] Detecting tenant/project context")
+            tenant_project_candidates = []
+            
+            # Check URL patterns
+            current_url = page.url
+            url_parts = current_url.split('/')
+            for i, part in enumerate(url_parts):
+                if part in ['tenant', 'tenants', 'project', 'projects', 'org', 'organization', 'workspace']:
+                    if i + 1 < len(url_parts):
+                        candidate = url_parts[i + 1]
+                        if candidate and candidate not in ['', 'new', 'create']:
+                            tenant_project_candidates.append({
+                                "type": part,
+                                "value": candidate,
+                                "source": "url_pattern"
+                            })
+            
+            # Check UI dropdowns/selects
+            try:
+                tenant_selectors = [
+                    "select[name*='tenant' i], select[id*='tenant' i]",
+                    "select[name*='project' i], select[id*='project' i]",
+                    "select[name*='org' i], select[id*='org' i]",
+                    "[data-testid*='tenant'], [data-testid*='project']"
+                ]
+                for selector in tenant_selectors:
+                    try:
+                        dropdown = page.locator(selector).first
+                        if await dropdown.count() > 0:
+                            options = await dropdown.locator("option").all()
+                            for opt in options[:10]:  # Limit to 10 options
+                                value = await opt.get_attribute("value")
+                                text = await opt.inner_text()
+                                if value and value not in ['', 'none', 'select']:
+                                    tenant_project_candidates.append({
+                                        "type": "tenant" if "tenant" in selector.lower() else "project",
+                                        "value": value,
+                                        "label": text.strip()[:50],
+                                        "source": "dropdown"
+                                    })
+                    except:
+                        continue
+            except:
+                pass
+            
+            # Check labels/badges in UI
+            try:
+                label_selectors = [
+                    "[class*='tenant'], [class*='project']",
+                    ".badge, .label, .tag"
+                ]
+                for selector in label_selectors:
+                    try:
+                        labels = page.locator(selector)
+                        count = await labels.count()
+                        for i in range(min(count, 5)):
+                            text = await labels.nth(i).inner_text()
+                            if text and len(text) < 50:
+                                if any(keyword in text.lower() for keyword in ['tenant', 'project', 'org']):
+                                    tenant_project_candidates.append({
+                                        "type": "context",
+                                        "value": text.strip(),
+                                        "source": "ui_label"
+                                    })
+                    except:
+                        continue
+            except:
+                pass
+            
+            # Deduplicate candidates
+            seen = set()
+            unique_candidates = []
+            for candidate in tenant_project_candidates:
+                key = f"{candidate['type']}:{candidate['value']}"
+                if key not in seen:
+                    seen.add(key)
+                    unique_candidates.append(candidate)
+            
+            result["tenant_project_candidates"] = unique_candidates[:10]  # Limit to 10
+            
+            # Step 4: Crawl navigation
             safe_log(f"[{discovery_id}] Crawling navigation")
             nav_urls = set()
             base_domain = urlparse(request.ui_url).netloc
@@ -586,6 +667,141 @@ def generate_auto_test_plan(discovery: Dict, mode: str, safety: str) -> List[Dic
 
 
 # =============================================================================
+# Self-Debug Helpers
+# =============================================================================
+
+def identify_impacted_services(failed_requests: List[Dict]) -> List[Dict]:
+    """Identify impacted backend services from failed network requests."""
+    services = {}
+    
+    for req in failed_requests:
+        url = req.get("url", "")
+        status = req.get("status", 0)
+        method = req.get("method", "GET")
+        
+        if status >= 400:  # Failed requests
+            parsed = urlparse(url)
+            host = parsed.netloc.split(':')[0]  # Remove port
+            
+            # Map to service name (heuristic)
+            service_name = host
+            if '.' in host:
+                # Extract service name from hostname
+                parts = host.split('.')
+                if len(parts) > 1:
+                    service_name = parts[0]  # e.g., api.example.com -> api
+            
+            if service_name not in services:
+                services[service_name] = {
+                    "host": host,
+                    "failed_requests": [],
+                    "error_codes": set()
+                }
+            
+            services[service_name]["failed_requests"].append({
+                "method": method,
+                "path": parsed.path,
+                "status": status,
+                "url": url
+            })
+            services[service_name]["error_codes"].add(status)
+    
+    # Convert to list format
+    result = []
+    for service_name, data in services.items():
+        result.append({
+            "service": service_name,
+            "host": data["host"],
+            "failed_count": len(data["failed_requests"]),
+            "error_codes": sorted(list(data["error_codes"])),
+            "failed_requests": data["failed_requests"][:5]  # Limit to 5
+        })
+    
+    return result
+
+
+async def debug_failure(
+    run_id: str,
+    test_result: Dict,
+    failed_requests: List[Dict],
+    screenshot_path: Path,
+    har_path: Optional[Path] = None
+) -> Dict:
+    """Self-debug a failed test: collect K8s logs, Mongo checks, etc."""
+    debug_info = {
+        "test_id": test_result.get("test_id"),
+        "error": test_result.get("error"),
+        "screenshot": screenshot_path.name if screenshot_path.exists() else None,
+        "har": har_path.name if har_path and har_path.exists() else None,
+        "impacted_services": identify_impacted_services(failed_requests),
+        "k8s_debug": {},
+        "mongo_debug": {}
+    }
+    
+    # K8s Inspector: Check pods in allowlisted namespaces
+    try:
+        from app.routers.k8s_inspector import load_allowlist, v1_core, IN_CLUSTER
+        
+        if IN_CLUSTER and v1_core:
+            allowlist = load_allowlist()
+            if allowlist:
+                for namespace in allowlist[:3]:  # Limit to 3 namespaces
+                    try:
+                        pods = v1_core.list_namespaced_pod(namespace)
+                        failed_pods = [
+                            {
+                                "name": pod.metadata.name,
+                                "status": pod.status.phase,
+                                "restarts": sum(c.restart_count for c in pod.status.container_statuses or []),
+                                "ready": sum(1 for c in pod.status.container_statuses or [] if c.ready)
+                            }
+                            for pod in pods.items
+                            if pod.status.phase != "Running" or 
+                               sum(c.restart_count for c in pod.status.container_statuses or []) > 0
+                        ]
+                        
+                        if failed_pods:
+                            debug_info["k8s_debug"][namespace] = {
+                                "unhealthy_pods": failed_pods,
+                                "total_pods": len(pods.items)
+                            }
+                    except Exception as e:
+                        logger.warning(f"Failed to inspect namespace {namespace}: {e}")
+    except Exception as e:
+        logger.warning(f"K8s debug failed: {e}")
+    
+    # Mongo Inspector: Check if configured
+    try:
+        from app.routers.mongo_inspector import get_mongo_uri
+        from app.routers.k8s_inspector import load_allowlist
+        
+        allowlist = load_allowlist()
+        for namespace in allowlist[:2]:  # Limit to 2 namespaces
+            if get_mongo_uri(namespace):
+                try:
+                    from app.routers.mongo_inspector import get_mongo_client
+                    client = get_mongo_client(namespace)
+                    if client:
+                        db_name = urlparse(get_mongo_uri(namespace)).path.lstrip('/') or 'admin'
+                        db = client[db_name]
+                        collections = db.list_collection_names()[:5]
+                        debug_info["mongo_debug"][namespace] = {
+                            "database": db_name,
+                            "collections": collections,
+                            "accessible": True
+                        }
+                        client.close()
+                except Exception as e:
+                    debug_info["mongo_debug"][namespace] = {
+                        "error": str(e)[:100]
+                    }
+    except Exception as e:
+        logger.warning(f"Mongo debug failed: {e}")
+    
+    return debug_info
+
+
+# =============================================================================
 # Auto Test Runner
 # =============================================================================
 
@@ -631,9 +847,19 @@ async def run_auto_tests(run_id: str, discovery_id: str, tests: List[Dict], cred
             # Track console errors and API responses
             console_errors = []
             api_responses = []
+            failed_requests = []  # Track failed requests for debugging
             
             page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
-            page.on("response", lambda resp: api_responses.append({"url": resp.url, "status": resp.status}) if "/api/" in resp.url else None)
+            page.on("response", lambda resp: (
+                api_responses.append({"url": resp.url, "status": resp.status, "method": "GET"}),
+                failed_requests.append({"url": resp.url, "status": resp.status, "method": "GET"}) if resp.status >= 400 else None
+            ) if "/api/" in resp.url or resp.status >= 400 else None)
+            page.on("requestfailed", lambda req: failed_requests.append({
+                "url": req.url,
+                "status": req.response.status if req.response else 0,
+                "method": req.method,
+                "failure": req.failure.error_text if hasattr(req, 'failure') else None
+            }))
             
             logged_in = False
             
@@ -653,6 +879,14 @@ async def run_auto_tests(run_id: str, discovery_id: str, tests: List[Dict], cred
                 _auto_runs[run_id]["current_test"] = test["id"]
                 console_errors.clear()
                 api_responses.clear()
+                failed_requests.clear()
+                
+                # Start tracing for HAR export (if test fails)
+                har_path = None
+                try:
+                    await context.tracing.start(screenshots=True, snapshots=True)
+                except:
+                    pass  # Tracing may not be available
                 
                 try:
                     for step in test.get("steps", []):
@@ -811,6 +1045,69 @@ async def run_auto_tests(run_id: str, discovery_id: str, tests: List[Dict], cred
                     if failed_steps:
                         test_result["status"] = "failed"
                         test_result["error"] = failed_steps[0].get("error")
+                        
+                        # Self-debug on failure: Export HAR and collect debug info
+                        har_path = run_dir / f"test_{idx+1:03d}_{test['id']}.har"
+                        try:
+                            # Stop tracing and export HAR
+                            trace_path = run_dir / f"test_{idx+1:03d}_{test['id']}_trace.zip"
+                            try:
+                                await context.tracing.stop(path=str(trace_path))
+                                # Extract HAR from trace (simplified - create from captured requests)
+                            except:
+                                pass
+                            
+                            # Create HAR from captured requests
+                            har_entries = []
+                            for req in failed_requests + [r for r in api_responses if r.get("status", 0) >= 400]:
+                                har_entries.append({
+                                    "request": {
+                                        "method": req.get("method", "GET"),
+                                        "url": req.get("url", ""),
+                                        "headers": []
+                                    },
+                                    "response": {
+                                        "status": req.get("status", 0),
+                                        "statusText": "OK" if req.get("status", 0) < 400 else "Error"
+                                    },
+                                    "timings": {}
+                                })
+                            
+                            har_data = {
+                                "log": {
+                                    "version": "1.2",
+                                    "creator": {"name": "QA Agent", "version": "2.0"},
+                                    "entries": har_entries
+                                }
+                            }
+                            
+                            with open(har_path, "w") as f:
+                                json.dump(har_data, f, indent=2)
+                            test_result["evidence"].append(har_path.name)
+                        except Exception as e:
+                            logger.warning(f"Failed to export HAR: {e}")
+                            har_path = None
+                        
+                        # Call self-debug
+                        try:
+                            debug_info = await debug_failure(
+                                run_id,
+                                test_result,
+                                failed_requests,
+                                screenshot,
+                                har_path
+                            )
+                            test_result["debug"] = debug_info
+                            
+                            # Save debug bundle
+                            debug_bundle = run_dir / f"test_{idx+1:03d}_{test['id']}_debug.json"
+                            with open(debug_bundle, "w") as f:
+                                json.dump(debug_info, f, indent=2)
+                            test_result["evidence"].append(debug_bundle.name)
+                        except Exception as e:
+                            logger.warning(f"Self-debug failed: {e}")
+                            test_result["debug"] = {"error": str(e)[:100]}
+                        
                         failed += 1
                     elif len(skipped_steps) == len(test_result["steps"]):
                         test_result["status"] = "skipped"
@@ -821,6 +1118,15 @@ async def run_auto_tests(run_id: str, discovery_id: str, tests: List[Dict], cred
                     else:
                         test_result["status"] = "passed"
                         passed += 1
+                    
+                    # Clear failed_requests for next test
+                    failed_requests.clear()
+                    
+                    # Restart tracing for next test
+                    try:
+                        await context.tracing.start(screenshots=True, snapshots=True)
+                    except:
+                        pass
                 
                 except Exception as e:
                     test_result["status"] = "error"

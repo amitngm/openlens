@@ -188,11 +188,13 @@ interface AutoRun {
 }
 
 // =============================================================================
-// API Functions (using Next.js API routes - NEVER logs credentials)
+// API Functions (call backend directly - NEVER logs credentials)
 // =============================================================================
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? window.location.origin.replace(':3000', ':8080') : 'http://localhost:8080');
+
 async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`/api${endpoint}`, {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
@@ -201,7 +203,7 @@ async function apiCall<T>(endpoint: string, options?: RequestInit): Promise<T> {
   
   if (!response.ok) {
     throw { 
-      error: data.error || 'Request failed', 
+      error: data.error || data.detail || 'Request failed', 
       detail: data.detail,
       status: response.status 
     } as ApiError;

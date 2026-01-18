@@ -17,6 +17,9 @@ RUN npm ci --legacy-peer-deps
 # Copy UI source
 COPY ui/ ./
 
+# Remove API routes (not needed for static export, client calls backend directly)
+RUN rm -rf app/api
+
 # Update next.config.js for static export
 RUN cat > next.config.js << 'EOF'
 /** @type {import('next').NextConfig} */

@@ -707,9 +707,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Auto QA router
+# Include routers
 from app.routers.auto_qa import router as auto_qa_router
 app.include_router(auto_qa_router)
+
+try:
+    from app.routers.k8s_inspector import router as k8s_router
+    app.include_router(k8s_router)
+except Exception as e:
+    logger.warning(f"K8s inspector not available: {e}")
+
+try:
+    from app.routers.mongo_inspector import router as mongo_router
+    app.include_router(mongo_router)
+except Exception as e:
+    logger.warning(f"Mongo inspector not available: {e}")
 
 
 @app.get("/")

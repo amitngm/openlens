@@ -14,5 +14,11 @@ playwright==1.41.0
 # Async support
 aiofiles==23.2.1
 
+# Kubernetes client (for K8s inspector)
+kubernetes==28.1.0
+
+# MongoDB client (for Mongo inspector)
+pymongo==4.6.1
+
 # Development
 python-dotenv==1.0.0

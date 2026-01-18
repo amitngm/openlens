@@ -31,6 +31,12 @@ rbac:
     - apiGroups: [""]
       resources: ["pods/log"]
       verbs: ["get", "list"]
+    - apiGroups: [""]
+      resources: ["events"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["namespaces"]
+      verbs: ["get", "list", "watch"]
     - apiGroups: ["networking.k8s.io"]
       resources: ["ingresses"]
       verbs: ["get", "list", "watch"]
@@ -87,6 +93,14 @@ env:
   # Playwright browsers path
   - name: PLAYWRIGHT_BROWSERS_PATH
     value: "/app/browsers"
+  # Kubernetes integration
+  - name: IN_CLUSTER
+    value: "true"
+  - name: ENABLE_K8S_LOGS
+    value: "true"
+  # MongoDB URIs (optional, per namespace)
+  # Example: MONGO_URI_DEFAULT=mongodb://mongo.default.svc.cluster.local:27017
+  # Add via envFrom or additional env vars
 
 # Additional environment variables from secrets/configmaps
 envFrom: []
