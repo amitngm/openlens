@@ -1,5 +1,0 @@
-# API Runner Dependencies
-
-requests>=2.31.0
-urllib3>=2.1.0
-jsonpath-ng>=1.6.0

@@ -1,9 +1,0 @@
-{
-  "username_selector": "input[name='token'], input[type='text']",
-  "password_selector": "input[name='token']",
-  "submit_selector": "button[type='submit'], button:has-text('Sign in')",
-  "success_indicator": ".kd-nav, .mat-toolbar, .overview",
-  "nav_selector": ".kd-nav a, mat-nav-list a, [role='navigation'] a",
-  "wait_after_login": 5000,
-  "notes": "For Kubernetes Dashboard, use token-based auth. Put token in both username and password fields."
-}

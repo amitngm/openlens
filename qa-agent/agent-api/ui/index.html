@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive QA Buddy</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 30px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #fafafa;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .section h2 {
+            color: #34495e;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        input[type="checkbox"] {
+            width: auto;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        button:hover:not(:disabled) {
+            background: #2980b9;
+        }
+
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #c0392b;
+        }
+
+        .btn-success {
+            background: #27ae60;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #229954;
+        }
+
+        .status-panel {
+            background: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+
+        .status-item {
+            margin-bottom: 8px;
+        }
+
+        .status-label {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .status-value {
+            color: #34495e;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #3498db;
+            transition: width 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .question-panel {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 20px;
+            border-radius: 6px;
+        }
+
+        .question-text {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #856404;
+            font-weight: 500;
+        }
+
+        .question-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .option-button {
+            background: white;
+            border: 2px solid #ffc107;
+            padding: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+        }
+
+        .option-button:hover {
+            background: #fff9e6;
+            border-color: #ff9800;
+        }
+
+        .confirm-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .text-input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .text-input-group input {
+            flex: 1;
+        }
+
+        .screenshot {
+            margin-top: 15px;
+            text-align: center;
+        }
+
+        .screenshot img {
+            max-width: 100%;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            border: 1px solid #f5c6cb;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            border: 1px solid #c3e6cb;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .report-section {
+            text-align: center;
+        }
+
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Interactive QA Buddy</h1>
+        <p class="subtitle">Automated testing with interactive guidance</p>
+
+        <!-- Configuration Section -->
+        <div class="section">
+            <h2>Configuration</h2>
+            <div class="form-group">
+                <label for="base_url">Base URL *</label>
+                <input type="text" id="base_url" placeholder="https://your-app.example.com" value="">
+            </div>
+            <div class="form-group">
+                <label for="env">Environment</label>
+                <select id="env">
+                    <option value="dev">Development</option>
+                    <option value="staging">Staging</option>
+                    <option value="prod">Production</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="headless" checked>
+                    <label for="headless">Run in headless mode</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="auth_type">Authentication Type</label>
+                <select id="auth_type">
+                    <option value="none">None</option>
+                    <option value="keycloak" selected>Keycloak</option>
+                </select>
+            </div>
+            <div class="form-group" id="auth_fields">
+                <label for="username">Username</label>
+                <input type="text" id="username" placeholder="Enter username">
+                <label for="password" style="margin-top: 10px;">Password</label>
+                <input type="password" id="password" placeholder="Enter password">
+            </div>
+            <button id="start_btn" onclick="startRun()">Start Run</button>
+            <button id="stop_btn" class="btn-danger hidden" onclick="stopRun()">Stop Polling</button>
+        </div>
+
+        <!-- Status Section -->
+        <div class="section" id="status_section" style="display: none;">
+            <h2>Run Status</h2>
+            <div id="status_panel" class="status-panel">
+                <div class="status-item">
+                    <span class="status-label">Run ID:</span>
+                    <span class="status-value" id="run_id_display">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">State:</span>
+                    <span class="status-value" id="state_display">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Current URL:</span>
+                    <span class="status-value" id="current_url_display">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Last Step:</span>
+                    <span class="status-value" id="last_step_display">-</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Progress:</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress_fill" style="width: 0%">0%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Question Section -->
+        <div class="section hidden" id="question_section">
+            <h2>Action Required</h2>
+            <div id="question_panel" class="question-panel">
+                <div class="question-text" id="question_text"></div>
+                <div id="question_content"></div>
+                <div id="question_screenshot" class="screenshot"></div>
+            </div>
+        </div>
+
+        <!-- Report Section -->
+        <div class="section hidden" id="report_section">
+            <h2>Test Report</h2>
+            <div class="report-section">
+                <button id="open_report_btn" class="btn-success" onclick="openReport()">Open Report</button>
+                <button id="toggle_report_btn" class="btn-success hidden" onclick="toggleReport()">Show/Hide Report</button>
+                <iframe id="report_frame" class="hidden" style="display: none;"></iframe>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div id="message_area"></div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = window.location.origin; // Use same origin, or set to 'http://localhost:8000' for different host
+
+        // State
+        let currentRunId = null;
+        let pollingInterval = null;
+        let currentQuestion = null;
+
+        // Initialize
+        document.getElementById('auth_type').addEventListener('change', function() {
+            const authFields = document.getElementById('auth_fields');
+            if (this.value === 'none') {
+                authFields.style.display = 'none';
+            } else {
+                authFields.style.display = 'block';
+            }
+        });
+
+        // Start run
+        async function startRun() {
+            const baseUrl = document.getElementById('base_url').value.trim();
+            if (!baseUrl) {
+                showMessage('Please enter a base URL', 'error');
+                return;
+            }
+
+            const env = document.getElementById('env').value;
+            const headless = document.getElementById('headless').checked;
+            const authType = document.getElementById('auth_type').value;
+
+            const payload = {
+                base_url: baseUrl,
+                env: env,
+                headless: headless
+            };
+
+            if (authType === 'keycloak') {
+                const username = document.getElementById('username').value.trim();
+                const password = document.getElementById('password').value.trim();
+                if (username && password) {
+                    payload.auth = {
+                        type: 'keycloak',
+                        username: username,
+                        password: password
+                    };
+                }
+            }
+
+            try {
+                showMessage('Starting run...', 'success');
+                document.getElementById('start_btn').disabled = true;
+
+                const response = await fetch(`${API_BASE}/runs/start`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                currentRunId = data.run_id;
+
+                showMessage(`Run started: ${currentRunId}`, 'success');
+                document.getElementById('status_section').style.display = 'block';
+                document.getElementById('stop_btn').classList.remove('hidden');
+                updateStatus(data);
+                startPolling();
+
+            } catch (error) {
+                showMessage(`Failed to start run: ${error.message}`, 'error');
+                document.getElementById('start_btn').disabled = false;
+            }
+        }
+
+        // Start polling
+        function startPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+
+            pollingInterval = setInterval(async () => {
+                if (!currentRunId) return;
+
+                try {
+                    const response = await fetch(`${API_BASE}/runs/${currentRunId}/status`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    updateStatus(data);
+
+                    // Check if done
+                    if (data.state === 'DONE' || data.state === 'FAILED') {
+                        stopPolling();
+                        checkReportAvailable();
+                    }
+
+                } catch (error) {
+                    console.error('Polling error:', error);
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+
+        // Stop polling
+        function stopRun() {
+            stopPolling();
+            document.getElementById('start_btn').disabled = false;
+            document.getElementById('stop_btn').classList.add('hidden');
+        }
+
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+
+        // Update status display
+        function updateStatus(data) {
+            document.getElementById('run_id_display').textContent = data.run_id || '-';
+            document.getElementById('state_display').textContent = data.state || '-';
+            document.getElementById('current_url_display').textContent = data.current_url || '-';
+            document.getElementById('last_step_display').textContent = data.last_step || '-';
+
+            const progress = data.progress || 0;
+            const progressFill = document.getElementById('progress_fill');
+            progressFill.style.width = `${progress}%`;
+            progressFill.textContent = `${progress}%`;
+
+            // Handle question
+            if (data.question) {
+                currentQuestion = data.question;
+                showQuestion(data.question);
+            } else {
+                hideQuestion();
+            }
+        }
+
+        // Show question
+        function showQuestion(question) {
+            const questionSection = document.getElementById('question_section');
+            const questionText = document.getElementById('question_text');
+            const questionContent = document.getElementById('question_content');
+            const questionScreenshot = document.getElementById('question_screenshot');
+
+            questionSection.classList.remove('hidden');
+            questionText.textContent = question.text || '';
+
+            // Clear previous content
+            questionContent.innerHTML = '';
+            questionScreenshot.innerHTML = '';
+
+            // Render based on type
+            if (question.type === 'select_one' && question.options) {
+                const optionsDiv = document.createElement('div');
+                optionsDiv.className = 'question-options';
+                question.options.forEach(option => {
+                    const button = document.createElement('button');
+                    button.className = 'option-button';
+                    button.textContent = option.label || option.id;
+                    button.onclick = () => submitAnswer(question.id, option.id);
+                    optionsDiv.appendChild(button);
+                });
+                questionContent.appendChild(optionsDiv);
+            } else if (question.type === 'confirm') {
+                const buttonsDiv = document.createElement('div');
+                buttonsDiv.className = 'confirm-buttons';
+                
+                const yesBtn = document.createElement('button');
+                yesBtn.className = 'btn-success';
+                yesBtn.textContent = 'Yes';
+                yesBtn.onclick = () => submitAnswer(question.id, 'yes');
+                
+                const noBtn = document.createElement('button');
+                noBtn.className = 'btn-danger';
+                noBtn.textContent = 'No';
+                noBtn.onclick = () => submitAnswer(question.id, 'no');
+                
+                buttonsDiv.appendChild(yesBtn);
+                buttonsDiv.appendChild(noBtn);
+                questionContent.appendChild(buttonsDiv);
+            } else if (question.type === 'text') {
+                const inputGroup = document.createElement('div');
+                inputGroup.className = 'text-input-group';
+                
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = 'answer_input';
+                input.placeholder = 'Enter your answer...';
+                
+                const submitBtn = document.createElement('button');
+                submitBtn.textContent = 'Submit';
+                submitBtn.onclick = () => {
+                    const answer = document.getElementById('answer_input').value.trim();
+                    if (answer) {
+                        submitAnswer(question.id, answer);
+                    }
+                };
+                
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        submitBtn.onclick();
+                    }
+                });
+                
+                inputGroup.appendChild(input);
+                inputGroup.appendChild(submitBtn);
+                questionContent.appendChild(inputGroup);
+            }
+
+            // Show screenshot if available
+            if (question.screenshot_path) {
+                const img = document.createElement('img');
+                img.src = question.screenshot_path;
+                img.alt = 'Screenshot';
+                img.onerror = () => {
+                    questionScreenshot.innerHTML = '<p style="color: #999;">Screenshot not available</p>';
+                };
+                questionScreenshot.appendChild(img);
+            }
+        }
+
+        // Hide question
+        function hideQuestion() {
+            document.getElementById('question_section').classList.add('hidden');
+            currentQuestion = null;
+        }
+
+        // Submit answer
+        async function submitAnswer(questionId, answer) {
+            if (!currentRunId) return;
+
+            try {
+                showMessage('Submitting answer...', 'success');
+                
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/answer`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        question_id: questionId,
+                        answer: answer
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                showMessage('Answer submitted successfully', 'success');
+                updateStatus(data);
+
+            } catch (error) {
+                showMessage(`Failed to submit answer: ${error.message}`, 'error');
+            }
+        }
+
+        // Check if report is available
+        async function checkReportAvailable() {
+            if (!currentRunId) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/report`);
+                if (response.ok) {
+                    document.getElementById('report_section').classList.remove('hidden');
+                    document.getElementById('open_report_btn').disabled = false;
+                    document.getElementById('toggle_report_btn').classList.remove('hidden');
+                }
+            } catch (error) {
+                // Report not ready yet
+            }
+        }
+
+        // Open report
+        function openReport() {
+            if (!currentRunId) return;
+            window.open(`${API_BASE}/runs/${currentRunId}/report`, '_blank');
+        }
+
+        // Toggle report inline
+        function toggleReport() {
+            const frame = document.getElementById('report_frame');
+            if (frame.style.display === 'none') {
+                frame.src = `${API_BASE}/runs/${currentRunId}/report`;
+                frame.style.display = 'block';
+            } else {
+                frame.style.display = 'none';
+            }
+        }
+
+        // Show message
+        function showMessage(message, type) {
+            const messageArea = document.getElementById('message_area');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type === 'error' ? 'error' : 'success';
+            messageDiv.textContent = message;
+            messageArea.innerHTML = '';
+            messageArea.appendChild(messageDiv);
+
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

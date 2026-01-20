@@ -1,8 +1,0 @@
-{
-  "username_selector": "input[name='user'], input[placeholder*='email']",
-  "password_selector": "input[name='password'], input[type='password']",
-  "submit_selector": "button[type='submit'], button:has-text('Log in')",
-  "success_indicator": ".sidemenu, .navbar, [data-testid='nav-toggle']",
-  "nav_selector": ".sidemenu a, nav a, [role='navigation'] a",
-  "wait_after_login": 3000
-}
