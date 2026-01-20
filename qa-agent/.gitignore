@@ -55,3 +55,8 @@ htmlcov/
 *.tmp
 *.temp
 *.bak
+
+# Runtime PID / logs (local dev)
+*.pid
+api.log
+ui.log

@@ -1,31 +1,137 @@
 {
 	"info": {
-		"_postman_id": "qa-agent-api-collection",
-		"name": "QA Agent API",
-		"description": "Complete API collection for QA Agent - Discovery, Test Generation, Execution, and Reports",
-		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+		"_postman_id": "qa-agent-api-collection-v2",
+		"name": "QA Agent API - Complete Collection",
+		"description": "Complete API collection for QA Agent including QA Buddy V2 (recommended), Legacy endpoints, and all utilities",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"version": "2.0.0"
 	},
 	"item": [
 		{
-			"name": "Health Check",
-			"request": {
-				"method": "GET",
-				"header": [],
-				"url": {
-					"raw": "http://localhost:8080/health",
-					"protocol": "http",
-					"host": [
-						"localhost"
-					],
-					"port": "8080",
-					"path": [
-						"health"
-					]
+			"name": "Health & Utility",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": ["{{base_url}}"],
+							"path": ["health"]
+						},
+						"description": "Check API health status"
+					}
+				},
+				{
+					"name": "API Documentation (Swagger)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/docs",
+							"host": ["{{base_url}}"],
+							"path": ["docs"]
+						},
+						"description": "Open Swagger UI documentation"
+					}
 				}
-			}
+			]
 		},
 		{
-			"name": "Discovery",
+			"name": "QA Buddy V2 (Recommended)",
+			"description": "Simplified 5-step flow: S1 Login → S2 Trace Pages → S3 Detect Access → S4 Health Check → S5 Test Execution",
+			"item": [
+				{
+					"name": "Start Discovery",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"application_url\": \"https://n1devcmp-user.airteldev.com\",\n    \"username\": \"your-username\",\n    \"password\": \"your-password\",\n    \"env\": \"staging\",\n    \"config_name\": \"keycloak\",\n    \"test_prompt\": null\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/qa-buddy-v2/discover",
+							"host": ["{{base_url}}"],
+							"path": ["qa-buddy-v2", "discover"]
+						},
+						"description": "Start QA Buddy V2 discovery flow (S1-S5). Returns discovery_id immediately."
+					},
+					"response": []
+				},
+				{
+					"name": "Start Discovery (SSE Stream)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"application_url\": \"https://n1devcmp-user.airteldev.com\",\n    \"username\": \"your-username\",\n    \"password\": \"your-password\",\n    \"env\": \"staging\",\n    \"config_name\": \"keycloak\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/qa-buddy-v2/discover/stream",
+							"host": ["{{base_url}}"],
+							"path": ["qa-buddy-v2", "discover", "stream"]
+						},
+						"description": "Start discovery with Server-Sent Events (SSE) for real-time progress updates"
+					}
+				},
+				{
+					"name": "Get Discovery Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/qa-buddy-v2/discover/{{discovery_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["qa-buddy-v2", "discover", "{{discovery_id}}"]
+						},
+						"description": "Get discovery status and results. Shows current stage (S1-S5) and all results so far."
+					}
+				},
+				{
+					"name": "Execute Test (S5)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"test_prompt\": \"test all forms\",\n    \"test_type\": \"form_validation\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/qa-buddy-v2/discover/{{discovery_id}}/test",
+							"host": ["{{base_url}}"],
+							"path": ["qa-buddy-v2", "discover", "{{discovery_id}}", "test"]
+						},
+						"description": "Execute tests based on natural language prompt. Requires discovery to be completed (S1-S4 done).\n\nSupported prompts:\n- \"test all forms\" - Validates all form pages\n- \"test navigation\" - Tests link clicking\n- \"test tables\" - Checks table rendering\n- \"test login\" - Validates login flow"
+					}
+				}
+			]
+		},
+		{
+			"name": "Legacy Discovery",
+			"description": "Original discovery endpoints (for backward compatibility)",
 			"item": [
 				{
 					"name": "Start Discovery (Basic)",
@@ -42,43 +148,9 @@
 							"raw": "{\n    \"ui_url\": \"https://n1devcmp-user.airteldev.com\",\n    \"username\": \"your-username\",\n    \"password\": \"your-password\",\n    \"env\": \"staging\",\n    \"config_name\": \"keycloak\"\n}"
 						},
 						"url": {
-							"raw": "http://localhost:8080/discover",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"discover"
-							]
-						}
-					}
-				},
-				{
-					"name": "Start QA Buddy Discovery (Advanced)",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"application_url\": \"https://n1devcmp-user.airteldev.com\",\n    \"username\": \"your-username\",\n    \"password\": \"your-password\",\n    \"env\": \"staging\",\n    \"config_name\": \"keycloak\"\n}"
-						},
-						"url": {
-							"raw": "http://localhost:8080/qa-buddy/discover",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"qa-buddy",
-								"discover"
-							]
+							"raw": "{{base_url}}/discover",
+							"host": ["{{base_url}}"],
+							"path": ["discover"]
 						}
 					}
 				},
@@ -88,36 +160,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://localhost:8080/discover/{{discovery_id}}",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"discover",
-								"{{discovery_id}}"
-							]
-						}
-					}
-				},
-				{
-					"name": "Get QA Buddy Discovery Status",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "http://localhost:8080/qa-buddy/discover/{{discovery_id}}",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"qa-buddy",
-								"discover",
-								"{{discovery_id}}"
-							]
+							"raw": "{{base_url}}/discover/{{discovery_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["discover", "{{discovery_id}}"]
 						}
 					}
 				}
@@ -141,16 +186,11 @@
 							"raw": "{\n    \"discovery_id\": \"{{discovery_id}}\"\n}"
 						},
 						"url": {
-							"raw": "http://localhost:8080/generate-tests",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"generate-tests"
-							]
-						}
+							"raw": "{{base_url}}/generate-tests",
+							"host": ["{{base_url}}"],
+							"path": ["generate-tests"]
+						},
+						"description": "Generate smoke tests from discovery results"
 					}
 				},
 				{
@@ -159,23 +199,16 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://localhost:8080/tests/{{discovery_id}}",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"tests",
-								"{{discovery_id}}"
-							]
+							"raw": "{{base_url}}/tests/{{discovery_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["tests", "{{discovery_id}}"]
 						}
 					}
 				}
 			]
 		},
 		{
-			"name": "Test Execution (Discovery-based)",
+			"name": "Test Execution",
 			"item": [
 				{
 					"name": "Start Test Run",
@@ -192,16 +225,11 @@
 							"raw": "{\n    \"discovery_id\": \"{{discovery_id}}\",\n    \"suite\": \"smoke\"\n}"
 						},
 						"url": {
-							"raw": "http://localhost:8080/run",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"run"
-							]
-						}
+							"raw": "{{base_url}}/run",
+							"host": ["{{base_url}}"],
+							"path": ["run"]
+						},
+						"description": "Start test execution from generated tests"
 					}
 				},
 				{
@@ -210,16 +238,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://localhost:8080/run/{{run_id}}",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"run",
-								"{{run_id}}"
-							]
+							"raw": "{{base_url}}/run/{{run_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["run", "{{run_id}}"]
 						}
 					}
 				},
@@ -229,18 +250,11 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://localhost:8080/run/{{run_id}}/report.html",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"run",
-								"{{run_id}}",
-								"report.html"
-							]
-						}
+							"raw": "{{base_url}}/run/{{run_id}}/report.html",
+							"host": ["{{base_url}}"],
+							"path": ["run", "{{run_id}}", "report.html"]
+						},
+						"description": "Get full HTML report with embedded screenshots and evidence"
 					}
 				},
 				{
@@ -249,16 +263,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://localhost:8080/run/runs",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"run",
-								"runs"
-							]
+							"raw": "{{base_url}}/run/runs",
+							"host": ["{{base_url}}"],
+							"path": ["run", "runs"]
 						}
 					}
 				},
@@ -268,37 +275,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://localhost:8080/run/{{run_id}}/artifacts",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"run",
-								"{{run_id}}",
-								"artifacts"
-							]
-						}
-					}
-				},
-				{
-					"name": "Download Artifact",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "http://localhost:8080/artifacts/{{run_id}}/{{filename}}",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"artifacts",
-								"{{run_id}}",
-								"{{filename}}"
-							]
+							"raw": "{{base_url}}/run/{{run_id}}/artifacts",
+							"host": ["{{base_url}}"],
+							"path": ["run", "{{run_id}}", "artifacts"]
 						}
 					}
 				}
@@ -322,15 +301,9 @@
 							"raw": "{\n    \"flow_id\": \"public-ip-allocation\",\n    \"env\": \"staging\"\n}"
 						},
 						"url": {
-							"raw": "http://localhost:8080/runs",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"runs"
-							]
+							"raw": "{{base_url}}/runs",
+							"host": ["{{base_url}}"],
+							"path": ["runs"]
 						}
 					}
 				},
@@ -340,16 +313,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://localhost:8080/runs/{{run_id}}",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"runs",
-								"{{run_id}}"
-							]
+							"raw": "{{base_url}}/runs/{{run_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["runs", "{{run_id}}"]
 						}
 					}
 				},
@@ -359,17 +325,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://localhost:8080/runs/{{run_id}}/report.html",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"runs",
-								"{{run_id}}",
-								"report.html"
-							]
+							"raw": "{{base_url}}/runs/{{run_id}}/report.html",
+							"host": ["{{base_url}}"],
+							"path": ["runs", "{{run_id}}", "report.html"]
 						}
 					}
 				},
@@ -379,15 +337,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "http://localhost:8080/runs",
-							"protocol": "http",
-							"host": [
-								"localhost"
-							],
-							"port": "8080",
-							"path": [
-								"runs"
-							]
+							"raw": "{{base_url}}/runs",
+							"host": ["{{base_url}}"],
+							"path": ["runs"]
 						}
 					}
 				}
@@ -396,8 +348,13 @@
 	],
 	"variable": [
 		{
+			"key": "base_url",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
 			"key": "discovery_id",
-			"value": "4436f697-c4f",
+			"value": "f5864810-ca1",
 			"type": "string"
 		},
 		{
