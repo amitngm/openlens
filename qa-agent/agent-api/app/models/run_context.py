@@ -93,6 +93,7 @@ class RunContext(BaseModel):
     test_plan: Optional[Dict[str, Any]] = Field(None, description="Generated test plan")
     timestamps: Dict[str, str] = Field(default_factory=dict, description="State transition timestamps")
     artifacts_path: str = Field(..., description="Path to artifacts directory")
+    free_text_commands: List[str] = Field(default_factory=list, description="Free-text commands from user")
     
     class Config:
         json_schema_extra = {

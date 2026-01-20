@@ -435,6 +435,30 @@ async def answer_question(
     if not context:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
     
+    # Handle free_text commands (special case)
+    if request.question_id == "free_text":
+        # Store free_text command
+        if not context.free_text_commands:
+            context.free_text_commands = []
+        context.free_text_commands.append(request.answer)
+        context = _run_store.update_run(run_id, free_text_commands=context.free_text_commands)
+        
+        logger.info(f"[{run_id}] Free text command received: {request.answer[:100]}")
+        
+        # Log the command (for now, just acknowledge)
+        # In future, this can be used to influence TEST_PLAN_BUILD
+        message = f"Command received: {request.answer[:100]}"
+        
+        # Return current status
+        context = _run_store.get_run(run_id)
+        return AnswerResponse(
+            run_id=context.run_id,
+            state=context.state.value,
+            question=context.question,
+            message=message,
+            current_url=context.current_url
+        )
+    
     # Validate question_id matches current question
     if context.question and context.question.id != request.question_id:
         raise HTTPException(

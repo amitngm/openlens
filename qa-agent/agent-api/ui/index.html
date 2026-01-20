@@ -14,17 +14,41 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: #f5f5f5;
-            padding: 20px;
+            margin: 0;
+            padding: 0;
             color: #333;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .main-layout {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        .app-panel {
+            width: 60%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-right: 2px solid #ddd;
+        }
+
+        .buddy-panel {
+            width: 40%;
+            height: 100vh;
+            overflow-y: auto;
+            background: #fafafa;
+            padding: 20px;
         }
 
         .container {
-            max-width: 1200px;
-            margin: 0 auto;
+            max-width: 100%;
+            margin: 0;
             background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            padding: 30px;
+            padding: 20px;
         }
 
         h1 {
@@ -264,19 +288,127 @@
             text-align: center;
         }
 
-        iframe {
+        .app-iframe-container {
+            flex: 1;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            background: #f0f0f0;
+        }
+
+        .app-iframe-header {
+            padding: 10px 15px;
+            background: #2c3e50;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .app-iframe-header h3 {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .app-iframe {
+            flex: 1;
             width: 100%;
-            height: 600px;
+            border: none;
+            background: white;
+        }
+
+        .iframe-blocked {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .iframe-blocked p {
+            color: #6c757d;
+            margin-bottom: 20px;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+
+        .iframe-blocked .info-text {
+            color: #495057;
+            font-size: 14px;
+            margin-top: 15px;
+            max-width: 400px;
+        }
+
+        .free-text-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .free-text-section h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            color: #2c3e50;
+        }
+
+        .free-text-input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .free-text-input-group textarea {
+            flex: 1;
+            padding: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
-            margin-top: 15px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .free-text-input-group button {
+            padding: 10px 20px;
+            white-space: nowrap;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🔍 Interactive QA Buddy</h1>
-        <p class="subtitle">Automated testing with interactive guidance</p>
+    <div class="main-layout">
+        <!-- Left Panel: Application UI -->
+        <div class="app-panel">
+            <div class="app-iframe-container">
+                <div class="app-iframe-header">
+                    <h3>📱 Application UI</h3>
+                    <button id="open_app_tab_btn" class="hidden" style="padding: 6px 12px; font-size: 12px; background: #27ae60;">
+                        Open in New Tab
+                    </button>
+                </div>
+                <iframe id="app_iframe" class="app-iframe" src="about:blank" title="Application"></iframe>
+                <div id="iframe_blocked" class="iframe-blocked hidden">
+                    <p>⚠️ Application cannot be embedded (X-Frame-Options blocked)</p>
+                    <p class="info-text">
+                        This is a security feature that prevents embedding. The QA Buddy will still work - 
+                        it uses Playwright in the background to interact with your application.
+                    </p>
+                    <button id="open_app_tab_btn2" style="padding: 10px 20px; margin-top: 10px;">
+                        Open Application in New Tab
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: QA Buddy -->
+        <div class="buddy-panel">
+            <div class="container">
+                <h1>🔍 Interactive QA Buddy</h1>
+                <p class="subtitle">Automated testing with interactive guidance</p>
 
         <!-- Configuration Section -->
         <div class="section">
@@ -314,6 +446,15 @@
             </div>
             <button id="start_btn" onclick="startRun()">Start Run</button>
             <button id="stop_btn" class="btn-danger hidden" onclick="stopRun()">Stop Polling</button>
+        </div>
+
+        <!-- Free Text Input Section -->
+        <div class="free-text-section" id="free_text_section" style="display: none;">
+            <h3>💬 Ask QA Buddy</h3>
+            <div class="free-text-input-group">
+                <textarea id="free_text_input" placeholder="What should I test / check / skip?"></textarea>
+                <button id="submit_free_text_btn" onclick="submitFreeText()">Send</button>
+            </div>
         </div>
 
         <!-- Status Section -->
@@ -367,6 +508,8 @@
 
         <!-- Messages -->
         <div id="message_area"></div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -377,6 +520,7 @@
         let currentRunId = null;
         let pollingInterval = null;
         let currentQuestion = null;
+        let currentAppUrl = null; // Track current application URL
 
         // Initialize
         document.getElementById('auth_type').addEventListener('change', function() {
@@ -440,7 +584,12 @@
 
                 showMessage(`Run started: ${currentRunId}`, 'success');
                 document.getElementById('status_section').style.display = 'block';
+                document.getElementById('free_text_section').style.display = 'block';
                 document.getElementById('stop_btn').classList.remove('hidden');
+                
+                // Load application in iframe
+                loadAppInIframe(baseUrl, data.current_url);
+                
                 updateStatus(data);
                 startPolling();
 
@@ -506,6 +655,31 @@
             progressFill.style.width = `${progress}%`;
             progressFill.textContent = `${progress}%`;
 
+            // Update app URL if changed (e.g., after login)
+            if (data.current_url && data.current_url !== currentAppUrl) {
+                currentAppUrl = data.current_url;
+                // Try to reload iframe with new URL (if not blocked)
+                const iframe = document.getElementById('app_iframe');
+                const iframeBlocked = document.getElementById('iframe_blocked');
+                if (iframeBlocked.classList.contains('hidden')) {
+                    iframe.src = data.current_url;
+                }
+                // Update "Open in New Tab" button to use current URL
+                const openTabBtn = document.getElementById('open_app_tab_btn');
+                const openTabBtn2 = document.getElementById('open_app_tab_btn2');
+                const openInNewTab = () => window.open(data.current_url, '_blank');
+                if (openTabBtn) openTabBtn.onclick = openInNewTab;
+                if (openTabBtn2) openTabBtn2.onclick = openInNewTab;
+            }
+
+            // Show test execution status in app panel
+            updateTestExecutionStatus(data);
+
+            // Check for report when done
+            if (data.state === 'DONE' || data.state === 'REPORT_GENERATE') {
+                checkReportAvailable();
+            }
+
             // Handle question
             if (data.question) {
                 currentQuestion = data.question;
@@ -513,6 +687,33 @@
             } else {
                 hideQuestion();
             }
+        }
+
+        // Update test execution status in app panel
+        function updateTestExecutionStatus(data) {
+            const appHeader = document.querySelector('.app-iframe-header h3');
+            if (!appHeader) return;
+
+            let statusText = '📱 Application UI';
+            
+            // Show test execution status
+            if (data.state === 'TEST_EXECUTE') {
+                statusText = '🧪 Running Tests...';
+            } else if (data.state === 'TEST_PLAN_BUILD') {
+                statusText = '📋 Building Test Plan...';
+            } else if (data.state === 'DISCOVERY_RUN') {
+                statusText = '🔍 Discovering Application...';
+            } else if (data.state === 'LOGIN_ATTEMPT' || data.state === 'POST_LOGIN_VALIDATE') {
+                statusText = '🔐 Logging In...';
+            } else if (data.state === 'DONE') {
+                statusText = '✅ Tests Complete';
+            } else if (data.state === 'FAILED') {
+                statusText = '❌ Tests Failed';
+            } else if (data.current_url) {
+                statusText = '📱 Application UI';
+            }
+
+            appHeader.textContent = statusText;
         }
 
         // Show question
@@ -644,14 +845,16 @@
             try {
                 const response = await fetch(`${API_BASE}/runs/${currentRunId}/report`);
                 if (response.ok) {
-                    document.getElementById('report_section').classList.remove('hidden');
+                    document.getElementById('report_section').style.display = 'block';
                     document.getElementById('open_report_btn').disabled = false;
-                    document.getElementById('toggle_report_btn').classList.remove('hidden');
+                    document.getElementById('toggle_report_btn').style.display = 'inline-block';
+                    showMessage('📊 Test report is now available!', 'success');
                 }
             } catch (error) {
                 // Report not ready yet
             }
         }
+
 
         // Open report
         function openReport() {
@@ -669,6 +872,147 @@
                 frame.style.display = 'none';
             }
         }
+
+        // Load application in iframe
+        function loadAppInIframe(baseUrl, currentUrl = null) {
+            const iframe = document.getElementById('app_iframe');
+            const iframeBlocked = document.getElementById('iframe_blocked');
+            const openTabBtn = document.getElementById('open_app_tab_btn');
+            const openTabBtn2 = document.getElementById('open_app_tab_btn2');
+            
+            // Use current URL if available (logged-in page), otherwise use base URL
+            const urlToLoad = currentUrl || baseUrl;
+            currentAppUrl = urlToLoad;
+            
+            // Set up open in new tab buttons - use current URL (logged-in page)
+            const openInNewTab = () => {
+                const url = currentAppUrl || baseUrl;
+                window.open(url, '_blank');
+            };
+            openTabBtn.onclick = openInNewTab;
+            openTabBtn2.onclick = openInNewTab;
+            
+            // Reset visibility
+            iframeBlocked.classList.add('hidden');
+            iframe.classList.remove('hidden');
+            openTabBtn.classList.add('hidden');
+            
+            // Try to load in iframe - use current URL if available
+            iframe.src = urlToLoad;
+            
+            let checkAttempts = 0;
+            const maxAttempts = 3;
+            
+            // Check for X-Frame-Options blocking
+            const checkIfBlocked = () => {
+                checkAttempts++;
+                try {
+                    // Try to access iframe content (will fail if blocked by X-Frame-Options)
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    // If we can access it, it's not blocked
+                    if (iframeDoc && iframeDoc.location) {
+                        iframeBlocked.classList.add('hidden');
+                        iframe.classList.remove('hidden');
+                        openTabBtn.classList.add('hidden');
+                        return; // Success - not blocked
+                    }
+                } catch (e) {
+                    // Cross-origin or X-Frame-Options blocked
+                    // This is expected for most applications
+                }
+                
+                // If we've tried enough times, assume it's blocked
+                if (checkAttempts >= maxAttempts) {
+                    // Check if iframe actually loaded something
+                    try {
+                        // If we can't access content, it's likely blocked
+                        iframeBlocked.classList.remove('hidden');
+                        iframe.classList.add('hidden');
+                        openTabBtn.classList.remove('hidden');
+                    } catch (e) {
+                        // Definitely blocked
+                        iframeBlocked.classList.remove('hidden');
+                        iframe.classList.add('hidden');
+                        openTabBtn.classList.remove('hidden');
+                    }
+                } else {
+                    // Try again after a delay
+                    setTimeout(checkIfBlocked, 1000);
+                }
+            };
+            
+            // Start checking after iframe starts loading
+            iframe.onload = () => {
+                setTimeout(checkIfBlocked, 500);
+            };
+            
+            // Also check after initial delay
+            setTimeout(checkIfBlocked, 1500);
+            
+            // Listen for load error
+            iframe.onerror = () => {
+                iframeBlocked.classList.remove('hidden');
+                iframe.classList.add('hidden');
+                openTabBtn.classList.remove('hidden');
+            };
+        }
+
+        // Submit free text
+        async function submitFreeText() {
+            if (!currentRunId) {
+                showMessage('No active run. Please start a run first.', 'error');
+                return;
+            }
+
+            const input = document.getElementById('free_text_input');
+            const text = input.value.trim();
+            
+            if (!text) {
+                showMessage('Please enter a question or command.', 'error');
+                return;
+            }
+
+            try {
+                showMessage('Sending message to QA Buddy...', 'success');
+                
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/answer`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        question_id: 'free_text',
+                        answer: text
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                showMessage('Message sent successfully', 'success');
+                input.value = ''; // Clear input
+                updateStatus(data);
+
+            } catch (error) {
+                showMessage(`Failed to send message: ${error.message}`, 'error');
+            }
+        }
+
+        // Allow Enter key to submit free text (Shift+Enter for new line)
+        document.addEventListener('DOMContentLoaded', () => {
+            const freeTextInput = document.getElementById('free_text_input');
+            if (freeTextInput) {
+                freeTextInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        submitFreeText();
+                    }
+                });
+            }
+        });
 
         // Show message
         function showMessage(message, type) {
