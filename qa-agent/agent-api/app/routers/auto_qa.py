@@ -21,8 +21,9 @@ from typing import Optional, Dict, Any, List, Literal
 from urllib.parse import urlparse, urljoin
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+import httpx
 
 # =============================================================================
 # Configuration
@@ -61,6 +62,13 @@ class AutoRunRequest(BaseModel):
     discovery_id: str
     mode: Literal["quick", "full"] = "quick"
     safety: Literal["read-only", "safe-crud"] = "read-only"
+
+
+class PreflightRequest(BaseModel):
+    ui_url: str
+    username: str
+    password: str
+    config_name: str = "default"
 
 
 # =============================================================================
@@ -120,10 +128,203 @@ LOGIN_CONFIGS = {
 
 
 # =============================================================================
+# Preflight Validation
+# =============================================================================
+
+async def validate_preflight(ui_url: str, username: str, password: str, config_name: str = "default") -> Dict[str, Any]:
+    """
+    Preflight validation: check URL reachability, detect login page, attempt login.
+    Returns {status: "success"|"failed", stage: "preflight|login", reason: str}
+    """
+    from playwright.async_api import async_playwright
+    import httpx
+    
+    config = LOGIN_CONFIGS.get(config_name, LOGIN_CONFIGS["default"])
+    
+    # Stage 1: Validate URL reachability
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(ui_url)
+            if resp.status_code >= 500:
+                return {
+                    "status": "failed",
+                    "stage": "preflight",
+                    "reason": f"Server error: {resp.status_code}"
+                }
+    except httpx.TimeoutException:
+        return {
+            "status": "failed",
+            "stage": "preflight",
+            "reason": "URL timeout (10s exceeded)"
+        }
+    except Exception as e:
+        return {
+            "status": "failed",
+            "stage": "preflight",
+            "reason": f"URL unreachable: {str(e)[:100]}"
+        }
+    
+    # Stage 2: Detect login page and attempt login (max 1 retry)
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                ignore_https_errors=True
+            )
+            page = await context.new_page()
+            
+            # Navigate
+            try:
+                await page.goto(ui_url, timeout=10000, wait_until="domcontentloaded")
+            except Exception as e:
+                await browser.close()
+                return {
+                    "status": "failed",
+                    "stage": "preflight",
+                    "reason": f"Page load failed: {str(e)[:100]}"
+                }
+            
+            # Detect login page - check for username/password fields
+            login_detected = False
+            for selector in config["username_selector"].split(", "):
+                try:
+                    if await page.locator(selector).first.count() > 0:
+                        login_detected = True
+                        break
+                except:
+                    continue
+            
+            if not login_detected:
+                await browser.close()
+                return {
+                    "status": "failed",
+                    "stage": "preflight",
+                    "reason": "Login page not detected - no username field found"
+                }
+            
+            # Attempt login (max 1 retry)
+            login_success = False
+            for attempt in range(2):  # Max 2 attempts (initial + 1 retry)
+                try:
+                    # Fill username
+                    username_filled = False
+                    for selector in config["username_selector"].split(", "):
+                        try:
+                            if await page.locator(selector).first.count() > 0:
+                                await page.locator(selector).first.fill(username)
+                                username_filled = True
+                                break
+                        except:
+                            continue
+                    
+                    # Fill password
+                    password_filled = False
+                    for selector in config["password_selector"].split(", "):
+                        try:
+                            if await page.locator(selector).first.count() > 0:
+                                await page.locator(selector).first.fill(password)
+                                password_filled = True
+                                break
+                        except:
+                            continue
+                    
+                    if not username_filled or not password_filled:
+                        await browser.close()
+                        return {
+                            "status": "failed",
+                            "stage": "login",
+                            "reason": "Cannot find login form fields"
+                        }
+                    
+                    # Submit
+                    submit_clicked = False
+                    for selector in config["submit_selector"].split(", "):
+                        try:
+                            if await page.locator(selector).first.count() > 0:
+                                await page.locator(selector).first.click()
+                                submit_clicked = True
+                                break
+                        except:
+                            continue
+                    
+                    if not submit_clicked:
+                        await browser.close()
+                        return {
+                            "status": "failed",
+                            "stage": "login",
+                            "reason": "Cannot find submit button"
+                        }
+                    
+                    # Wait for login
+                    await asyncio.sleep(config["wait_after_login"] / 1000)
+                    
+                    # Check login success using post-login markers:
+                    # sidebar visible OR profile/avatar button OR "Dashboard" text
+                    success_markers = [
+                        "nav", ".sidebar", ".menu", 
+                        ".profile", ".user-menu", "[data-testid*='profile']", "[data-testid*='avatar']",
+                        "text=Dashboard", "text=Dashboard", "button:has-text('Dashboard')"
+                    ]
+                    
+                    for marker in success_markers:
+                        try:
+                            if "text=" in marker or "has-text" in marker:
+                                if await page.locator(marker).first.count() > 0:
+                                    login_success = True
+                                    break
+                            else:
+                                if await page.locator(marker).first.count() > 0:
+                                    login_success = True
+                                    break
+                        except:
+                            continue
+                    
+                    if login_success:
+                        await browser.close()
+                        return {
+                            "status": "success",
+                            "stage": "login",
+                            "reason": "Login confirmed"
+                        }
+                    
+                    # If first attempt failed and we have retries left, try once more
+                    if attempt == 0:
+                        await page.reload()
+                        await asyncio.sleep(1)
+                    else:
+                        break
+                        
+                except Exception as e:
+                    if attempt == 0:
+                        continue  # Retry once
+                    await browser.close()
+                    return {
+                        "status": "failed",
+                        "stage": "login",
+                        "reason": f"Login attempt failed: {str(e)[:100]}"
+                    }
+            
+            await browser.close()
+            return {
+                "status": "failed",
+                "stage": "login",
+                "reason": "Login failed - no success marker found after 2 attempts"
+            }
+            
+    except Exception as e:
+        return {
+            "status": "failed",
+            "stage": "login",
+            "reason": f"Browser error: {str(e)[:100]}"
+        }
+
+
+# =============================================================================
 # Enhanced Discovery Service
 # =============================================================================
 
-async def run_auto_discovery(discovery_id: str, request: AutoDiscoverRequest):
+async def run_auto_discovery(discovery_id: str, request: AutoDiscoverRequest, emit_event=None):
     """Run enhanced Playwright-based discovery with UI element detection."""
     from playwright.async_api import async_playwright
     
@@ -156,6 +357,31 @@ async def run_auto_discovery(discovery_id: str, request: AutoDiscoverRequest):
     
     _auto_discoveries[discovery_id]["status"] = "running"
     api_requests = []
+    
+    # Preflight validation
+    if emit_event:
+        await emit_event({"event": "CONNECTED", "data": {"url": request.ui_url}})
+    
+    preflight_result = await validate_preflight(
+        request.ui_url, request.username, request.password, request.config_name
+    )
+    
+    if preflight_result["status"] == "failed":
+        result["status"] = "failed"
+        result["error"] = f"Preflight {preflight_result['stage']}: {preflight_result['reason']}"
+        result["completed_at"] = datetime.utcnow().isoformat() + "Z"
+        _auto_discoveries[discovery_id]["status"] = "failed"
+        _auto_discoveries[discovery_id]["error"] = result["error"]
+        
+        discovery_dir = DATA_DIR / discovery_id
+        discovery_dir.mkdir(parents=True, exist_ok=True)
+        with open(discovery_dir / "discovery.json", "w") as f:
+            json.dump(redact_secrets(result), f, indent=2)
+        
+        return result
+    
+    if emit_event:
+        await emit_event({"event": "LOGIN_OK", "data": {"stage": preflight_result["stage"]}})
     
     try:
         async with async_playwright() as p:
@@ -191,52 +417,13 @@ async def run_auto_discovery(discovery_id: str, request: AutoDiscoverRequest):
             page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
             
             # Step 1: Navigate
-            safe_log(f"[{discovery_id}] Opening", {"url": request.ui_url})
+            # Already logged in from preflight, just navigate
+            safe_log(f"[{discovery_id}] Opening (already logged in)", {"url": request.ui_url})
             await page.goto(request.ui_url, timeout=30000, wait_until="networkidle")
             await page.screenshot(path=str(discovery_dir / "01_initial.png"))
             
-            # Step 2: Login
-            safe_log(f"[{discovery_id}] Attempting login")
-            
-            for selector in config["username_selector"].split(", "):
-                try:
-                    if await page.locator(selector).first.count() > 0:
-                        await page.locator(selector).first.fill(request.username)
-                        break
-                except:
-                    continue
-            
-            for selector in config["password_selector"].split(", "):
-                try:
-                    if await page.locator(selector).first.count() > 0:
-                        await page.locator(selector).first.fill(request.password)
-                        break
-                except:
-                    continue
-            
-            for selector in config["submit_selector"].split(", "):
-                try:
-                    if await page.locator(selector).first.count() > 0:
-                        await page.locator(selector).first.click()
-                        break
-                except:
-                    continue
-            
-            await asyncio.sleep(config["wait_after_login"] / 1000)
-            await page.screenshot(path=str(discovery_dir / "02_after_login.png"))
-            
-            # Check login success
-            for selector in config["success_indicator"].split(", "):
-                try:
-                    if await page.locator(selector).first.count() > 0:
-                        result["login_success"] = True
-                        safe_log(f"[{discovery_id}] Login successful")
-                        break
-                except:
-                    continue
-            
-            if not result["login_success"]:
-                result["warnings"].append("Login may have failed - no success indicator found")
+            # Login confirmed from preflight
+            result["login_success"] = True
             
             # Step 3: Detect tenant/project context
             safe_log(f"[{discovery_id}] Detecting tenant/project context")
@@ -346,11 +533,28 @@ async def run_auto_discovery(discovery_id: str, request: AutoDiscoverRequest):
             
             safe_log(f"[{discovery_id}] Found {len(nav_urls)} navigation items")
             
-            # Step 4: Visit each page and analyze
+            if emit_event:
+                await emit_event({"event": "NAV_FOUND", "data": {"count": len(nav_urls)}})
+            
+            # Step 5: Visit each page and analyze (progressive discovery)
             for idx, (url, nav_text) in enumerate(list(nav_urls)[:20]):
                 try:
                     page_info = await analyze_page(page, url, nav_text, discovery_dir, idx, discovery_id)
                     result["pages"].append(page_info)
+                    
+                    if emit_event:
+                        await emit_event({
+                            "event": "MODULE_DISCOVERED",
+                            "data": {
+                                "name": nav_text,
+                                "url": url,
+                                "index": idx + 1,
+                                "total": min(len(nav_urls), 20),
+                                "has_table": page_info.get("has_table", False),
+                                "has_form": page_info.get("has_form", False),
+                                "crud_actions": page_info.get("crud_actions", [])
+                            }
+                        })
                 except Exception as e:
                     safe_log(f"[{discovery_id}] Failed to analyze {url}: {str(e)[:100]}")
                     continue
@@ -1183,9 +1387,90 @@ async def run_auto_tests(run_id: str, discovery_id: str, tests: List[Dict], cred
 # API Endpoints
 # =============================================================================
 
+@router.post("/preflight")
+async def preflight_validate(request: PreflightRequest):
+    """Validate URL and login credentials before starting discovery."""
+    
+    # Safety check
+    if is_production(request.ui_url, "staging") and not ALLOW_PROD:
+        raise HTTPException(403, "Production environment blocked. Set ALLOW_PROD=true to enable.")
+    
+    result = await validate_preflight(
+        request.ui_url, request.username, request.password, request.config_name
+    )
+    
+    return result
+
+
+@router.post("/discover/stream")
+async def auto_discover_stream(request: AutoDiscoverRequest):
+    """Start enhanced discovery with SSE streaming of progress events."""
+    
+    # Safety check
+    if is_production(request.ui_url, request.env) and not ALLOW_PROD:
+        raise HTTPException(403, "Production environment blocked. Set ALLOW_PROD=true to enable.")
+    
+    discovery_id = f"auto-{str(uuid.uuid4())[:8]}"
+    
+    _auto_discoveries[discovery_id] = {
+        "discovery_id": discovery_id,
+        "status": "pending",
+        "ui_url": request.ui_url,
+        "env": request.env,
+        "started_at": datetime.utcnow().isoformat() + "Z"
+    }
+    
+    safe_log(f"Starting streaming discovery {discovery_id}", {"url": request.ui_url, "env": request.env})
+    
+    async def event_generator():
+        """Generator that emits SSE events during discovery."""
+        queue = asyncio.Queue()
+        
+        async def emit_event(event_data: Dict):
+            await queue.put(event_data)
+        
+        # Start discovery in background
+        async def run_discovery_task():
+            try:
+                await run_auto_discovery(discovery_id, request, emit_event=emit_event)
+                await queue.put({"event": "COMPLETED", "data": {"discovery_id": discovery_id}})
+            except Exception as e:
+                await queue.put({"event": "ERROR", "data": {"error": str(e)[:200]}})
+            finally:
+                await queue.put(None)  # Signal end
+        
+        # Start background task
+        asyncio.create_task(run_discovery_task())
+        
+        # Stream events
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=60.0)
+                if event is None:
+                    break
+                
+                # Format as SSE
+                yield f"data: {json.dumps(event)}\n\n"
+                
+            except asyncio.TimeoutError:
+                yield f"data: {json.dumps({'event': 'KEEPALIVE'})}\n\n"
+        
+        yield "data: [DONE]\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @router.post("/discover")
 async def auto_discover(request: AutoDiscoverRequest, background_tasks: BackgroundTasks):
-    """Start enhanced discovery with UI element detection."""
+    """Start enhanced discovery with UI element detection (uses preflight validation)."""
     
     # Safety check
     if is_production(request.ui_url, request.env) and not ALLOW_PROD:
@@ -1203,7 +1488,8 @@ async def auto_discover(request: AutoDiscoverRequest, background_tasks: Backgrou
     
     safe_log(f"Starting auto discovery {discovery_id}", {"url": request.ui_url, "env": request.env})
     
-    background_tasks.add_task(run_auto_discovery, discovery_id, request)
+    # Preflight will be called inside run_auto_discovery
+    background_tasks.add_task(run_auto_discovery, discovery_id, request, None)
     
     return {"discovery_id": discovery_id, "status": "pending"}
 

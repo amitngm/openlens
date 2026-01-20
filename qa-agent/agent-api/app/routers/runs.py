@@ -141,6 +141,34 @@ async def get_run_status(request: Request, run_id: str):
     }
 
 
+@router.get("/{run_id}/report.html")
+async def get_run_report_html(request: Request, run_id: str):
+    """
+    Get HTML test run report.
+    
+    Returns a self-contained HTML report with:
+    - Run metadata
+    - Discovery summary (if available)
+    - Test summary with pass/fail counts
+    - Detailed failure analysis with screenshots
+    - Network issues (4xx/5xx/slow requests)
+    - All test results in expandable table
+    """
+    from fastapi.responses import HTMLResponse
+    from app.services.html_report import HTMLReportGenerator
+    
+    generator = HTMLReportGenerator()
+    html = generator.generate_html(run_id)
+    
+    if not html:
+        raise HTTPException(status_code=404, detail=f"Report for run {run_id} not found")
+    
+    # Auto-save HTML report next to JSON report
+    generator.save_html(run_id)
+    
+    return HTMLResponse(content=html, media_type="text/html")
+
+
 @router.get("/rate-limit/status")
 async def get_rate_limit_status(request: Request):
     """Get current rate limiter status."""

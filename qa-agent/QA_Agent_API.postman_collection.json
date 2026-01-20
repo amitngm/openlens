@@ -1,0 +1,414 @@
+{
+	"info": {
+		"_postman_id": "qa-agent-api-collection",
+		"name": "QA Agent API",
+		"description": "Complete API collection for QA Agent - Discovery, Test Generation, Execution, and Reports",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:8080/health",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8080",
+					"path": [
+						"health"
+					]
+				}
+			}
+		},
+		{
+			"name": "Discovery",
+			"item": [
+				{
+					"name": "Start Discovery (Basic)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"ui_url\": \"https://n1devcmp-user.airteldev.com\",\n    \"username\": \"your-username\",\n    \"password\": \"your-password\",\n    \"env\": \"staging\",\n    \"config_name\": \"keycloak\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8080/discover",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"discover"
+							]
+						}
+					}
+				},
+				{
+					"name": "Start QA Buddy Discovery (Advanced)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"application_url\": \"https://n1devcmp-user.airteldev.com\",\n    \"username\": \"your-username\",\n    \"password\": \"your-password\",\n    \"env\": \"staging\",\n    \"config_name\": \"keycloak\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8080/qa-buddy/discover",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"qa-buddy",
+								"discover"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Discovery Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/discover/{{discovery_id}}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"discover",
+								"{{discovery_id}}"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get QA Buddy Discovery Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/qa-buddy/discover/{{discovery_id}}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"qa-buddy",
+								"discover",
+								"{{discovery_id}}"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Test Generation",
+			"item": [
+				{
+					"name": "Generate Tests",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"discovery_id\": \"{{discovery_id}}\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8080/generate-tests",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"generate-tests"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Generated Tests",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/tests/{{discovery_id}}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"tests",
+								"{{discovery_id}}"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Test Execution (Discovery-based)",
+			"item": [
+				{
+					"name": "Start Test Run",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"discovery_id\": \"{{discovery_id}}\",\n    \"suite\": \"smoke\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8080/run",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"run"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Run Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/run/{{run_id}}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"run",
+								"{{run_id}}"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get HTML Report",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/run/{{run_id}}/report.html",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"run",
+								"{{run_id}}",
+								"report.html"
+							]
+						}
+					}
+				},
+				{
+					"name": "List All Runs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/run/runs",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"run",
+								"runs"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Run Artifacts",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/run/{{run_id}}/artifacts",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"run",
+								"{{run_id}}",
+								"artifacts"
+							]
+						}
+					}
+				},
+				{
+					"name": "Download Artifact",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/artifacts/{{run_id}}/{{filename}}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"artifacts",
+								"{{run_id}}",
+								"{{filename}}"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Flow-based Tests",
+			"item": [
+				{
+					"name": "Start Flow Run",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"flow_id\": \"public-ip-allocation\",\n    \"env\": \"staging\"\n}"
+						},
+						"url": {
+							"raw": "http://localhost:8080/runs",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"runs"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Flow Run Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/runs/{{run_id}}",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"runs",
+								"{{run_id}}"
+							]
+						}
+					}
+				},
+				{
+					"name": "Get Flow Run HTML Report",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/runs/{{run_id}}/report.html",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"runs",
+								"{{run_id}}",
+								"report.html"
+							]
+						}
+					}
+				},
+				{
+					"name": "List All Flow Runs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:8080/runs",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "8080",
+							"path": [
+								"runs"
+							]
+						}
+					}
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "discovery_id",
+			"value": "4436f697-c4f",
+			"type": "string"
+		},
+		{
+			"key": "run_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "filename",
+			"value": "screenshot_1.png",
+			"type": "string"
+		}
+	]
+}

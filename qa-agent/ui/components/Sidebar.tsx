@@ -16,10 +16,13 @@ import {
   Search,
   Bell,
   HelpCircle,
-  User
+  User,
+  FileText
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useState } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 interface SidebarProps {
   activeTab: string;
@@ -33,12 +36,14 @@ const navItems = [
   { id: 'smart', label: 'Smart Test', icon: Wand2 },
   { id: 'flows', label: 'Test Flows', icon: FileCode },
   { id: 'runs', label: 'Run History', icon: History },
+  { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'catalog', label: 'Service Catalog', icon: Server },
   { id: 'namespaces', label: 'Namespaces', icon: Layers },
 ];
 
 export default function Sidebar({ activeTab, onTabChange, apiStatus }: SidebarProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const pathname = usePathname();
 
   return (
     <>
@@ -116,7 +121,33 @@ export default function Sidebar({ activeTab, onTabChange, apiStatus }: SidebarPr
           <div className="space-y-1">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = activeTab === item.id;
+              const isActive = item.id === 'reports' 
+                ? pathname === '/reports'
+                : activeTab === item.id;
+              
+              const content = (
+                <>
+                  <Icon className="w-4 h-4" />
+                  {item.label}
+                </>
+              );
+              
+              if (item.id === 'reports') {
+                return (
+                  <Link
+                    key={item.id}
+                    href="/reports"
+                    className={clsx(
+                      'w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all text-sm',
+                      isActive
+                        ? 'bg-hub-blue text-white font-medium'
+                        : 'text-hub-text hover:bg-gray-100'
+                    )}
+                  >
+                    {content}
+                  </Link>
+                );
+              }
               
               return (
                 <button
@@ -129,8 +160,7 @@ export default function Sidebar({ activeTab, onTabChange, apiStatus }: SidebarPr
                       : 'text-hub-text hover:bg-gray-100'
                   )}
                 >
-                  <Icon className="w-4 h-4" />
-                  {item.label}
+                  {content}
                 </button>
               );
             })}

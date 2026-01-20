@@ -201,53 +201,127 @@ async def run_discovery(discovery_id: str, request: DiscoverRequest):
             
             page.on("request", capture_request)
             
-            # Step 1: Navigate to URL
-            safe_log(f"[{discovery_id}] Opening", {"url": request.ui_url})
+            # Step 1: Navigate to UI URL (will redirect to Keycloak)
+            safe_log(f"[{discovery_id}] Opening UI URL (will redirect to Keycloak)", {"url": request.ui_url})
             await page.goto(request.ui_url, timeout=30000, wait_until="networkidle")
             await page.screenshot(path=str(discovery_dir / "01_initial.png"))
             
-            # Step 2: Login
-            safe_log(f"[{discovery_id}] Attempting login")
+            current_url = page.url
+            safe_log(f"[{discovery_id}] Current URL after navigation", {"url": current_url})
             
-            # Fill username
+            # Check if we're on Keycloak login page or already logged in
+            is_keycloak_page = "keycloak" in current_url.lower() or "auth" in current_url.lower()
+            is_login_page = False
+            
+            # Check for login form elements
             for selector in config["username_selector"].split(", "):
                 try:
                     if await page.locator(selector).first.count() > 0:
-                        await page.locator(selector).first.fill(request.username)
+                        is_login_page = True
                         break
                 except:
                     continue
             
-            # Fill password
-            for selector in config["password_selector"].split(", "):
-                try:
-                    if await page.locator(selector).first.count() > 0:
-                        await page.locator(selector).first.fill(request.password)
-                        break
-                except:
-                    continue
+            # Step 2: Login (if on login page)
+            if is_login_page:
+                safe_log(f"[{discovery_id}] On Keycloak login page, attempting login")
+                
+                # Fill username
+                username_filled = False
+                for selector in config["username_selector"].split(", "):
+                    try:
+                        if await page.locator(selector).first.count() > 0:
+                            await page.locator(selector).first.fill(request.username)
+                            username_filled = True
+                            safe_log(f"[{discovery_id}] Filled username")
+                            break
+                    except:
+                        continue
+                
+                # Fill password
+                password_filled = False
+                for selector in config["password_selector"].split(", "):
+                    try:
+                        if await page.locator(selector).first.count() > 0:
+                            await page.locator(selector).first.fill(request.password)
+                            password_filled = True
+                            safe_log(f"[{discovery_id}] Filled password")
+                            break
+                    except:
+                        continue
+                
+                # Submit login
+                submit_clicked = False
+                for selector in config["submit_selector"].split(", "):
+                    try:
+                        if await page.locator(selector).first.count() > 0:
+                            # Wait for navigation after submit (redirect back to UI)
+                            async with page.expect_navigation(timeout=30000, wait_until="networkidle"):
+                                await page.locator(selector).first.click()
+                            submit_clicked = True
+                            safe_log(f"[{discovery_id}] Submitted login, waiting for redirect")
+                            break
+                    except:
+                        continue
+                
+                if not submit_clicked:
+                    # Try clicking without navigation wait
+                    for selector in config["submit_selector"].split(", "):
+                        try:
+                            if await page.locator(selector).first.count() > 0:
+                                await page.locator(selector).first.click()
+                                # Wait for redirect
+                                await page.wait_for_load_state("networkidle", timeout=30000)
+                                break
+                        except:
+                            continue
+                
+                # Wait a bit more for redirect to complete
+                await asyncio.sleep(2)
+                current_url = page.url
+                safe_log(f"[{discovery_id}] URL after login", {"url": current_url})
+            else:
+                safe_log(f"[{discovery_id}] Not on login page, checking if already logged in")
             
-            # Submit
-            for selector in config["submit_selector"].split(", "):
-                try:
-                    if await page.locator(selector).first.count() > 0:
-                        await page.locator(selector).first.click()
-                        break
-                except:
-                    continue
-            
-            await asyncio.sleep(config["wait_after_login"] / 1000)
             await page.screenshot(path=str(discovery_dir / "02_after_login.png"))
             
-            # Check login success
-            for selector in config["success_indicator"].split(", "):
-                try:
-                    if await page.locator(selector).first.count() > 0:
+            # Step 3: Check if we're back on UI (logged in)
+            # Check if we're back on the original UI domain (not Keycloak)
+            original_domain = urlparse(request.ui_url).netloc
+            current_domain = urlparse(current_url).netloc
+            
+            # If we're back on UI domain, likely logged in
+            if original_domain in current_url or current_domain == original_domain:
+                safe_log(f"[{discovery_id}] Back on UI domain, checking for logged-in indicators")
+                
+                # Check for logged-in indicators
+                for selector in config["success_indicator"].split(", "):
+                    try:
+                        if await page.locator(selector).first.count() > 0:
+                            result["login_success"] = True
+                            safe_log(f"[{discovery_id}] Login successful - found logged-in indicators")
+                            break
+                    except:
+                        continue
+                
+                # Also check if we're NOT on a login page
+                if not result.get("login_success"):
+                    # Check if we're still on Keycloak/login page
+                    still_on_login = False
+                    for selector in config["username_selector"].split(", "):
+                        try:
+                            if await page.locator(selector).first.count() > 0:
+                                still_on_login = True
+                                break
+                        except:
+                            continue
+                    
+                    if not still_on_login and "keycloak" not in current_url.lower() and "auth" not in current_url.lower():
+                        # We're on UI and not on login page - likely logged in
                         result["login_success"] = True
-                        safe_log(f"[{discovery_id}] Login successful")
-                        break
-                except:
-                    continue
+                        safe_log(f"[{discovery_id}] Login successful - on UI domain, not on login page")
+            else:
+                safe_log(f"[{discovery_id}] Still on Keycloak/auth domain, login may have failed")
             
             # Step 3: Crawl navigation
             safe_log(f"[{discovery_id}] Crawling navigation")
@@ -712,6 +786,20 @@ from app.routers.auto_qa import router as auto_qa_router
 app.include_router(auto_qa_router)
 
 try:
+    from app.routers.qa_buddy import router as qa_buddy_router
+    app.include_router(qa_buddy_router)
+    logger.info("QA Buddy router loaded successfully")
+except Exception as e:
+    logger.error(f"QA Buddy router not available: {e}", exc_info=True)
+
+try:
+    from app.routers.qa_buddy_v2 import router as qa_buddy_v2_router
+    app.include_router(qa_buddy_v2_router)
+    logger.info("QA Buddy V2 router loaded successfully")
+except Exception as e:
+    logger.error(f"QA Buddy V2 router not available: {e}", exc_info=True)
+
+try:
     from app.routers.k8s_inspector import router as k8s_router
     app.include_router(k8s_router)
 except Exception as e:
@@ -730,7 +818,7 @@ async def root():
         "service": "QA Agent API",
         "version": "2.0.0",
         "docs": "/docs",
-        "endpoints": ["/discover", "/generate-tests", "/run", "/auto/discover", "/auto/run"]
+        "endpoints": ["/discover", "/generate-tests", "/run", "/auto/discover", "/auto/run", "/qa-buddy/discover"]
     }
 
 
@@ -817,6 +905,18 @@ async def get_tests(discovery_id: str):
 # =============================================================================
 # Run Endpoints
 # =============================================================================
+
+@app.get("/run")
+async def list_runs():
+    """List all runs. Use POST /run to start a new run."""
+    return {
+        "message": "Use POST /run to start a test run. Use GET /runs to list all runs.",
+        "endpoints": {
+            "POST /run": "Start a new test run",
+            "GET /runs": "List all runs",
+            "GET /run/{run_id}": "Get run status"
+        }
+    }
 
 @app.post("/run")
 async def start_run(request: RunRequest, background_tasks: BackgroundTasks):

@@ -13,10 +13,76 @@ playwright install chromium
 mkdir -p data
 
 # Run
-DATA_DIR=./data uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+DATA_DIR=./data ALLOW_PROD=false uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-## API Endpoints
+## QA Buddy V2 (Recommended)
+
+QA Buddy V2 provides a simplified 5-step autonomous testing flow:
+
+1. **S1: Login Flow** - Authenticate with Keycloak or other providers
+2. **S2: Trace All Pages** - Discover all navigation paths
+3. **S3: Detect Access** - Map user permissions and capabilities
+4. **S4: Health Check** - Systematically verify all pages
+5. **S5: Test Execution** - Run tests based on natural language prompts
+
+### Endpoints
+
+```bash
+# Start discovery
+POST /qa-buddy-v2/discover
+{
+  "application_url": "https://your-app.com",
+  "username": "user",
+  "password": "pass",
+  "env": "staging",
+  "config_name": "keycloak"
+}
+
+# Check status
+GET /qa-buddy-v2/discover/{discovery_id}
+
+# Execute tests (after S1-S4 complete)
+POST /qa-buddy-v2/discover/{discovery_id}/test
+{
+  "test_prompt": "test all forms"
+}
+
+# Stream progress (SSE)
+POST /qa-buddy-v2/discover/stream
+```
+
+### Response Structure
+
+```json
+{
+  "discovery_id": "abc123",
+  "status": "completed",
+  "current_stage": "S5",
+  "s1_login": {
+    "status": "success",
+    "session_valid": true
+  },
+  "s2_pages": {
+    "pages": [...],
+    "total_paths": 25
+  },
+  "s3_access": {
+    "user_permissions": {...},
+    "total_actions": 45
+  },
+  "s4_health": {
+    "health_status": "healthy",
+    "page_health": [...]
+  },
+  "s5_tests": {
+    "test_results": [...],
+    "summary": {...}
+  }
+}
+```
+
+## Legacy Endpoints
 
 ### Discovery
 
@@ -64,6 +130,9 @@ POST /run
 # Get run status and report
 GET /run/{run_id}
 
+# Get HTML report
+GET /run/{run_id}/report.html
+
 # List artifacts (screenshots, etc.)
 GET /run/{run_id}/artifacts
 # Returns: list with download_url for each file
@@ -79,7 +148,7 @@ GET /artifacts/{run_id}/{filename}
 GET /health
 
 # List all runs
-GET /runs
+GET /run/runs
 
 # Safety config
 GET /safety
@@ -107,13 +176,14 @@ GET /safety
 /data/
 ├── {discovery_id}/
 │   ├── discovery.json      # Discovery results
-│   ├── smoke_tests.json    # Generated tests
-│   ├── 01_initial.png      # Login page screenshot
-│   ├── 02_after_login.png  # After login screenshot
-│   └── page_*.png          # Page screenshots
+│   ├── s1_before_login.png # Login screenshots
+│   ├── s2_page_*.png       # Page screenshots
+│   ├── s4_health_*.png      # Health check screenshots
+│   └── test_*.json         # Test results
 │
 └── {run_id}/
     ├── report.json         # Test results
+    ├── report.html         # HTML report
     └── test_*.png          # Test screenshots
 ```
 
@@ -126,3 +196,21 @@ docker build -t qa-agent-api .
 # Run
 docker run -p 8080:8080 -v $(pwd)/data:/data qa-agent-api
 ```
+
+## Keycloak Authentication
+
+QA Buddy V2 automatically handles Keycloak redirect flows:
+
+1. Navigate to application URL
+2. Detect redirect to Keycloak
+3. Fill credentials and submit
+4. Wait for redirect back to application
+5. Verify login success
+
+Use your **application URL** (not Keycloak URL). The system handles redirects automatically.
+
+## API Documentation
+
+Interactive API documentation available at:
+- Swagger UI: `http://localhost:8080/docs`
+- ReDoc: `http://localhost:8080/redoc`

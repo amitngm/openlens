@@ -261,6 +261,56 @@ export default function Dashboard() {
   const [autoRun, setAutoRun] = useState<AutoRun | null>(null);
   const [isAutoRunning, setIsAutoRunning] = useState(false);
   const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Progressive discovery state
+  const [discoveryProgress, setDiscoveryProgress] = useState<Array<{
+    event: string;
+    timestamp: number;
+    data?: any;
+  }>>([]);
+  const [preflightStatus, setPreflightStatus] = useState<{
+    status?: 'success' | 'failed';
+    stage?: string;
+    reason?: string;
+  } | null>(null);
+
+  // QA Buddy state
+  const [qaBuddyUrl, setQaBuddyUrl] = useState('');
+  const [qaBuddyUsername, setQaBuddyUsername] = useState('');
+  const [qaBuddyPassword, setQaBuddyPassword] = useState('');
+  const [needsLogin, setNeedsLogin] = useState(false);
+  const [qaBuddyDiscovery, setQaBuddyDiscovery] = useState<any>(null);
+  const [qaBuddyCurrentActivity, setQaBuddyCurrentActivity] = useState<string>('');
+  const [showTestPrompt, setShowTestPrompt] = useState(false);
+  const [testPrompt, setTestPrompt] = useState('');
+  const [qaBuddyProgress, setQaBuddyProgress] = useState<Array<{
+    event: string;
+    timestamp: number;
+    data?: any;
+  }>>([]);
+  const [isQaBuddyRunning, setIsQaBuddyRunning] = useState(false);
+  const [qaBuddySessionStatus, setQaBuddySessionStatus] = useState<{
+    status?: 'PASS' | 'FAILED' | 'NEEDS_LOGIN';
+    stage?: string;
+    reason?: string;
+  } | null>(null);
+  const [qaBuddyIssues, setQaBuddyIssues] = useState<Array<{
+    type: string;
+    severity: string;
+    message?: string;
+    timestamp?: string;
+    url?: string;
+  }>>([]);
+  const [qaBuddyActionLog, setQaBuddyActionLog] = useState<Array<{
+    id: string;
+    timestamp: number;
+    event: string;
+    message: string;
+    type: 'info' | 'success' | 'warning' | 'error' | 'action';
+    data?: any;
+  }>>([]);
+  const [qaBuddyDiscoveryId, setQaBuddyDiscoveryId] = useState<string | null>(null);
+  const [browserViewUrl, setBrowserViewUrl] = useState<string | null>(null);
 
   // ==========================================================================
   // Auto-refresh running items every 3 seconds
@@ -537,6 +587,42 @@ export default function Dashboard() {
   }, []);
 
   // ==========================================================================
+  // Preflight / Validate Login Handler
+  // ==========================================================================
+
+  const handleValidateLogin = async () => {
+    if (!connection.ui_url) {
+      addToast('warning', 'URL Required', 'Please enter a target URL');
+      return;
+    }
+    
+    setPreflightStatus(null);
+    
+    try {
+      const result = await apiCall<{status: string; stage?: string; reason?: string}>('/auto/preflight', {
+        method: 'POST',
+        body: JSON.stringify({
+          ui_url: connection.ui_url,
+          username: connection.username,
+          password: connection.password,
+          config_name: 'default'
+        })
+      });
+      
+      if (result.status === 'success') {
+        setPreflightStatus({ status: 'success', stage: result.stage });
+        addToast('success', 'Login Valid', result.reason || 'Login confirmed successfully');
+      } else {
+        setPreflightStatus({ status: 'failed', stage: result.stage, reason: result.reason });
+        addToast('error', `Preflight ${result.stage} Failed`, result.reason);
+      }
+    } catch (error) {
+      showError(error);
+      setPreflightStatus({ status: 'failed', stage: 'preflight', reason: 'Request failed' });
+    }
+  };
+
+  // ==========================================================================
   // Auto QA Handlers
   // ==========================================================================
 
@@ -549,13 +635,17 @@ export default function Dashboard() {
     setIsAutoRunning(true);
     setAutoDiscovery(null);
     setAutoRun(null);
+    setDiscoveryProgress([]);
+    setPreflightStatus(null);
     
     try {
-      // Step 1: Start Auto Discovery
-      addToast('info', 'Auto Test Started', 'Starting enhanced discovery...');
+      // Step 1: Start Auto Discovery with SSE streaming
+      addToast('info', 'Auto Test Started', 'Starting enhanced discovery with streaming...');
       
-      const discoverData = await apiCall<{ discovery_id: string; status: string }>('/auto/discover', {
+      // Use SSE streaming endpoint
+      const response = await fetch(`${API_BASE_URL}/auto/discover/stream`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ui_url: connection.ui_url,
           username: connection.username,
@@ -564,21 +654,108 @@ export default function Dashboard() {
         })
       });
       
-      // Poll discovery
-      const discoveryResult = await pollAutoDiscovery(discoverData.discovery_id);
+      if (!response.ok) {
+        throw new Error(`Discovery failed: ${response.statusText}`);
+      }
+      
+      // Stream SSE events
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let streamedDiscoveryId: string | null = null;
+      const progressEvents: Array<any> = [];
+      
+      if (!reader) {
+        throw new Error('No response body');
+      }
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') {
+              // Discovery complete
+              continue;
+            }
+            
+            try {
+              const event = JSON.parse(dataStr);
+              const timestamp = Date.now();
+              const eventWithTime = { ...event, timestamp };
+              
+              progressEvents.push(eventWithTime);
+              setDiscoveryProgress(prev => [...prev, eventWithTime]);
+              
+              if (event.event === 'CONNECTED') {
+                addToast('info', 'Connected', `Connecting to ${event.data.url}`);
+              } else if (event.event === 'LOGIN_OK') {
+                addToast('success', 'Login Confirmed', 'Preflight validation passed');
+                setPreflightStatus({ status: 'success', stage: 'login' });
+              } else if (event.event === 'NAV_FOUND') {
+                addToast('info', 'Navigation Found', `${event.data.count} items discovered`);
+              } else if (event.event === 'MODULE_DISCOVERED') {
+                // Module discovered - UI will show this in progress
+              } else if (event.event === 'COMPLETED') {
+                streamedDiscoveryId = event.data.discovery_id;
+                // Continue to process remaining stream data
+              } else if (event.event === 'ERROR') {
+                setIsAutoRunning(false);
+                setPreflightStatus({ status: 'failed', stage: 'discovery', reason: event.data.error });
+                addToast('error', 'Discovery Error', event.data.error);
+                return;
+              }
+            } catch (e) {
+              // Skip malformed JSON
+            }
+          }
+        }
+      }
+      
+      // Get discovery_id from streamed events or fallback
+      let discoveryId = streamedDiscoveryId;
+      
+      if (!discoveryId) {
+        // Fallback: try to find any event with discovery_id or poll
+        const eventWithId = discoveryProgress.find(e => e.data?.discovery_id);
+        if (eventWithId) {
+          discoveryId = eventWithId.data.discovery_id;
+        } else {
+          throw new Error('Discovery ID not found in stream');
+        }
+      }
+      
+      // Fetch final discovery result
+      if (!discoveryId) {
+        setIsAutoRunning(false);
+        return;
+      }
+      
+      const discoveryResult = await pollAutoDiscovery(discoveryId);
       
       if (discoveryResult.status !== 'completed') {
         setIsAutoRunning(false);
+        if (discoveryResult.status === 'failed') {
+          setPreflightStatus({ status: 'failed', stage: 'discovery', reason: discoveryResult.error });
+        }
         return;
       }
       
       // Step 2: Start Auto Run
       addToast('info', 'Discovery Complete', `Found ${discoveryResult.summary?.testable_actions || 0} testable actions. Running tests...`);
       
+      setAutoDiscovery(discoveryResult);
+      
       const runData = await apiCall<{ run_id: string; status: string; planned_tests: number }>('/auto/run', {
         method: 'POST',
         body: JSON.stringify({
-          discovery_id: discoverData.discovery_id,
+          discovery_id: discoveryId,
           mode: autoMode,
           safety: autoSafety
         })
@@ -586,7 +763,7 @@ export default function Dashboard() {
       
       setAutoRun({
         run_id: runData.run_id,
-        discovery_id: discoverData.discovery_id,
+        discovery_id: discoveryId || '',
         status: 'running',
         mode: autoMode,
         safety: autoSafety,
@@ -675,6 +852,256 @@ export default function Dashboard() {
   };
 
   // ==========================================================================
+  // QA Buddy Handlers
+  // ==========================================================================
+
+  const handleQaBuddyDiscover = async () => {
+    if (!qaBuddyUrl) {
+      addToast('warning', 'URL Required', 'Please enter an application URL');
+      return;
+    }
+    
+    setIsQaBuddyRunning(true);
+    setQaBuddyDiscovery(null);
+    setQaBuddyProgress([]);
+    setQaBuddySessionStatus(null);
+    setQaBuddyIssues([]);
+    setNeedsLogin(false);
+    setQaBuddyCurrentActivity('Starting QA Buddy...');
+    setShowTestPrompt(false);
+    setTestPrompt('');
+    setQaBuddyActionLog([]);
+    setQaBuddyDiscoveryId(null);
+    setBrowserViewUrl(null);
+    
+    let screenshotPollInterval: NodeJS.Timeout | null = null;
+    
+    try {
+      addToast('info', 'QA Buddy Started', 'Validating session and discovering...');
+      
+      // Use SSE streaming endpoint
+      const response = await fetch(`${API_BASE_URL}/qa-buddy/discover/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          application_url: qaBuddyUrl,
+          browser_context: null, // Can be extended to accept cookies/localStorage
+          allowed_namespaces: [],
+          mode: "auto", // Always auto mode - do everything automatically
+          env: "staging",
+          username: qaBuddyUsername || null,
+          password: qaBuddyPassword || null,
+          test_prompt: testPrompt || null
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`QA Buddy discovery failed: ${response.statusText}`);
+      }
+      
+      // Stream SSE events
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let streamedDiscoveryId: string | null = null;
+      const progressEvents: Array<any> = [];
+      
+      while (true) {
+        const { done, value } = await reader!.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') continue;
+            
+            try {
+              const event = JSON.parse(dataStr);
+              progressEvents.push({
+                event: event.event,
+                timestamp: Date.now(),
+                data: event.data
+              });
+              setQaBuddyProgress([...progressEvents]);
+              
+              // Handle specific events
+              // Add to action log
+              const logType: 'info' | 'success' | 'warning' | 'error' | 'action' = 
+                event.event.includes('ERROR') || event.event.includes('FAILED') || event.event.includes('INVALID') ? 'error' :
+                event.event.includes('SUCCESS') || event.event.includes('VALID') || event.event.includes('COMPLETE') ? 'success' :
+                event.event.includes('WARNING') || event.event.includes('EXPIRED') ? 'warning' :
+                event.event.includes('ACTION') || event.event.includes('CLICK') || event.event.includes('FILL') || event.event.includes('UI_') ? 'action' :
+                'info';
+              
+              const logEntry: {
+                id: string;
+                timestamp: number;
+                event: string;
+                message: string;
+                type: 'info' | 'success' | 'warning' | 'error' | 'action';
+                data?: any;
+              } = {
+                id: `${Date.now()}-${Math.random()}`,
+                timestamp: Date.now(),
+                event: event.event,
+                message: event.data?.message || event.data?.reason || event.data?.module || event.event,
+                type: logType,
+                data: event.data
+              };
+              setQaBuddyActionLog(prev => [...prev, logEntry].slice(-200)); // Keep last 200 entries
+              
+              if (event.event === 'CONNECTED' || event.event === 'SESSION_CHECK') {
+                // Discovery started
+                setQaBuddyCurrentActivity('Checking URL and validating session...');
+              } else if (event.event === 'SESSION_VALID') {
+                const wasLoggingIn = needsLogin;
+                setQaBuddySessionStatus({ status: 'PASS', stage: 'LOGIN_VALIDATION', reason: 'Session valid' });
+                
+                // If we just logged in, pause and ask what to test
+                if (wasLoggingIn) {
+                  setQaBuddyCurrentActivity('Session validated! What would you like to test?');
+                  setShowTestPrompt(true);
+                  setIsQaBuddyRunning(false); // Pause to wait for user input
+                } else {
+                  // Already logged in, show prompt if not running
+                  if (!isQaBuddyRunning && !testPrompt) {
+                    setQaBuddyCurrentActivity('Session validated! What would you like to test?');
+                    setShowTestPrompt(true);
+                  } else {
+                    setQaBuddyCurrentActivity('Session validated. Starting discovery...');
+                  }
+                }
+              } else if (event.event === 'SESSION_INVALID') {
+                setQaBuddySessionStatus({ 
+                  status: 'FAILED', 
+                  stage: event.data?.stage || 'LOGIN_VALIDATION', 
+                  reason: event.data?.reason || 'Session invalid' 
+                });
+                setIsQaBuddyRunning(false);
+                addToast('error', 'Session Invalid', event.data?.reason || 'Session validation failed');
+              } else if (event.event === 'MODULE_DISCOVERED') {
+                // Module discovered
+                setQaBuddyCurrentActivity(`Discovering module: ${event.data?.module || 'Unknown'}...`);
+              } else if (event.event === 'UI_INTERACTION_START') {
+                setQaBuddyCurrentActivity(`Testing UI interactions on ${event.data?.page || 'page'}...`);
+              } else if (event.event === 'VISUAL_INSPECTION') {
+                setQaBuddyCurrentActivity('Performing visual inspection...');
+              } else if (event.event === 'ARCHITECTURE_VALIDATION_START') {
+                setQaBuddyCurrentActivity('Validating architecture and API patterns...');
+              } else if (event.event === 'SESSION_CHECK_PERIODIC') {
+                setQaBuddyCurrentActivity('Periodically checking session validity...');
+              } else if (event.event === 'SESSION_EXPIRED') {
+                setQaBuddyCurrentActivity('Session expired during discovery!');
+                setIsQaBuddyRunning(false);
+                setQaBuddySessionStatus({ status: 'FAILED', stage: 'SESSION', reason: event.data?.message || 'Session expired' });
+                addToast('error', 'Session Expired', 'Your session expired during discovery. Please log in again.');
+              } else if (event.event === 'LOGIN_REQUIRED') {
+                // Login page detected - show credentials form
+                setNeedsLogin(true);
+                setIsQaBuddyRunning(false);
+                setQaBuddySessionStatus({
+                  status: 'NEEDS_LOGIN',
+                  stage: 'LOGIN_VALIDATION',
+                  reason: event.data?.message || 'Login page detected. Please provide credentials.'
+                });
+                addToast('info', 'Login Required', 'Please enter your username and password');
+              } else if (event.event === 'LOGIN_START') {
+                // Login attempt started
+                setQaBuddyCurrentActivity('Logging in with provided credentials...');
+                addToast('info', 'Logging in...', 'Attempting to log in with provided credentials');
+              } else if (event.event === 'LOGIN_SUCCESS') {
+                // Login successful
+                setNeedsLogin(false);
+                setQaBuddySessionStatus({
+                  status: 'PASS',
+                  stage: 'LOGIN',
+                  reason: 'Login successful'
+                });
+                setQaBuddyCurrentActivity('Login successful! Validating session...');
+                addToast('success', 'Login Successful', 'Validating session...');
+              } else if (event.event === 'LOGIN_FAILED') {
+                // Login failed
+                setIsQaBuddyRunning(false);
+                setQaBuddySessionStatus({
+                  status: 'FAILED',
+                  stage: 'LOGIN',
+                  reason: event.data?.message || 'Login failed. Please check your credentials.'
+                });
+                addToast('error', 'Login Failed', event.data?.message || 'Invalid credentials or login failed');
+              } else if (event.event === 'ISSUE_FOUND') {
+                // Issue found - alert everyone!
+                const issue = event.data;
+                setQaBuddyIssues(prev => [...prev, {
+                  type: issue.type || 'UNKNOWN',
+                  severity: issue.severity || 'medium',
+                  message: issue.message || 'Issue detected',
+                  timestamp: issue.timestamp || new Date().toISOString(),
+                  url: issue.url
+                }]);
+                // Show toast for high severity issues
+                if (issue.severity === 'high') {
+                  addToast('error', `Issue Found: ${issue.type}`, issue.message || 'High severity issue detected');
+                } else if (issue.severity === 'medium') {
+                  addToast('warning', `Issue Found: ${issue.type}`, issue.message || 'Medium severity issue detected');
+                }
+              } else if (event.event === 'TEST_PROMPT_RECEIVED') {
+                setQaBuddyCurrentActivity(event.data?.message || 'Focusing on your test requirements...');
+              } else if (event.event === 'DISCOVERY_COMPLETE') {
+                if (event.data?.discovery_id) {
+                  streamedDiscoveryId = event.data.discovery_id;
+                }
+                setQaBuddyCurrentActivity('Discovery complete!');
+              } else if (event.event === 'COMPLETED') {
+                if (event.data?.discovery_id) {
+                  streamedDiscoveryId = event.data.discovery_id;
+                }
+                setIsQaBuddyRunning(false);
+                // Poll for final discovery result
+                if (streamedDiscoveryId) {
+                  setQaBuddyDiscoveryId(streamedDiscoveryId);
+                  setTimeout(async () => {
+                    try {
+                      const discoveryResult = await apiCall<any>(`/qa-buddy/discover/${streamedDiscoveryId}`);
+                      setQaBuddyDiscovery(discoveryResult);
+                      addToast('success', 'QA Buddy Discovery Complete', 
+                        `Found ${discoveryResult?.summary?.total_modules || 0} modules, ${discoveryResult?.summary?.total_pages || 0} pages`);
+                    } catch (e) {
+                      showError(e);
+                    }
+                  }, 1000);
+                }
+              } else if (event.event === 'ERROR' || event.event === 'DISCOVERY_FAILED') {
+                setIsQaBuddyRunning(false);
+                setQaBuddySessionStatus({ 
+                  status: 'FAILED', 
+                  stage: 'DISCOVERY', 
+                  reason: event.data?.error || 'Discovery failed' 
+                });
+                addToast('error', 'QA Buddy Failed', event.data?.error || 'Discovery failed');
+              }
+            } catch (e) {
+              console.error('Failed to parse SSE event:', e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      showError(error);
+      setIsQaBuddyRunning(false);
+      setQaBuddySessionStatus({ status: 'FAILED', stage: 'REQUEST', reason: 'Request failed' });
+    } finally {
+      // Clean up screenshot polling
+      if (screenshotPollInterval) {
+        clearInterval(screenshotPollInterval);
+      }
+    }
+  };
+
+  // ==========================================================================
   // Render
   // ==========================================================================
 
@@ -693,7 +1120,6 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <WorkflowIndicator state={workflowState} isLoading={isLoading} />
             <a 
               href="http://localhost:8080/docs"
               target="_blank"
@@ -710,281 +1136,460 @@ export default function Dashboard() {
       <main className="max-w-7xl mx-auto p-6">
         <div className="grid grid-cols-12 gap-6">
           
-          {/* Left Column - Connection & Prompt */}
+          {/* Left Column - QA Buddy Only */}
           <div className="col-span-4 space-y-6">
             
-            {/* Connection Panel */}
-            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                <Globe className="w-4 h-4 text-indigo-500" />
-                Target Application
+            {/* QA Buddy Panel - Simple */}
+            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-xl p-6 shadow-lg">
+              <h2 className="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                QA Buddy
               </h2>
               
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">URL</label>
-                  <input
-                    type="url"
-                    value={connection.ui_url}
-                    onChange={e => setConnection(c => ({ ...c, ui_url: e.target.value }))}
-                    placeholder="https://your-app.com"
-                    disabled={isLoading}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-500"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Username</label>
-                    <input
-                      type="text"
-                      value={connection.username}
-                      onChange={e => setConnection(c => ({ ...c, username: e.target.value }))}
-                      placeholder="admin"
-                      disabled={isLoading}
-                      autoComplete="off"
-                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
-                    <input
-                      type="password"
-                      value={connection.password}
-                      onChange={e => setConnection(c => ({ ...c, password: e.target.value }))}
-                      placeholder="••••••••"
-                      disabled={isLoading}
-                      autoComplete="new-password"
-                      data-lpignore="true"
-                      className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-50"
-                    />
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Environment</label>
-                  <select
-                    value={connection.env}
-                    onChange={e => setConnection(c => ({ ...c, env: e.target.value }))}
-                    disabled={isLoading}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-50"
-                  >
-                    <option value="development">Development</option>
-                    <option value="staging">Staging</option>
-                    <option value="production">Production</option>
-                  </select>
-                </div>
-                
-                {connection.env === 'production' && (
-                  <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-                    <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-500" />
-                    <span>Production testing requires <code className="bg-amber-100 px-1 rounded">ALLOW_PROD=true</code> on the backend</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Prompt Panel */}
-            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                <FileText className="w-4 h-4 text-indigo-500" />
-                Test Instructions
-              </h2>
-              
-              <textarea
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                disabled={isLoading || isAutoRunning}
-                placeholder="Describe what you want to test...&#10;&#10;Examples:&#10;• Focus on authentication flows&#10;• Test all CRUD operations&#10;• Check form validations"
-                className="w-full h-36 px-3 py-2.5 border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-50"
-              />
-            </div>
-
-            {/* Auto Test Panel */}
-            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                <Zap className="w-4 h-4 text-purple-500" />
-                Auto QA Mode
-                <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">One-Click</span>
-              </h2>
-              
-              <p className="text-xs text-slate-600 mb-4">
-                Automatically discover, analyze, and test your application. Detects tables, forms, CRUD operations, and more.
+              <p className="text-sm text-slate-700 mb-4">
+                Enter your logged-in application URL. QA Buddy will automatically discover, test, and report issues.
               </p>
               
-              {/* Mode Selection */}
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Mode</label>
-                  <select
-                    value={autoMode}
-                    onChange={e => setAutoMode(e.target.value as 'quick' | 'full')}
-                    disabled={isAutoRunning}
-                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-slate-50"
-                  >
-                    <option value="quick">Quick (Essential tests)</option>
-                    <option value="full">Full (All tests)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1.5">Safety</label>
-                  <select
-                    value={autoSafety}
-                    onChange={e => setAutoSafety(e.target.value as 'read-only' | 'safe-crud')}
-                    disabled={isAutoRunning}
-                    className="w-full px-2.5 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-slate-50"
-                  >
-                    <option value="read-only">Read-Only (No mutations)</option>
-                    <option value="safe-crud">Safe CRUD (Test create/delete)</option>
-                  </select>
-                </div>
+              {/* Simple URL Input */}
+              <div className="mb-4">
+                <input
+                  type="url"
+                  value={qaBuddyUrl}
+                  onChange={e => setQaBuddyUrl(e.target.value)}
+                  disabled={isQaBuddyRunning}
+                  placeholder="https://your-app.example.com"
+                  className="w-full px-4 py-3 border-2 border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-slate-50"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isQaBuddyRunning && qaBuddyUrl && !needsLogin) {
+                      handleQaBuddyDiscover();
+                    }
+                  }}
+                />
               </div>
               
-              {/* Auto Test Button */}
+              {/* Username/Password Fields - Shown when login required */}
+              {needsLogin && (
+                <div className="mb-4 space-y-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-xs font-semibold text-amber-900 mb-2">Login Required</p>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1.5">Username</label>
+                    <input
+                      type="text"
+                      value={qaBuddyUsername}
+                      onChange={e => setQaBuddyUsername(e.target.value)}
+                      disabled={isQaBuddyRunning}
+                      placeholder="Enter username"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-slate-50"
+                      autoComplete="username"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1.5">Password</label>
+                    <input
+                      type="password"
+                      value={qaBuddyPassword}
+                      onChange={e => setQaBuddyPassword(e.target.value)}
+                      disabled={isQaBuddyRunning}
+                      placeholder="Enter password"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-slate-50"
+                      autoComplete="current-password"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !isQaBuddyRunning && qaBuddyUrl && qaBuddyUsername && qaBuddyPassword) {
+                          handleQaBuddyDiscover();
+                        }
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-amber-700">Enter your credentials and click "Start QA Buddy" again to log in.</p>
+                </div>
+              )}
+              
+              {/* QA Buddy Button */}
               <button
-                onClick={handleAutoTest}
-                disabled={isAutoRunning || !connection.ui_url}
-                className="w-full py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-lg text-sm font-medium hover:from-purple-700 hover:to-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-purple-200 transition-all"
+                onClick={handleQaBuddyDiscover}
+                disabled={isQaBuddyRunning || !qaBuddyUrl || (needsLogin && (!qaBuddyUsername || !qaBuddyPassword))}
+                className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg text-base font-semibold hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-emerald-200 transition-all"
               >
-                {isAutoRunning ? (
+                {isQaBuddyRunning ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    {autoDiscovery?.status === 'running' ? 'Discovering...' : autoRun?.status === 'running' ? 'Running Tests...' : 'Starting...'}
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    {qaBuddySessionStatus?.status === 'FAILED' ? 'Stopped' : 
+                     qaBuddySessionStatus?.status === 'NEEDS_LOGIN' ? 'Waiting for credentials...' :
+                     'Running QA Buddy...'}
                   </>
                 ) : (
                   <>
-                    <Zap className="w-4 h-4" />
-                    Auto Test
+                    <CheckCircle2 className="w-5 h-5" />
+                    {needsLogin ? 'Login & Start QA Buddy' : 'Start QA Buddy'}
                   </>
                 )}
               </button>
               
-              {/* Auto Progress */}
-              {isAutoRunning && autoRun && (
-                <div className="mt-4 p-3 bg-white/50 rounded-lg">
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-slate-600">Progress</span>
-                    <span className="font-medium text-slate-900">
-                      {autoRun.passed + autoRun.failed + (autoRun.skipped || 0)} / {autoRun.total_tests}
-                    </span>
-                  </div>
-                  <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
-                      style={{ width: `${((autoRun.passed + autoRun.failed + (autoRun.skipped || 0)) / autoRun.total_tests) * 100}%` }}
-                    />
-                  </div>
-                  {autoRun.current_test && (
-                    <p className="text-xs text-slate-500 mt-2 truncate">
-                      Running: {autoRun.current_test}
+              {/* Current Activity Status - Shows what's happening */}
+              {qaBuddyCurrentActivity && (
+                <div className={`mt-4 p-3 rounded-lg ${
+                  isQaBuddyRunning 
+                    ? 'bg-blue-50 border border-blue-200' 
+                    : 'bg-slate-50 border border-slate-200'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {isQaBuddyRunning && (
+                      <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                    )}
+                    <p className="text-xs font-medium text-slate-900">
+                      {qaBuddyCurrentActivity}
                     </p>
-                  )}
+                  </div>
+                </div>
+              )}
+              
+              {/* Test Prompt - Shown after successful login */}
+              {showTestPrompt && !isQaBuddyRunning && qaBuddySessionStatus?.status === 'PASS' && (
+                <div className="mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                  <p className="text-sm font-semibold text-indigo-900 mb-2 flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    What would you like to test?
+                  </p>
+                  <textarea
+                    value={testPrompt}
+                    onChange={e => setTestPrompt(e.target.value)}
+                    placeholder="Describe what you want to test...&#10;&#10;Examples:&#10;• Test all CRUD operations&#10;• Check form validations&#10;• Test API endpoints&#10;• Focus on authentication flows&#10;• Test table functionality"
+                    className="w-full h-24 px-3 py-2 border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && e.ctrlKey && testPrompt.trim()) {
+                        handleQaBuddyDiscover();
+                      }
+                    }}
+                  />
+                  <div className="mt-2 flex items-center justify-between">
+                    <p className="text-xs text-indigo-700">Press Ctrl+Enter to start testing</p>
+                    <button
+                      onClick={handleQaBuddyDiscover}
+                      disabled={!testPrompt.trim()}
+                      className="px-4 py-1.5 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Start Testing
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {/* Session Status */}
+              {qaBuddySessionStatus && (
+                <div className={`mt-4 p-3 rounded-lg ${
+                  qaBuddySessionStatus.status === 'PASS' 
+                    ? 'bg-emerald-50 border border-emerald-200' 
+                    : 'bg-red-50 border border-red-200'
+                }`}>
+                  <div className="flex items-start gap-2">
+                    {qaBuddySessionStatus.status === 'PASS' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <XCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold text-slate-900">
+                        Session {qaBuddySessionStatus.status === 'PASS' ? 'Valid' : 'Invalid'}
+                      </p>
+                      {qaBuddySessionStatus.reason && (
+                        <p className="text-xs text-slate-600 mt-1">{qaBuddySessionStatus.reason}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Issues Found - Alert Everyone! */}
+              {qaBuddyIssues.length > 0 && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-xs font-semibold text-red-900 mb-2 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    Issues Found ({qaBuddyIssues.length})
+                  </p>
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                    {qaBuddyIssues.slice(-5).map((issue, idx) => (
+                      <div key={idx} className={`text-xs p-2 rounded ${
+                        issue.severity === 'high' ? 'bg-red-100 border border-red-300' :
+                        issue.severity === 'medium' ? 'bg-amber-100 border border-amber-300' :
+                        'bg-slate-100 border border-slate-300'
+                      }`}>
+                        <div className="flex items-start gap-2">
+                          <div className={`w-2 h-2 rounded-full mt-1 ${
+                            issue.severity === 'high' ? 'bg-red-500' :
+                            issue.severity === 'medium' ? 'bg-amber-500' :
+                            'bg-slate-400'
+                          }`} />
+                          <div className="flex-1">
+                            <p className="font-medium text-slate-900">{issue.type}</p>
+                            <p className="text-slate-600 mt-0.5">{issue.message}</p>
+                            {issue.url && (
+                              <p className="text-slate-500 text-xs mt-0.5 truncate">{issue.url}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Progress Timeline */}
+              {isQaBuddyRunning && qaBuddyProgress.length > 0 && (
+                <div className="mt-4 p-3 bg-white/50 rounded-lg">
+                  <p className="text-xs font-medium text-slate-700 mb-2">Progress</p>
+                  <div className="space-y-1.5">
+                    {qaBuddyProgress.slice(-5).map((p, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs">
+                        <div className={`w-1.5 h-1.5 rounded-full ${
+                          p.event.includes('VALID') || p.event.includes('COMPLETE') ? 'bg-emerald-500' :
+                          p.event.includes('INVALID') || p.event.includes('ERROR') ? 'bg-red-500' :
+                          'bg-slate-400'
+                        }`} />
+                        <span className="text-slate-600">{p.event}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Actions Panel */}
-            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-900 mb-4">Workflow</h2>
-              
-              <div className="space-y-3">
-                {/* Step 1: Discover */}
-                <WorkflowButton
-                  step={1}
-                  label="Discover"
-                  description="Crawl application, find pages & APIs"
-                  icon={<Search className="w-4 h-4" />}
-                  onClick={handleDiscover}
-                  disabled={!canDiscover}
-                  loading={workflowState === 'discovering'}
-                  completed={discovery?.status === 'completed'}
-                  active={workflowState === 'idle' || workflowState === 'discovering'}
-                />
-                
-                {/* Step 2: Generate Tests */}
-                <WorkflowButton
-                  step={2}
-                  label="Generate Tests"
-                  description="Create smoke tests from discovery"
-                  icon={<FileText className="w-4 h-4" />}
-                  onClick={handleGenerateTests}
-                  disabled={!canGenerateTests}
-                  loading={workflowState === 'generating'}
-                  completed={generatedTests !== null}
-                  active={workflowState === 'discovered' || workflowState === 'generating'}
-                />
-                
-                {/* Step 3: Run Tests */}
-                <WorkflowButton
-                  step={3}
-                  label="Run Tests"
-                  description="Execute tests and collect results"
-                  icon={<Play className="w-4 h-4" />}
-                  onClick={handleRun}
-                  disabled={!canRunTests}
-                  loading={workflowState === 'running'}
-                  completed={workflowState === 'completed'}
-                  active={workflowState === 'generated' || workflowState === 'running'}
-                  variant="primary"
-                />
-              </div>
-              
-              {/* cURL Helper */}
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <div className="relative">
-                  <button
-                    onClick={() => setShowCurl(!showCurl)}
-                    className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
-                  >
-                    <Copy className="w-3 h-3" />
-                    Copy cURL command
-                    <ChevronDown className={`w-3 h-3 transition-transform ${showCurl ? 'rotate-180' : ''}`} />
-                  </button>
-                  
-                  {showCurl && (
-                    <div className="absolute left-0 bottom-full mb-2 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-10 py-1">
-                      {[
-                        { name: 'Discover', endpoint: '/discover', body: { ui_url: connection.ui_url, username: connection.username, password: connection.password, env: connection.env, prompt } },
-                        { name: 'Generate Tests', endpoint: '/generate-tests', body: { discovery_id: discoveryId || 'DISCOVERY_ID' } },
-                        { name: 'Run', endpoint: '/run', body: { discovery_id: discoveryId || 'DISCOVERY_ID', suite: 'smoke', prompt } },
-                      ].map(({ name, endpoint, body }) => (
-                        <button
-                          key={name}
-                          onClick={() => { copyToClipboard(getCurl(endpoint, body)); setShowCurl(false); }}
-                          className="w-full text-left px-3 py-2 text-xs hover:bg-slate-50"
-                        >
-                          {name}
-                        </button>
-                      ))}
-                    </div>
+          </div>
+
+          {/* Middle Column - Action Log */}
+          <div className="col-span-4 space-y-6">
+            {/* Action Log - Shows all actions being performed */}
+            {(isQaBuddyRunning || qaBuddyActionLog.length > 0) && (
+              <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                    <List className="w-4 h-4 text-indigo-500" />
+                    Action Log
+                    {qaBuddyActionLog.length > 0 && (
+                      <span className="text-xs font-normal text-slate-500">({qaBuddyActionLog.length})</span>
+                    )}
+                  </h2>
+                  {qaBuddyActionLog.length > 0 && (
+                    <button
+                      onClick={() => setQaBuddyActionLog([])}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      Clear
+                    </button>
                   )}
                 </div>
-                
-                {discoveryId && (
-                  <p className="text-xs text-slate-500 mt-2">
-                    Discovery: <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono">{discoveryId}</code>
-                  </p>
-                )}
+                <div className="p-4 space-y-2 max-h-[600px] overflow-y-auto">
+                  {qaBuddyActionLog.length === 0 ? (
+                    <p className="text-xs text-slate-500 text-center py-8">No actions yet...</p>
+                  ) : (
+                    qaBuddyActionLog.map((log) => (
+                      <div
+                        key={log.id}
+                        className={`flex items-start gap-2 p-2 rounded-lg text-xs ${
+                          log.type === 'error' ? 'bg-red-50 border border-red-200' :
+                          log.type === 'success' ? 'bg-emerald-50 border border-emerald-200' :
+                          log.type === 'warning' ? 'bg-amber-50 border border-amber-200' :
+                          log.type === 'action' ? 'bg-blue-50 border border-blue-200' :
+                          'bg-slate-50 border border-slate-200'
+                        }`}
+                      >
+                        <div className={`flex-shrink-0 w-1.5 h-1.5 rounded-full mt-1.5 ${
+                          log.type === 'error' ? 'bg-red-500' :
+                          log.type === 'success' ? 'bg-emerald-500' :
+                          log.type === 'warning' ? 'bg-amber-500' :
+                          log.type === 'action' ? 'bg-blue-500' :
+                          'bg-slate-400'
+                        }`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`font-medium ${
+                              log.type === 'error' ? 'text-red-900' :
+                              log.type === 'success' ? 'text-emerald-900' :
+                              log.type === 'warning' ? 'text-amber-900' :
+                              log.type === 'action' ? 'text-blue-900' :
+                              'text-slate-900'
+                            }`}>
+                              {log.event}
+                            </span>
+                            <span className="text-slate-400 text-[10px]">
+                              {new Date(log.timestamp).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <p className={`mt-0.5 ${
+                            log.type === 'error' ? 'text-red-700' :
+                            log.type === 'success' ? 'text-emerald-700' :
+                            log.type === 'warning' ? 'text-amber-700' :
+                            log.type === 'action' ? 'text-blue-700' :
+                            'text-slate-600'
+                          }`}>
+                            {log.message}
+                          </p>
+                          {log.data && (log.data.module || log.data.page || log.data.count) && (
+                            <p className="text-slate-500 mt-0.5 text-[10px]">
+                              {log.data.module && `Module: ${log.data.module}`}
+                              {log.data.page && `Page: ${log.data.page}`}
+                              {log.data.count && `Count: ${log.data.count}`}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Right Column - Output */}
-          <div className="col-span-8 space-y-6">
+          <div className="col-span-3 space-y-6">
             
-            {/* Auto Discovery Output */}
-            {autoDiscovery && (
-              <AutoDiscoveryOutput discovery={autoDiscovery} run={autoRun} />
+            {/* QA Buddy Output */}
+            {qaBuddyDiscovery && (
+              <div className="bg-white border border-emerald-200 rounded-xl p-6 shadow-sm">
+                <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                  QA Buddy Discovery Results
+                </h3>
+                
+                {qaBuddyDiscovery.status === 'FAILED' ? (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <p className="text-sm font-semibold text-red-900">Discovery Failed</p>
+                    <p className="text-sm text-red-700 mt-1">{qaBuddyDiscovery.reason || qaBuddyDiscovery.error}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Summary */}
+                    <div className="grid grid-cols-4 gap-4">
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <p className="text-xs text-slate-600">Modules</p>
+                        <p className="text-2xl font-bold text-slate-900">{qaBuddyDiscovery.summary?.total_modules || 0}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <p className="text-xs text-slate-600">Pages</p>
+                        <p className="text-2xl font-bold text-slate-900">{qaBuddyDiscovery.summary?.total_pages || 0}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <p className="text-xs text-slate-600">APIs</p>
+                        <p className="text-2xl font-bold text-slate-900">{qaBuddyDiscovery.summary?.total_apis || 0}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <p className="text-xs text-slate-600">Failed APIs</p>
+                        <p className="text-2xl font-bold text-red-600">{qaBuddyDiscovery.summary?.failed_apis || 0}</p>
+                      </div>
+                    </div>
+                    
+                    {/* Modules */}
+                    {qaBuddyDiscovery.modules && qaBuddyDiscovery.modules.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-900 mb-2">Discovered Modules</h4>
+                        <div className="space-y-2">
+                          {qaBuddyDiscovery.modules.map((module: any, idx: number) => (
+                            <div key={idx} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                              <p className="text-sm font-medium text-slate-900">{module.name}</p>
+                              <p className="text-xs text-slate-600 mt-1">
+                                {module.pages?.length || 0} pages, {module.actions?.length || 0} actions
+                              </p>
+                              {module.pages && module.pages.length > 0 && (
+                                <div className="mt-2 space-y-1">
+                                  {module.pages.slice(0, 3).map((page: any, pidx: number) => (
+                                    <div key={pidx} className="text-xs text-slate-600 pl-2 border-l-2 border-slate-300">
+                                      {page.name} {page.has_table && '📊'} {page.has_form && '📝'}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Issues Found */}
+                    {qaBuddyDiscovery.network_issues && qaBuddyDiscovery.network_issues.length > 0 && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <p className="text-sm font-semibold text-red-900 mb-2 flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4" />
+                          Issues Found ({qaBuddyDiscovery.network_issues.length})
+                        </p>
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {qaBuddyDiscovery.network_issues.map((issue: any, idx: number) => (
+                            <div key={idx} className={`p-2 rounded text-xs ${
+                              issue.severity === 'high' ? 'bg-red-100 border border-red-300' :
+                              issue.severity === 'medium' ? 'bg-amber-100 border border-amber-300' :
+                              'bg-slate-100 border border-slate-300'
+                            }`}>
+                              <p className="font-medium text-slate-900">{issue.type}</p>
+                              <p className="text-slate-600 mt-0.5">{issue.message}</p>
+                              {issue.url && (
+                                <p className="text-slate-500 mt-0.5 truncate">{issue.url}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Architecture Validation */}
+                    {qaBuddyDiscovery.architecture_validation && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <p className="text-xs font-semibold text-blue-900 mb-2">Architecture Validation</p>
+                        {qaBuddyDiscovery.architecture_validation.architecture_issues && 
+                         qaBuddyDiscovery.architecture_validation.architecture_issues.length > 0 && (
+                          <div className="space-y-1 mb-2">
+                            {qaBuddyDiscovery.architecture_validation.architecture_issues.map((issue: any, idx: number) => (
+                              <p key={idx} className="text-xs text-blue-700">⚠️ {issue.message}</p>
+                            ))}
+                          </div>
+                        )}
+                        {qaBuddyDiscovery.architecture_validation.security_issues && 
+                         qaBuddyDiscovery.architecture_validation.security_issues.length > 0 && (
+                          <div className="space-y-1">
+                            {qaBuddyDiscovery.architecture_validation.security_issues.map((issue: any, idx: number) => (
+                              <p key={idx} className="text-xs text-red-700">🔒 {issue.message}</p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Warnings */}
+                    {qaBuddyDiscovery.warnings && qaBuddyDiscovery.warnings.length > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                        <p className="text-xs font-semibold text-amber-900 mb-1">Warnings</p>
+                        <ul className="text-xs text-amber-700 space-y-1">
+                          {qaBuddyDiscovery.warnings.map((w: string, idx: number) => (
+                            <li key={idx}>• {w}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
             
-            {/* Discovery Output */}
-            {discovery && !autoDiscovery && (
-              <DiscoveryOutput discovery={discovery} />
-            )}
-            
-            {/* Generated Tests */}
-            {generatedTests && (
-              <GeneratedTestsOutput tests={generatedTests} />
+            {/* QA Buddy Progress Timeline */}
+            {isQaBuddyRunning && qaBuddyProgress.length > 0 && !qaBuddyDiscovery && (
+              <div className="bg-white border border-emerald-200 rounded-xl p-6 shadow-sm">
+                <h3 className="text-sm font-semibold text-slate-900 mb-4">QA Buddy Progress</h3>
+                <div className="space-y-2">
+                  {qaBuddyProgress.map((p, idx) => (
+                    <div key={idx} className="flex items-center gap-3 text-sm">
+                      <div className={`w-2 h-2 rounded-full ${
+                        p.event.includes('VALID') || p.event.includes('COMPLETE') ? 'bg-emerald-500' :
+                        p.event.includes('INVALID') || p.event.includes('ERROR') ? 'bg-red-500' :
+                        p.event.includes('MODULE') ? 'bg-blue-500' :
+                        'bg-slate-400'
+                      }`} />
+                      <span className="text-slate-700">{p.event}</span>
+                      {p.data && (
+                        <span className="text-xs text-slate-500 ml-auto">
+                          {p.data.module || p.data.count || ''}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Runs Table */}
@@ -1408,7 +2013,7 @@ function DiscoveryOutput({ discovery }: { discovery: Discovery }) {
 // Auto Discovery Output Component
 // =============================================================================
 
-function AutoDiscoveryOutput({ discovery, run }: { discovery: AutoDiscovery; run: AutoRun | null }) {
+function AutoDiscoveryOutput({ discovery, run, progress }: { discovery: AutoDiscovery; run: AutoRun | null; progress?: Array<any> }) {
   const [expandedSection, setExpandedSection] = useState<string | null>('summary');
   
   if (discovery.status === 'running' || discovery.status === 'pending') {
@@ -1897,4 +2502,91 @@ function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+// =============================================================================
+// Discovery Progress Timeline Component
+// =============================================================================
+
+function DiscoveryProgressTimeline({ progress }: { progress: Array<{ event: string; timestamp: number; data?: any }> }) {
+  const eventLabels: Record<string, string> = {
+    'CONNECTED': 'Connected',
+    'LOGIN_OK': 'Login Confirmed',
+    'NAV_FOUND': 'Navigation Found',
+    'MODULE_DISCOVERED': 'Module Discovered',
+    'COMPLETED': 'Completed',
+    'ERROR': 'Error'
+  };
+  
+  const eventIcons: Record<string, any> = {
+    'CONNECTED': Globe,
+    'LOGIN_OK': CheckCircle2,
+    'NAV_FOUND': List,
+    'MODULE_DISCOVERED': Layout,
+    'COMPLETED': CheckCircle2,
+    'ERROR': XCircle
+  };
+  
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100">
+        <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+          <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
+          Discovery Progress
+        </h2>
+      </div>
+      
+      <div className="p-5 space-y-3 max-h-96 overflow-y-auto">
+        {progress.map((item, idx) => {
+          const Icon = eventIcons[item.event] || AlertCircle;
+          const label = eventLabels[item.event] || item.event;
+          const isError = item.event === 'ERROR';
+          const isCompleted = item.event === 'COMPLETED';
+          
+          return (
+            <div key={idx} className="flex items-start gap-3">
+              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                isError ? 'bg-red-100 text-red-600' :
+                isCompleted ? 'bg-emerald-100 text-emerald-600' :
+                'bg-indigo-100 text-indigo-600'
+              }`}>
+                <Icon className="w-4 h-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${
+                  isError ? 'text-red-900' : 'text-slate-900'
+                }`}>
+                  {label}
+                </p>
+                {item.data && (
+                  <div className="mt-1 text-xs text-slate-600">
+                    {item.event === 'MODULE_DISCOVERED' && (
+                      <span className="inline-flex items-center gap-1 bg-purple-50 text-purple-700 px-2 py-0.5 rounded">
+                        <Layout className="w-3 h-3" />
+                        {item.data.name}
+                        {item.data.has_table && <span className="text-purple-500">[Table]</span>}
+                        {item.data.has_form && <span className="text-purple-500">[Form]</span>}
+                      </span>
+                    )}
+                    {item.event === 'NAV_FOUND' && (
+                      <span>Found {item.data.count} navigation items</span>
+                    )}
+                    {item.event === 'CONNECTED' && (
+                      <span className="truncate">{item.data.url}</span>
+                    )}
+                    {item.event === 'ERROR' && (
+                      <span className="text-red-600">{item.data.error}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+              <span className="text-xs text-slate-400">
+                {new Date(item.timestamp).toLocaleTimeString()}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
