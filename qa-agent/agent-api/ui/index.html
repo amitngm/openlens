@@ -377,6 +377,175 @@
             padding: 10px 20px;
             white-space: nowrap;
         }
+
+        .discovery-feed {
+            background: #f8f9fa;
+            border-radius: 4px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .discovery-stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #3498db;
+        }
+
+        .discovery-log {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .discovery-log-entry {
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .discovery-log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-timestamp {
+            color: #999;
+            margin-right: 10px;
+        }
+
+        .log-type {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .log-type.page_discovered {
+            color: #27ae60;
+        }
+
+        .log-type.dropdowns_discovered {
+            color: #3498db;
+        }
+
+        .log-type.navigation_discovered {
+            color: #9b59b6;
+        }
+
+        .pages-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .page-item {
+            padding: 10px;
+            margin-bottom: 8px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .page-item:hover {
+            background: #f0f0f0;
+            border-color: #3498db;
+        }
+
+        .page-item.selected {
+            background: #e3f2fd;
+            border-color: #3498db;
+        }
+
+        .page-item-title {
+            font-weight: 500;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .page-item-url {
+            font-size: 12px;
+            color: #7f8c8d;
+            word-break: break-all;
+        }
+
+        .page-details {
+            background: white;
+            padding: 15px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+
+        .detail-section {
+            margin-bottom: 20px;
+        }
+
+        .detail-section h3 {
+            font-size: 16px;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #3498db;
+        }
+
+        .detail-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            background: #f8f9fa;
+            border-radius: 3px;
+        }
+
+        .field-item {
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-left: 3px solid #3498db;
+            border-radius: 3px;
+        }
+
+        .field-label {
+            font-weight: 500;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .field-meta {
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+
+        .action-item {
+            padding: 8px;
+            margin-bottom: 5px;
+            border-radius: 3px;
+        }
+
+        .action-item.dangerous {
+            background: #fee;
+            border-left: 3px solid #e74c3c;
+        }
+
+        .action-item.safe {
+            background: #efe;
+            border-left: 3px solid #27ae60;
+        }
     </style>
 </head>
 <body>
@@ -496,6 +665,40 @@
             </div>
         </div>
 
+        <!-- Discovery Live Feed Section -->
+        <div class="section hidden" id="discovery_section">
+            <h2>🔍 Live Discovery</h2>
+            <div id="discovery_feed" class="discovery-feed">
+                <div class="discovery-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Pages:</span>
+                        <span class="stat-value" id="discovery_pages_count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Forms:</span>
+                        <span class="stat-value" id="discovery_forms_count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Actions:</span>
+                        <span class="stat-value" id="discovery_actions_count">0</span>
+                    </div>
+                </div>
+                <div id="discovery_log" class="discovery-log"></div>
+            </div>
+        </div>
+
+        <!-- Discovered Pages Section -->
+        <div class="section hidden" id="pages_section">
+            <h2>📄 Discovered Pages</h2>
+            <div id="pages_list" class="pages-list"></div>
+        </div>
+
+        <!-- Page Details Section -->
+        <div class="section hidden" id="page_details_section">
+            <h2>📋 Page Details</h2>
+            <div id="page_details_content" class="page-details"></div>
+        </div>
+
         <!-- Report Section -->
         <div class="section hidden" id="report_section">
             <h2>Test Report</h2>
@@ -519,8 +722,12 @@
         // State
         let currentRunId = null;
         let pollingInterval = null;
+        let eventsPollingInterval = null;
         let currentQuestion = null;
         let currentAppUrl = null; // Track current application URL
+        let eventsCursor = 0;
+        let discoveredPages = [];
+        let selectedPageIndex = null;
 
         // Initialize
         document.getElementById('auth_type').addEventListener('change', function() {
@@ -592,6 +799,7 @@
                 
                 updateStatus(data);
                 startPolling();
+                startEventsPolling();
 
             } catch (error) {
                 showMessage(`Failed to start run: ${error.message}`, 'error');
@@ -620,7 +828,13 @@
                     // Check if done
                     if (data.state === 'DONE' || data.state === 'FAILED') {
                         stopPolling();
+                        stopEventsPolling();
                         checkReportAvailable();
+                    }
+                    
+                    // Show discovery section when discovery starts
+                    if (data.state === 'DISCOVERY_RUN' || data.state === 'DISCOVERY_SUMMARY') {
+                        document.getElementById('discovery_section').classList.remove('hidden');
                     }
 
                 } catch (error) {
@@ -640,6 +854,192 @@
             if (pollingInterval) {
                 clearInterval(pollingInterval);
                 pollingInterval = null;
+            }
+            if (eventsPollingInterval) {
+                clearInterval(eventsPollingInterval);
+                eventsPollingInterval = null;
+            }
+        }
+
+        // Start polling events
+        function startEventsPolling() {
+            if (eventsPollingInterval) {
+                clearInterval(eventsPollingInterval);
+            }
+
+            eventsPollingInterval = setInterval(async () => {
+                if (!currentRunId) return;
+
+                try {
+                    const response = await fetch(`${API_BASE}/runs/${currentRunId}/events?after=${eventsCursor}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    
+                    if (data.events && data.events.length > 0) {
+                        processEvents(data.events);
+                        eventsCursor = data.next_cursor;
+                    }
+
+                } catch (error) {
+                    console.error('Events polling error:', error);
+                }
+            }, 2000); // Poll every 2 seconds
+        }
+
+        // Process discovery events
+        function processEvents(events) {
+            events.forEach(event => {
+                addEventToLog(event);
+                
+                if (event.type === 'page_discovered') {
+                    addPageToList(event.data);
+                } else if (event.type === 'discovery_completed') {
+                    updateDiscoveryStats(event.data);
+                    stopEventsPolling();
+                }
+            });
+        }
+
+        // Add event to discovery log
+        function addEventToLog(event) {
+            const log = document.getElementById('discovery_log');
+            const entry = document.createElement('div');
+            entry.className = 'discovery-log-entry';
+            
+            const timestamp = new Date(event.timestamp).toLocaleTimeString();
+            const type = event.type.replace(/_/g, ' ');
+            
+            let message = '';
+            if (event.type === 'page_discovered') {
+                message = `Discovered page: ${event.data.title || event.data.url}`;
+            } else if (event.type === 'dropdowns_discovered') {
+                message = `Found ${event.data.count} dropdown(s)`;
+            } else if (event.type === 'navigation_discovered') {
+                message = `Found ${event.data.count} navigation item(s)`;
+            } else if (event.type === 'discovery_completed') {
+                message = `Discovery completed: ${event.data.pages_count} pages, ${event.data.forms_count} forms`;
+            } else {
+                message = JSON.stringify(event.data);
+            }
+            
+            entry.innerHTML = `
+                <span class="log-timestamp">${timestamp}</span>
+                <span class="log-type ${event.type}">${type}</span>
+                <span>${message}</span>
+            `;
+            
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // Add page to pages list
+        function addPageToList(pageData) {
+            const page = {
+                url: pageData.url,
+                title: pageData.title || pageData.url,
+                nav_path: pageData.nav_path || '',
+                forms_count: pageData.forms_count || 0,
+                actions_count: pageData.actions_count || 0
+            };
+            
+            // Check if already exists
+            const exists = discoveredPages.find(p => p.url === page.url);
+            if (exists) return;
+            
+            discoveredPages.push(page);
+            renderPagesList();
+        }
+
+        // Render pages list
+        function renderPagesList() {
+            const list = document.getElementById('pages_list');
+            list.innerHTML = '';
+            
+            discoveredPages.forEach((page, index) => {
+                const item = document.createElement('div');
+                item.className = `page-item ${selectedPageIndex === index ? 'selected' : ''}`;
+                item.onclick = () => selectPage(index);
+                
+                item.innerHTML = `
+                    <div class="page-item-title">${page.title}</div>
+                    <div class="page-item-url">${page.url}</div>
+                    <div style="font-size: 11px; color: #999; margin-top: 5px;">
+                        ${page.forms_count} forms, ${page.actions_count} actions
+                    </div>
+                `;
+                
+                list.appendChild(item);
+            });
+            
+            if (discoveredPages.length > 0) {
+                document.getElementById('pages_section').classList.remove('hidden');
+            }
+        }
+
+        // Select a page to show details
+        async function selectPage(index) {
+            selectedPageIndex = index;
+            renderPagesList();
+            
+            // Load page details from discovery.json
+            try {
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/status`);
+                const status = await response.json();
+                
+                // For now, show basic info. In production, you'd fetch from discovery.json
+                const page = discoveredPages[index];
+                showPageDetails(page);
+            } catch (error) {
+                console.error('Error loading page details:', error);
+            }
+        }
+
+        // Show page details
+        function showPageDetails(page) {
+            const details = document.getElementById('page_details_content');
+            details.innerHTML = `
+                <div class="detail-section">
+                    <h3>Page Information</h3>
+                    <div class="detail-item">
+                        <strong>Title:</strong> ${page.title}
+                    </div>
+                    <div class="detail-item">
+                        <strong>URL:</strong> ${page.url}
+                    </div>
+                    <div class="detail-item">
+                        <strong>Navigation Path:</strong> ${page.nav_path || 'N/A'}
+                    </div>
+                </div>
+                <div class="detail-section">
+                    <h3>Summary</h3>
+                    <div class="detail-item">
+                        <strong>Forms:</strong> ${page.forms_count}
+                    </div>
+                    <div class="detail-item">
+                        <strong>Actions:</strong> ${page.actions_count}
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('page_details_section').classList.remove('hidden');
+        }
+
+        // Update discovery stats
+        function updateDiscoveryStats(data) {
+            document.getElementById('discovery_pages_count').textContent = data.pages_count || 0;
+            document.getElementById('discovery_forms_count').textContent = data.forms_count || 0;
+            document.getElementById('discovery_actions_count').textContent = data.actions_count || 0;
+            
+            document.getElementById('discovery_section').classList.remove('hidden');
+        }
+
+        function stopEventsPolling() {
+            if (eventsPollingInterval) {
+                clearInterval(eventsPollingInterval);
+                eventsPollingInterval = null;
             }
         }
 

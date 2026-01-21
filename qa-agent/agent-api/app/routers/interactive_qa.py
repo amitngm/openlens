@@ -383,6 +383,62 @@ async def get_report(run_id: str):
     return HTMLResponse(content=html_content)
 
 
+@router.get("/{run_id}/events", summary="Get discovery events stream")
+async def get_events(run_id: str, after: int = 0):
+    """
+    Get discovery events stream.
+    
+    Returns new events after the specified cursor position.
+    Events are in JSON Lines format, one per line.
+    
+    Args:
+        run_id: Run identifier
+        after: Event cursor position (line number) to start from
+    
+    Returns:
+        Dict with events array and next cursor
+    """
+    context = _run_store.get_run(run_id)
+    if not context:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+    
+    events_file = Path(context.artifacts_path) / "events.jsonl"
+    
+    if not events_file.exists():
+        return {
+            "run_id": run_id,
+            "events": [],
+            "next_cursor": 0,
+            "total_events": 0
+        }
+    
+    try:
+        # Read all events
+        with open(events_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        
+        total_events = len(lines)
+        
+        # Get events after cursor
+        events = []
+        for i in range(after, total_events):
+            try:
+                event = json.loads(lines[i].strip())
+                events.append(event)
+            except:
+                continue
+        
+        return {
+            "run_id": run_id,
+            "events": events,
+            "next_cursor": total_events,
+            "total_events": total_events
+        }
+    except Exception as e:
+        logger.error(f"[{run_id}] Error reading events: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to read events: {str(e)}")
+
+
 @router.get("/{run_id}/status", response_model=RunStatusResponse, summary="Get run status")
 async def get_run_status(run_id: str) -> RunStatusResponse:
     """
