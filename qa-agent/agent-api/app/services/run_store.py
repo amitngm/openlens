@@ -33,7 +33,8 @@ class RunStore:
         base_url: str,
         env: str = "staging",
         headless: bool = True,
-        auth: Optional[AuthConfig] = None
+        auth: Optional[AuthConfig] = None,
+        discovery_debug: bool = False
     ) -> RunContext:
         """
         Create a new run context.
@@ -58,6 +59,7 @@ class RunStore:
             auth=auth,
             state=RunState.START,
             artifacts_path=artifacts_path,
+            discovery_debug=discovery_debug,
             timestamps={RunState.START.value: datetime.utcnow().isoformat() + "Z"}
         )
         

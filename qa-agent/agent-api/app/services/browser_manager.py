@@ -36,7 +36,10 @@ class BrowserManager:
     async def get_or_create_context(
         self,
         run_id: str,
-        headless: bool = True
+        headless: bool = True,
+        debug: bool = False,
+        artifacts_path: Optional[str] = None,
+        slow_mo_ms: int = 0
     ) -> BrowserContext:
         """
         Get or create a browser context for a run.
@@ -54,19 +57,41 @@ class BrowserManager:
         if self._playwright is None:
             await self.initialize()
         
-        browser = await self._playwright.chromium.launch(headless=headless)
-        self._browsers[run_id] = browser
-        
-        context = await browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            ignore_https_errors=True
+        # Debug mode forces headed + slowMo + video recording
+        launch_headless = False if debug else headless
+        launch_slow_mo = 200 if debug else slow_mo_ms
+
+        browser = await self._playwright.chromium.launch(
+            headless=launch_headless,
+            slow_mo=launch_slow_mo
         )
+        self._browsers[run_id] = browser
+
+        context_kwargs = {
+            "viewport": {"width": 1920, "height": 1080},
+            "ignore_https_errors": True,
+        }
+
+        # Record video in debug mode
+        if debug and artifacts_path:
+            video_dir = Path(artifacts_path) / "video"
+            video_dir.mkdir(parents=True, exist_ok=True)
+            context_kwargs["record_video_dir"] = str(video_dir)
+            context_kwargs["record_video_size"] = {"width": 1280, "height": 720}
+
+        context = await browser.new_context(**context_kwargs)
         self._contexts[run_id] = context
         
         logger.info(f"Created browser context for run: {run_id}")
         return context
     
-    async def get_page(self, run_id: str) -> Page:
+    async def get_page(
+        self,
+        run_id: str,
+        headless: bool = True,
+        debug: bool = False,
+        artifacts_path: Optional[str] = None
+    ) -> Page:
         """
         Get or create a page for a run.
         
@@ -79,7 +104,12 @@ class BrowserManager:
         if run_id in self._pages:
             return self._pages[run_id]
         
-        context = await self.get_or_create_context(run_id)
+        context = await self.get_or_create_context(
+            run_id,
+            headless=headless,
+            debug=debug,
+            artifacts_path=artifacts_path
+        )
         page = await context.new_page()
         self._pages[run_id] = page
         

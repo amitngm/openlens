@@ -12,6 +12,7 @@ from app.services.discovery_summarizer import DiscoverySummarizer, get_discovery
 from app.services.test_plan_builder import TestPlanBuilder, get_test_plan_builder
 from app.services.test_executor import TestExecutor, get_test_executor
 from app.services.report_generator import ReportGenerator, get_report_generator
+from app.services.image_analyzer import ImageAnalyzer, get_image_analyzer
 
 __all__ = [
     "RunStore",
@@ -36,5 +37,7 @@ __all__ = [
     "TestExecutor",
     "get_test_executor",
     "ReportGenerator",
-    "get_report_generator"
+    "get_report_generator",
+    "ImageAnalyzer",
+    "get_image_analyzer"
 ]

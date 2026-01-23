@@ -91,6 +91,7 @@ class RunContext(BaseModel):
     selected_context: Optional[str] = Field(None, description="Selected context/tenant")
     discovery_summary: Optional[Dict[str, Any]] = Field(None, description="Discovery results summary")
     test_plan: Optional[Dict[str, Any]] = Field(None, description="Generated test plan")
+    discovery_debug: bool = Field(default=False, description="Enable discovery debug trace + screenshots")
     timestamps: Dict[str, str] = Field(default_factory=dict, description="State transition timestamps")
     artifacts_path: str = Field(..., description="Path to artifacts directory")
     free_text_commands: List[str] = Field(default_factory=list, description="Free-text commands from user")

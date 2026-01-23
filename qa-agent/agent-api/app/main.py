@@ -2,12 +2,14 @@
 
 import logging
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.routers import interactive_qa
+from app.database import init_db, close_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,12 +17,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager - startup and shutdown events."""
+    # Startup
+    logger.info("Initializing database...")
+    try:
+        await init_db()
+        logger.info("Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}", exc_info=True)
+        # Continue anyway - file-based storage will work
+
+    yield
+
+    # Shutdown
+    logger.info("Closing database connections...")
+    await close_db()
+    logger.info("Application shutdown complete")
+
+
 app = FastAPI(
     title="QA Agent API",
     description="Intelligent Test Discovery and Execution with Interactive QA Buddy",
     version="2.1.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # CORS

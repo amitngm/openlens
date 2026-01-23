@@ -3,12 +3,17 @@
 import uuid
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, UploadFile, File, Depends
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc
 
 from app.models.run_context import RunContext, AuthConfig, Question, AnswerRequest
+from app.database import get_db
 from app.models.run_state import RunState
 from app.services.run_store import RunStore
 from app.services.browser_manager import get_browser_manager
@@ -22,6 +27,7 @@ from app.services.discovery_summarizer import get_discovery_summarizer
 from app.services.test_plan_builder import get_test_plan_builder
 from app.services.test_executor import get_test_executor
 from app.services.report_generator import get_report_generator
+from app.services.image_analyzer import get_image_analyzer
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +43,13 @@ _run_store = RunStore()
 
 class StartRunRequest(BaseModel):
     """Request to start a new interactive QA run."""
-    
+
     base_url: str = Field(..., description="Base application URL", examples=["https://app.example.com"])
     env: Optional[str] = Field("staging", description="Environment name", examples=["staging", "dev", "prod"])
     headless: Optional[bool] = Field(True, description="Run browser in headless mode")
     auth: Optional[AuthConfig] = Field(None, description="Authentication configuration")
+    discovery_debug: Optional[bool] = Field(False, description="Enable discovery debug trace + screenshots")
+    uploaded_images: Optional[list] = Field(None, description="Pre-uploaded image analysis results to guide discovery")
     
     class Config:
         json_schema_extra = {
@@ -147,7 +155,8 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
             base_url=request.base_url,
             env=request.env or "staging",
             headless=request.headless if request.headless is not None else True,
-            auth=request.auth
+            auth=request.auth,
+            discovery_debug=bool(request.discovery_debug)
         )
         
         # Transition to OPEN_URL (opens URL in check_session)
@@ -161,7 +170,12 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
         session_checker = get_session_checker()
         
         # Get or create browser page
-        page = await browser_manager.get_page(run_id)
+        page = await browser_manager.get_page(
+            run_id,
+            headless=context.headless,
+            debug=getattr(context, "discovery_debug", False),
+            artifacts_path=context.artifacts_path
+        )
         
         # Perform session check (this opens the URL and checks session state)
         check_result = await session_checker.check_session(
@@ -290,7 +304,8 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
                                             page=page,
                                             run_id=run_id,
                                             base_url=request.base_url,
-                                            artifacts_path=context.artifacts_path
+                                            artifacts_path=context.artifacts_path,
+                                            debug=getattr(context, "discovery_debug", False)
                                         )
                                         
                                         # Store discovery summary in context
@@ -381,6 +396,193 @@ async def get_report(run_id: str):
     
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html_content)
+
+
+@router.get("/{run_id}/discovery/features", summary="Get discovered features and test cases")
+async def get_discovery_features(run_id: str):
+    """
+    Get discovered features and test cases organized by feature.
+
+    Analyzes the discovery data to extract:
+    - Features/modules discovered
+    - Test scenarios per feature
+    - CRUD operations available
+    - Workflows identified
+    """
+    context = _run_store.get_run(run_id)
+    if not context:
+        raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+    discovery_file = Path(context.artifacts_path) / "discovery.json"
+
+    if not discovery_file.exists():
+        return {
+            "run_id": run_id,
+            "features": [],
+            "total_test_cases": 0,
+            "message": "Discovery not completed yet"
+        }
+
+    try:
+        # Read discovery data
+        with open(discovery_file, "r", encoding="utf-8") as f:
+            discovery_data = json.load(f)
+
+        # Extract features from pages
+        features = {}
+        pages = discovery_data.get("pages", [])
+
+        for page in pages:
+            # Extract feature from breadcrumb or page name
+            page_sig = page.get("page_signature", {})
+            breadcrumb = page_sig.get("breadcrumb", "")
+            page_name = page_sig.get("page_name", page.get("title", "Unknown"))
+
+            # Extract feature name (first part of breadcrumb or page name)
+            feature_name = "General"
+            if breadcrumb:
+                parts = breadcrumb.split(">")
+                if len(parts) >= 3:
+                    feature_name = parts[2].strip()
+                elif len(parts) >= 2:
+                    feature_name = parts[1].strip()
+
+            if feature_name == "Dashboard":
+                feature_name = page_name or "General"
+
+            # Initialize feature if not exists
+            if feature_name not in features:
+                features[feature_name] = {
+                    "feature_name": feature_name,
+                    "pages": [],
+                    "test_cases": []
+                }
+
+            # Add page
+            features[feature_name]["pages"].append({
+                "url": page.get("url", ""),
+                "nav_text": page.get("nav_text", ""),
+                "title": page.get("title", "")
+            })
+
+            # Generate test cases based on page content
+            test_cases = []
+
+            # Navigation test
+            test_cases.append({
+                "test_id": f"TC_{len(test_cases) + 1}",
+                "test_name": f"Navigate to {page_name}",
+                "test_type": "navigation",
+                "priority": "high",
+                "steps": [
+                    f"Navigate to {page.get('nav_text', page_name)}",
+                    "Verify page loads successfully",
+                    f"Verify page title contains '{page.get('title', '')}'"
+                ]
+            })
+
+            # Action button tests
+            actions = page.get("primary_actions", [])
+            for action in actions:
+                action_text = action.get("text", "")
+                action_type = action.get("tag", "unknown")
+
+                if action_type == "create":
+                    test_cases.append({
+                        "test_id": f"TC_{len(test_cases) + 1}",
+                        "test_name": f"{action_text} {page_name}",
+                        "test_type": "crud_create",
+                        "priority": "high",
+                        "steps": [
+                            f"Click on '{action_text}' button",
+                            "Fill in required fields",
+                            "Submit form",
+                            "Verify success message",
+                            f"Verify new item appears in {page_name} list"
+                        ]
+                    })
+                elif action_type == "edit":
+                    test_cases.append({
+                        "test_id": f"TC_{len(test_cases) + 1}",
+                        "test_name": f"Edit {page_name}",
+                        "test_type": "crud_update",
+                        "priority": "medium",
+                        "steps": [
+                            f"Select an existing {page_name}",
+                            f"Click on '{action_text}' button",
+                            "Modify fields",
+                            "Save changes",
+                            "Verify updates are reflected"
+                        ]
+                    })
+                elif action_type == "delete":
+                    test_cases.append({
+                        "test_id": f"TC_{len(test_cases) + 1}",
+                        "test_name": f"Delete {page_name}",
+                        "test_type": "crud_delete",
+                        "priority": "medium",
+                        "steps": [
+                            f"Select an existing {page_name}",
+                            f"Click on '{action_text}' button",
+                            "Confirm deletion",
+                            "Verify item is removed from list"
+                        ]
+                    })
+
+            # Table tests
+            tables = page.get("tables", [])
+            for table in tables:
+                columns = table.get("columns", [])
+                if columns:
+                    test_cases.append({
+                        "test_id": f"TC_{len(test_cases) + 1}",
+                        "test_name": f"Verify {page_name} table data",
+                        "test_type": "data_validation",
+                        "priority": "medium",
+                        "steps": [
+                            f"Navigate to {page_name}",
+                            f"Verify table has columns: {', '.join(columns[:3])}",
+                            "Verify table data loads",
+                            "Verify pagination works (if present)"
+                        ]
+                    })
+
+            # Form tests
+            forms = page.get("forms", [])
+            for form in forms:
+                form_fields = form.get("fields", [])
+                if form_fields:
+                    test_cases.append({
+                        "test_id": f"TC_{len(test_cases) + 1}",
+                        "test_name": f"Submit {page_name} form",
+                        "test_type": "form_submission",
+                        "priority": "high",
+                        "steps": [
+                            f"Navigate to {page_name} form",
+                            "Fill in all required fields",
+                            "Submit form",
+                            "Verify validation messages",
+                            "Verify successful submission"
+                        ]
+                    })
+
+            features[feature_name]["test_cases"].extend(test_cases)
+
+        # Convert to list and calculate totals
+        features_list = list(features.values())
+        total_test_cases = sum(len(f["test_cases"]) for f in features_list)
+
+        return {
+            "run_id": run_id,
+            "features": features_list,
+            "total_features": len(features_list),
+            "total_test_cases": total_test_cases,
+            "message": f"Discovered {len(features_list)} features with {total_test_cases} test cases"
+        }
+
+    except Exception as e:
+        logger.error(f"[{run_id}] Error extracting features: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to extract features: {str(e)}")
 
 
 @router.get("/{run_id}/events", summary="Get discovery events stream")
@@ -563,7 +765,12 @@ async def answer_question(
                 login_executor = get_login_executor()
                 
                 try:
-                    page = await browser_manager.get_page(run_id)
+                    page = await browser_manager.get_page(
+                        run_id,
+                        headless=context.headless,
+                        debug=getattr(context, "discovery_debug", False),
+                        artifacts_path=context.artifacts_path
+                    )
                     login_result = await login_executor.attempt_login(
                         page=page,
                         run_id=run_id,
@@ -637,7 +844,8 @@ async def answer_question(
                                                 page=page,
                                                 run_id=run_id,
                                                 base_url=context.base_url,
-                                                artifacts_path=context.artifacts_path
+                                                artifacts_path=context.artifacts_path,
+                                                debug=getattr(context, "discovery_debug", False)
                                             )
                                             
                                             # Store discovery summary in context
@@ -701,7 +909,12 @@ async def answer_question(
             discovery_runner = get_discovery_runner()
             
             try:
-                page = await browser_manager.get_page(run_id)
+                page = await browser_manager.get_page(
+                    run_id,
+                    headless=context.headless,
+                    debug=getattr(context, "discovery_debug", False),
+                    artifacts_path=context.artifacts_path
+                )
                 discovery_result = await discovery_runner.run_discovery(
                     page=page,
                     run_id=run_id,
@@ -757,7 +970,12 @@ async def answer_question(
                 context_detector = get_context_detector()
                 
                 try:
-                    page = await browser_manager.get_page(run_id)
+                    page = await browser_manager.get_page(
+                        run_id,
+                        headless=context.headless,
+                        debug=getattr(context, "discovery_debug", False),
+                        artifacts_path=context.artifacts_path
+                    )
                     detect_result = await context_detector.detect_context(
                         page=page,
                         run_id=run_id,
@@ -784,7 +1002,8 @@ async def answer_question(
                                 page=page,
                                 run_id=run_id,
                                 base_url=context.base_url,
-                                artifacts_path=context.artifacts_path
+                                artifacts_path=context.artifacts_path,
+                                debug=getattr(context, "discovery_debug", False)
                             )
                             
                             # Store discovery summary in context
@@ -846,7 +1065,12 @@ async def answer_question(
             test_plan_builder = get_test_plan_builder()
             
             try:
-                page = await browser_manager.get_page(run_id)
+                page = await browser_manager.get_page(
+                    run_id,
+                    headless=context.headless,
+                    debug=getattr(context, "discovery_debug", False),
+                    artifacts_path=context.artifacts_path
+                )
                 plan_result = await test_plan_builder.build_test_plan(
                     page=page,
                     run_id=run_id,
@@ -902,7 +1126,12 @@ async def answer_question(
             test_plan_builder = get_test_plan_builder()
             
             try:
-                page = await browser_manager.get_page(run_id)
+                page = await browser_manager.get_page(
+                    run_id,
+                    headless=context.headless,
+                    debug=getattr(context, "discovery_debug", False),
+                    artifacts_path=context.artifacts_path
+                )
                 
                 # Load discovery data
                 discovery_dir = Path(context.artifacts_path)
@@ -1004,7 +1233,12 @@ async def answer_question(
                 test_executor = get_test_executor()
                 
                 try:
-                    page = await browser_manager.get_page(run_id)
+                    page = await browser_manager.get_page(
+                        run_id,
+                        headless=context.headless,
+                        debug=getattr(context, "discovery_debug", False),
+                        artifacts_path=context.artifacts_path
+                    )
                     test_plan = context.test_plan
                     
                     if not test_plan:
@@ -1105,3 +1339,517 @@ def _calculate_progress(state: RunState) -> int:
     except ValueError:
         # State not in order (e.g., FAILED)
         return 0 if state == RunState.FAILED else 100
+
+
+# =============================================================================
+# Media Upload Endpoints
+# =============================================================================
+
+@router.post("/upload/image/pre-run", summary="Upload image before starting a run")
+async def upload_image_pre_run(
+    file: UploadFile = File(..., description="Image file to upload")
+):
+    """
+    Upload an image file BEFORE starting a run.
+
+    This allows users to upload screenshots for analysis before the discovery run begins.
+    Images will be stored temporarily and can be associated with a run later.
+    """
+    try:
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+
+        # Create temporary uploads directory
+        temp_uploads_dir = Path("agent-api/data/temp_uploads/images")
+        temp_uploads_dir.mkdir(parents=True, exist_ok=True)
+
+        # Save file with unique ID
+        file_id = uuid.uuid4().hex
+        file_path = temp_uploads_dir / f"{file_id}_{file.filename}"
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            if len(content) > 10 * 1024 * 1024:  # 10MB limit
+                raise HTTPException(status_code=400, detail="Image file too large (max 10MB)")
+            f.write(content)
+
+        logger.info(f"[PRE-RUN] Image uploaded: {file.filename} -> {file_path}")
+
+        # Analyze the image without run_id
+        image_analyzer = get_image_analyzer()
+        analysis_result = await image_analyzer.analyze_image(
+            image_path=file_path,
+            run_id="pre-run",
+            artifacts_path=str(temp_uploads_dir.parent)
+        )
+
+        return JSONResponse({
+            "file_id": file_id,
+            "filename": file.filename,
+            "file_path": str(file_path),
+            "size": len(content),
+            "content_type": file.content_type,
+            "analysis": {
+                "ui_elements_count": len(analysis_result.get("ui_elements", [])),
+                "text_items_count": len(analysis_result.get("text_content", [])),
+                "components_detected": [c.get("type") for c in analysis_result.get("components_detected", [])],
+                "workflow_hints": len(analysis_result.get("workflow_hints", [])),
+                "workflows": [w.get("workflow") for w in analysis_result.get("workflow_hints", [])]
+            },
+            "message": "Image uploaded and analyzed successfully. UI elements and patterns extracted."
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[PRE-RUN] Failed to upload image: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload image: {str(e)}")
+
+
+@router.post("/{run_id}/upload/image", summary="Upload image for future discovery analysis")
+async def upload_image(
+    run_id: str,
+    file: UploadFile = File(..., description="Image file to upload")
+):
+    """
+    Upload an image file for future discovery analysis.
+    
+    Images will be analyzed to:
+    - Extract UI elements and components
+    - Identify workflows and user journeys
+    - Generate test cases from visual patterns
+    - Detect accessibility issues
+    """
+    try:
+        context = _run_store.get_run(run_id)
+        if not context:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Create uploads directory
+        uploads_dir = Path(context.artifacts_path) / "uploads" / "images"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save file
+        file_path = uploads_dir / f"{uuid.uuid4().hex}_{file.filename}"
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            if len(content) > 10 * 1024 * 1024:  # 10MB limit
+                raise HTTPException(status_code=400, detail="Image file too large (max 10MB)")
+            f.write(content)
+        
+        logger.info(f"[{run_id}] Image uploaded: {file.filename} -> {file_path}")
+        
+        # Analyze the image
+        image_analyzer = get_image_analyzer()
+        analysis_result = await image_analyzer.analyze_image(
+            image_path=file_path,
+            run_id=run_id,
+            artifacts_path=context.artifacts_path
+        )
+        
+        return JSONResponse({
+            "run_id": run_id,
+            "filename": file.filename,
+            "file_path": str(file_path.relative_to(context.artifacts_path)),
+            "size": len(content),
+            "content_type": file.content_type,
+            "analysis": {
+                "ui_elements_count": len(analysis_result.get("ui_elements", [])),
+                "text_items_count": len(analysis_result.get("text_content", [])),
+                "components_detected": [c.get("type") for c in analysis_result.get("components_detected", [])],
+                "workflow_hints": len(analysis_result.get("workflow_hints", [])),
+                "analysis_file": f"uploads/images/{file_path.stem}_analysis.json"
+            },
+            "message": "Image uploaded and analyzed successfully. UI elements and patterns extracted."
+        })
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to upload image: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload image: {str(e)}")
+
+
+@router.post("/{run_id}/upload/video", summary="Upload video for future discovery analysis")
+async def upload_video(
+    run_id: str,
+    file: UploadFile = File(..., description="Video file to upload")
+):
+    """
+    Upload a video file for future discovery analysis.
+    
+    Videos will be analyzed to:
+    - Extract user workflows and interactions
+    - Identify UI state changes
+    - Generate test scenarios from recorded actions
+    - Compare UI behavior over time
+    """
+    try:
+        context = _run_store.get_run(run_id)
+        if not context:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('video/'):
+            raise HTTPException(status_code=400, detail="File must be a video")
+        
+        # Create uploads directory
+        uploads_dir = Path(context.artifacts_path) / "uploads" / "videos"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save file
+        file_path = uploads_dir / f"{uuid.uuid4().hex}_{file.filename}"
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            if len(content) > 100 * 1024 * 1024:  # 100MB limit
+                raise HTTPException(status_code=400, detail="Video file too large (max 100MB)")
+            f.write(content)
+        
+        logger.info(f"[{run_id}] Video uploaded: {file.filename} -> {file_path}")
+        
+        return JSONResponse({
+            "run_id": run_id,
+            "filename": file.filename,
+            "file_path": str(file_path.relative_to(context.artifacts_path)),
+            "size": len(content),
+            "content_type": file.content_type,
+            "message": "Video uploaded successfully. Will be analyzed for future discovery features."
+        })
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to upload video: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload video: {str(e)}")
+
+
+@router.post("/{run_id}/upload/images", summary="Upload multiple images")
+async def upload_images(
+    run_id: str,
+    files: list[UploadFile] = File(..., description="Image files to upload")
+):
+    """Upload multiple image files at once."""
+    try:
+        context = _run_store.get_run(run_id)
+        if not context:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        
+        uploads_dir = Path(context.artifacts_path) / "uploads" / "images"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        
+        uploaded_files = []
+        for file in files:
+            if not file.content_type or not file.content_type.startswith('image/'):
+                continue
+            
+            file_path = uploads_dir / f"{uuid.uuid4().hex}_{file.filename}"
+            with open(file_path, "wb") as f:
+                content = await file.read()
+                if len(content) > 10 * 1024 * 1024:
+                    continue
+                f.write(content)
+            
+            uploaded_files.append({
+                "filename": file.filename,
+                "file_path": str(file_path.relative_to(context.artifacts_path)),
+                "size": len(content)
+            })
+        
+        logger.info(f"[{run_id}] Uploaded {len(uploaded_files)} images")
+        
+        # Analyze all uploaded images
+        image_analyzer = get_image_analyzer()
+        analysis_results = []
+        for file_info in uploaded_files:
+            file_path = Path(context.artifacts_path) / file_info["file_path"]
+            if file_path.exists():
+                try:
+                    analysis = await image_analyzer.analyze_image(
+                        image_path=file_path,
+                        run_id=run_id,
+                        artifacts_path=context.artifacts_path
+                    )
+                    analysis_results.append({
+                        "filename": file_info["filename"],
+                        "ui_elements": len(analysis.get("ui_elements", [])),
+                        "components": [c.get("type") for c in analysis.get("components_detected", [])],
+                        "workflows": len(analysis.get("workflow_hints", []))
+                    })
+                except Exception as e:
+                    logger.error(f"[{run_id}] Failed to analyze {file_info['filename']}: {e}")
+        
+        return JSONResponse({
+            "run_id": run_id,
+            "uploaded_count": len(uploaded_files),
+            "files": uploaded_files,
+            "analysis_results": analysis_results,
+            "message": f"Successfully uploaded and analyzed {len(uploaded_files)} image(s). Extracted UI elements, components, and workflow patterns."
+        })
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to upload images: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload images: {str(e)}")
+
+
+@router.post("/{run_id}/upload/videos", summary="Upload multiple videos")
+async def upload_videos(
+    run_id: str,
+    files: list[UploadFile] = File(..., description="Video files to upload")
+):
+    """Upload multiple video files at once."""
+    try:
+        context = _run_store.get_run(run_id)
+        if not context:
+            raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+        
+        uploads_dir = Path(context.artifacts_path) / "uploads" / "videos"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        
+        uploaded_files = []
+        for file in files:
+            if not file.content_type or not file.content_type.startswith('video/'):
+                continue
+            
+            file_path = uploads_dir / f"{uuid.uuid4().hex}_{file.filename}"
+            with open(file_path, "wb") as f:
+                content = await file.read()
+                if len(content) > 100 * 1024 * 1024:
+                    continue
+                f.write(content)
+            
+            uploaded_files.append({
+                "filename": file.filename,
+                "file_path": str(file_path.relative_to(context.artifacts_path)),
+                "size": len(content)
+            })
+        
+        logger.info(f"[{run_id}] Uploaded {len(uploaded_files)} videos")
+        
+        return JSONResponse({
+            "run_id": run_id,
+            "uploaded_count": len(uploaded_files),
+            "files": uploaded_files,
+            "message": f"Successfully uploaded {len(uploaded_files)} video(s)"
+        })
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to upload videos: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload videos: {str(e)}")
+
+
+# =============================================================================
+# Database Storage & Comparison Endpoints
+# =============================================================================
+
+@router.post("/{run_id}/store", summary="Store run analysis in database")
+async def store_run_analysis(
+    run_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Store completed run analysis in database.
+    
+    This endpoint stores:
+    - Run metadata
+    - Discovery results (pages, forms, tables)
+    - Generated test cases
+    - Screenshots and artifacts paths
+    """
+    from app.services.db_storage import DatabaseStorageService
+    from app.database.repositories import RunRepository
+    
+    try:
+        context = _run_store.get_run(run_id)
+        if not context:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+        # Check if already stored
+        existing_run = await RunRepository.get_run(db, run_id)
+        if existing_run:
+            return {"message": "Run already stored in database", "run_id": run_id}
+
+        # Store run metadata
+        await DatabaseStorageService.store_run_metadata(
+            db=db,
+            run_id=run_id,
+            base_url=context.base_url,
+            env=context.env,
+            artifacts_path=context.artifacts_path,
+            config={
+                "headless": context.headless,
+                "discovery_debug": context.discovery_debug,
+                "auth": context.auth.__dict__ if context.auth else None
+            }
+        )
+
+        # Store discovery results
+        discovery_file = Path(context.artifacts_path) / "discovery.json"
+        if discovery_file.exists():
+            await DatabaseStorageService.store_discovery_results(db, run_id, discovery_file)
+
+        # Extract and store test cases
+        features_response = await get_discovery_features(run_id)
+        if "features" in features_response:
+            all_test_cases = []
+            for feature in features_response["features"]:
+                for tc in feature.get("test_cases", []):
+                    tc["feature_name"] = feature["feature_name"]
+                    all_test_cases.append(tc)
+            
+            if all_test_cases:
+                await DatabaseStorageService.store_test_cases(db, run_id, all_test_cases)
+
+        # Mark as completed
+        await DatabaseStorageService.complete_run(db, run_id, context.status.value)
+
+        logger.info(f"[{run_id}] Stored complete analysis in database")
+
+        return {
+            "run_id": run_id,
+            "message": "Run analysis stored successfully in database",
+            "stored": {
+                "metadata": True,
+                "discovery": discovery_file.exists(),
+                "test_cases": len(all_test_cases) if all_test_cases else 0
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to store analysis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to store analysis: {str(e)}")
+
+
+@router.get("/compare/{run_id_a}/vs/{run_id_b}", summary="Compare two runs")
+async def compare_runs(
+    run_id_a: str,
+    run_id_b: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Compare two discovery runs to identify differences.
+    
+    Returns:
+    - Pages added/removed/changed
+    - Forms added/removed
+    - Test cases added/removed
+    - Overall summary of changes
+    """
+    from app.services.db_storage import DatabaseStorageService
+    from app.database.repositories import RunRepository, ComparisonRepository
+    
+    try:
+        # Check if runs exist in database
+        run_a = await RunRepository.get_run(db, run_id_a)
+        run_b = await RunRepository.get_run(db, run_id_b)
+
+        if not run_a:
+            raise HTTPException(status_code=404, detail=f"Run {run_id_a} not found in database. Store it first using POST /{run_id_a}/store")
+        if not run_b:
+            raise HTTPException(status_code=404, detail=f"Run {run_id_b} not found in database. Store it first using POST /{run_id_b}/store")
+
+        # Check if comparison already exists
+        existing_comparison = await ComparisonRepository.get_comparison(db, run_id_a, run_id_b)
+        if existing_comparison:
+            return {
+                "comparison": existing_comparison.comparison_data,
+                "compared_at": existing_comparison.compared_at.isoformat(),
+                "cached": True
+            }
+
+        # Perform comparison
+        comparison_data = await DatabaseStorageService.compare_runs(db, run_id_a, run_id_b)
+
+        return {
+            "comparison": comparison_data,
+            "compared_at": datetime.utcnow().isoformat(),
+            "cached": False
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to compare runs {run_id_a} vs {run_id_b}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to compare runs: {str(e)}")
+
+
+@router.get("/history", summary="Get run history for a base URL")
+async def get_run_history(
+    base_url: str,
+    limit: int = 10,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get historical runs for a specific base URL.
+    
+    Useful for tracking changes over time and comparing with previous runs.
+    """
+    from app.services.db_storage import DatabaseStorageService
+    
+    try:
+        runs = await DatabaseStorageService.get_historical_runs(db, base_url, limit)
+        
+        return {
+            "base_url": base_url,
+            "runs": runs,
+            "total": len(runs),
+            "message": f"Found {len(runs)} historical run(s) for {base_url}"
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to get history for {base_url}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get run history: {str(e)}")
+
+
+@router.get("/stats", summary="Get database statistics")
+async def get_database_stats(db: AsyncSession = Depends(get_db)):
+    """Get overall statistics from the database."""
+    from sqlalchemy import select, func
+    from app.models.database import Run, Page, TestCase
+    
+    try:
+        # Count runs
+        runs_count = await db.scalar(select(func.count()).select_from(Run))
+        
+        # Count pages
+        pages_count = await db.scalar(select(func.count()).select_from(Page))
+        
+        # Count test cases
+        test_cases_count = await db.scalar(select(func.count()).select_from(TestCase))
+        
+        # Get recent runs
+        result = await db.execute(
+            select(Run).order_by(desc(Run.started_at)).limit(5)
+        )
+        recent_runs = result.scalars().all()
+        
+        return {
+            "statistics": {
+                "total_runs": runs_count or 0,
+                "total_pages": pages_count or 0,
+                "total_test_cases": test_cases_count or 0
+            },
+            "recent_runs": [
+                {
+                    "run_id": run.run_id,
+                    "base_url": run.base_url,
+                    "status": run.status,
+                    "started_at": run.started_at.isoformat(),
+                    "pages": run.pages_discovered
+                }
+                for run in recent_runs
+            ]
+        }
+    
+    except Exception as e:
+        logger.error(f"Failed to get database stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")

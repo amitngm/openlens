@@ -1,0 +1,22 @@
+# QA Buddy Dependencies
+# Core web framework
+fastapi==0.128.0
+uvicorn==0.40.0
+pydantic==2.12.5
+python-multipart==0.0.21
+
+# Browser automation
+playwright==1.57.0
+
+# Image processing (optional but recommended)
+Pillow>=10.0.0
+pytesseract>=0.3.10
+
+# Database (PostgreSQL + SQLite for development)
+asyncpg>=0.29.0
+aiosqlite>=0.20.0
+sqlalchemy[asyncio]>=2.0.23
+alembic>=1.13.0
+
+# Type hints
+typing_extensions>=4.15.0

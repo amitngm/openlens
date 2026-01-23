@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive QA Buddy</title>
+    <title>QA Buddy - AI-Powered Test Discovery</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -11,14 +14,43 @@
             box-sizing: border-box;
         }
 
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-light: #818cf8;
+            --secondary: #8b5cf6;
+            --success: #10b981;
+            --success-light: #34d399;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #f1f5f9;
+            --bg-dark: #0f172a;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --text-tertiary: #94a3b8;
+            --border: #e2e8f0;
+            --border-light: #f1f5f9;
+            --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --gradient-info: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: #f5f5f5;
-            margin: 0;
-            padding: 0;
-            color: #333;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e9f2 100%);
+            color: var(--text-primary);
+            line-height: 1.6;
             height: 100vh;
             overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
         .main-layout {
@@ -32,68 +64,149 @@
             height: 100vh;
             display: flex;
             flex-direction: column;
-            background: white;
-            border-right: 2px solid #ddd;
+            background: var(--bg-primary);
+            border-right: 1px solid var(--border);
+            box-shadow: var(--shadow-lg);
         }
 
         .buddy-panel {
             width: 40%;
             height: 100vh;
             overflow-y: auto;
-            background: #fafafa;
-            padding: 20px;
+            background: var(--bg-secondary);
+            padding: 0;
         }
 
-        .container {
-            max-width: 100%;
-            margin: 0;
-            background: white;
-            padding: 20px;
+        .buddy-header {
+            background: var(--gradient-primary);
+            color: white;
+            padding: 24px 28px;
+            box-shadow: var(--shadow-lg);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 3px solid rgba(255, 255, 255, 0.2);
         }
 
-        h1 {
-            color: #2c3e50;
-            margin-bottom: 10px;
+        .buddy-header h1 {
+            font-size: 28px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
 
-        .subtitle {
-            color: #7f8c8d;
-            margin-bottom: 30px;
+        .buddy-header h1::before {
+            content: "🤖";
+            font-size: 32px;
+            animation: pulse 2s ease-in-out infinite;
         }
 
-        .section {
-            margin-bottom: 30px;
-            padding: 20px;
-            background: #fafafa;
-            border-radius: 6px;
-            border: 1px solid #e0e0e0;
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
         }
 
-        .section h2 {
-            color: #34495e;
-            margin-bottom: 15px;
+        .buddy-header .subtitle {
+            font-size: 15px;
+            opacity: 0.95;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+
+        .buddy-content {
+            padding: 24px;
+        }
+
+        .card {
+            background: var(--bg-primary);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-md);
+            border: 1px solid var(--border-light);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient-primary);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .card:hover {
+            box-shadow: var(--shadow-xl);
+            transform: translateY(-2px);
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--bg-tertiary);
+        }
+
+        .card-title {
             font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card-title .icon {
+            font-size: 20px;
         }
 
         .form-group {
-            margin-bottom: 15px;
+            margin-bottom: 16px;
         }
 
         label {
             display: block;
-            margin-bottom: 5px;
+            margin-bottom: 6px;
             font-weight: 500;
-            color: #555;
+            color: var(--text-primary);
+            font-size: 14px;
         }
 
         input[type="text"],
         input[type="password"],
-        select {
+        input[type="url"],
+        select,
+        textarea {
             width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            padding: 10px 12px;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
             font-size: 14px;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
         }
 
         .checkbox-group {
@@ -103,98 +216,291 @@
         }
 
         input[type="checkbox"] {
-            width: auto;
-        }
-
-        button {
-            background: #3498db;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 4px;
-            font-size: 16px;
+            width: 18px;
+            height: 18px;
             cursor: pointer;
-            font-weight: 500;
-            transition: background 0.2s;
         }
 
-        button:hover:not(:disabled) {
-            background: #2980b9;
+        .file-upload-area {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 24px;
+            text-align: center;
+            background: var(--bg-tertiary);
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
         }
 
-        button:disabled {
-            background: #bdc3c7;
-            cursor: not-allowed;
+        .file-upload-area:hover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.05);
         }
 
-        .btn-danger {
-            background: #e74c3c;
+        .file-upload-area.dragover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
         }
 
-        .btn-danger:hover:not(:disabled) {
-            background: #c0392b;
+        .file-upload-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+            opacity: 0.6;
         }
 
-        .btn-success {
-            background: #27ae60;
-        }
-
-        .btn-success:hover:not(:disabled) {
-            background: #229954;
-        }
-
-        .status-panel {
-            background: #ecf0f1;
-            padding: 15px;
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
+        .file-upload-text {
+            color: var(--text-secondary);
             font-size: 14px;
-        }
-
-        .status-item {
             margin-bottom: 8px;
         }
 
-        .status-label {
-            font-weight: bold;
-            color: #2c3e50;
+        .file-upload-hint {
+            color: var(--text-secondary);
+            font-size: 12px;
         }
 
-        .status-value {
-            color: #34495e;
+        input[type="file"] {
+            display: none;
+        }
+
+        .file-preview {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .file-preview-item {
+            position: relative;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px;
+            background: var(--bg-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+
+        .file-preview-item img {
+            width: 40px;
+            height: 40px;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+
+        .file-preview-item video {
+            width: 40px;
+            height: 40px;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+
+        .file-remove {
+            background: var(--danger);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        button {
+            background: var(--gradient-primary);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.3);
+            letter-spacing: 0.3px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        button:hover:not(:disabled)::before {
+            opacity: 1;
+        }
+
+        button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 12px -2px rgba(99, 102, 241, 0.4);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(0px);
+        }
+
+        button:disabled {
+            background: var(--border);
+            cursor: not-allowed;
+            opacity: 0.5;
+            box-shadow: none;
+        }
+
+        .btn-secondary {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border: 2px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: var(--bg-tertiary);
+            border-color: var(--primary);
+            box-shadow: var(--shadow-md);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #dc2626;
+        }
+
+        .btn-success {
+            background: var(--success);
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #059669;
+        }
+
+        .btn-sm {
+            padding: 8px 16px;
+            font-size: 12px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            letter-spacing: 0.3px;
+            box-shadow: var(--shadow);
+            transition: all 0.3s ease;
+        }
+
+        .status-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .status-badge.active {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0.25) 100%);
+            color: var(--success);
+            border: 1.5px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status-badge.active::before {
+            animation: pulse-success 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-success {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-badge.running {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.25) 100%);
+            color: var(--info);
+            border: 1.5px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .status-badge.running::before {
+            animation: pulse-running 1s ease-in-out infinite;
+        }
+
+        @keyframes pulse-running {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.2); }
+        }
+
+        .status-badge.error {
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.25) 100%);
+            color: var(--danger);
+            border: 1.5px solid rgba(239, 68, 68, 0.3);
         }
 
         .progress-bar {
             width: 100%;
-            height: 20px;
-            background: #ecf0f1;
-            border-radius: 10px;
+            height: 12px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
             overflow: hidden;
-            margin-top: 10px;
+            margin-top: 12px;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
+            position: relative;
         }
 
         .progress-fill {
             height: 100%;
-            background: #3498db;
-            transition: width 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 12px;
-            font-weight: bold;
+            background: var(--gradient-primary);
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
         }
 
         .question-panel {
-            background: #fff3cd;
-            border: 2px solid #ffc107;
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+            border: 2px solid var(--warning);
             padding: 20px;
-            border-radius: 6px;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
         }
 
         .question-text {
             font-size: 16px;
-            margin-bottom: 15px;
+            margin-bottom: 16px;
             color: #856404;
             font-weight: 500;
         }
@@ -207,85 +513,123 @@
 
         .option-button {
             background: white;
-            border: 2px solid #ffc107;
-            padding: 12px;
-            border-radius: 4px;
+            border: 2px solid var(--warning);
+            padding: 12px 16px;
+            border-radius: 8px;
             cursor: pointer;
             text-align: left;
             transition: all 0.2s;
+            font-size: 14px;
         }
 
         .option-button:hover {
             background: #fff9e6;
-            border-color: #ff9800;
+            border-color: #f59e0b;
+            transform: translateX(4px);
         }
 
-        .confirm-buttons {
-            display: flex;
-            gap: 10px;
+        .discovery-feed {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 16px;
+            padding: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 2px solid var(--border-light);
+            box-shadow: var(--shadow-md);
         }
 
-        .text-input-group {
-            display: flex;
-            gap: 10px;
+        .discovery-feed::-webkit-scrollbar {
+            width: 8px;
         }
 
-        .text-input-group input {
-            flex: 1;
+        .discovery-feed::-webkit-scrollbar-track {
+            background: var(--bg-tertiary);
+            border-radius: 4px;
         }
 
-        .screenshot {
-            margin-top: 15px;
+        .discovery-feed::-webkit-scrollbar-thumb {
+            background: var(--primary);
+            border-radius: 4px;
+        }
+
+        .discovery-feed::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-dark);
+        }
+
+        .discovery-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            padding: 24px;
+            border-radius: 16px;
             text-align: center;
+            border: 2px solid var(--border-light);
+            box-shadow: var(--shadow-md);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
         }
 
-        .screenshot img {
-            max-width: 100%;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--gradient-primary);
         }
 
-        .error {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 12px;
-            border-radius: 4px;
-            margin-bottom: 15px;
-            border: 1px solid #f5c6cb;
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-xl);
+            border-color: var(--primary);
         }
 
-        .success {
-            background: #d4edda;
-            color: #155724;
-            padding: 12px;
-            border-radius: 4px;
-            margin-bottom: 15px;
-            border: 1px solid #c3e6cb;
+        .stat-value {
+            font-size: 36px;
+            font-weight: 800;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            line-height: 1;
         }
 
-        .hidden {
-            display: none;
+        .stat-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
         }
 
-        .loading {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-left: 10px;
+        .stat-card.success::before {
+            background: var(--gradient-success);
         }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .stat-card.success .stat-value {
+            background: var(--gradient-success);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
-        .report-section {
-            text-align: center;
+        .stat-card.info::before {
+            background: var(--gradient-info);
+        }
+
+        .stat-card.info .stat-value {
+            background: var(--gradient-info);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .app-iframe-container {
@@ -293,22 +637,23 @@
             position: relative;
             display: flex;
             flex-direction: column;
-            background: #f0f0f0;
+            background: var(--bg-tertiary);
         }
 
         .app-iframe-header {
-            padding: 10px 15px;
-            background: #2c3e50;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
             color: white;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            box-shadow: var(--shadow);
         }
 
         .app-iframe-header h3 {
             margin: 0;
             font-size: 14px;
-            font-weight: 500;
+            font-weight: 600;
         }
 
         .app-iframe {
@@ -318,233 +663,95 @@
             background: white;
         }
 
-        .iframe-blocked {
-            flex: 1;
+        .tabs {
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: #f8f9fa;
-            padding: 40px;
-            text-align: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            border-bottom: 2px solid var(--border);
         }
 
-        .iframe-blocked p {
-            color: #6c757d;
-            margin-bottom: 20px;
-            font-size: 16px;
-            line-height: 1.6;
-        }
-
-        .iframe-blocked .info-text {
-            color: #495057;
-            font-size: 14px;
-            margin-top: 15px;
-            max-width: 400px;
-        }
-
-        .free-text-section {
-            margin-top: 20px;
-            padding: 15px;
-            background: white;
-            border-radius: 6px;
-            border: 1px solid #e0e0e0;
-        }
-
-        .free-text-section h3 {
-            margin: 0 0 10px 0;
-            font-size: 16px;
-            color: #2c3e50;
-        }
-
-        .free-text-input-group {
-            display: flex;
-            gap: 10px;
-        }
-
-        .free-text-input-group textarea {
-            flex: 1;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            font-family: inherit;
-            resize: vertical;
-            min-height: 60px;
-        }
-
-        .free-text-input-group button {
-            padding: 10px 20px;
-            white-space: nowrap;
-        }
-
-        .discovery-feed {
-            background: #f8f9fa;
-            border-radius: 4px;
-            padding: 15px;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-
-        .discovery-stats {
-            display: flex;
-            gap: 20px;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #ddd;
-        }
-
-        .stat-item {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        .stat-label {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 5px;
-        }
-
-        .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #3498db;
-        }
-
-        .discovery-log {
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            line-height: 1.6;
-        }
-
-        .discovery-log-entry {
-            padding: 5px 0;
-            border-bottom: 1px solid #eee;
-        }
-
-        .discovery-log-entry:last-child {
-            border-bottom: none;
-        }
-
-        .log-timestamp {
-            color: #999;
-            margin-right: 10px;
-        }
-
-        .log-type {
-            font-weight: bold;
-            margin-right: 10px;
-        }
-
-        .log-type.page_discovered {
-            color: #27ae60;
-        }
-
-        .log-type.dropdowns_discovered {
-            color: #3498db;
-        }
-
-        .log-type.navigation_discovered {
-            color: #9b59b6;
-        }
-
-        .pages-list {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .page-item {
-            padding: 10px;
-            margin-bottom: 8px;
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+        .tab {
+            padding: 10px 16px;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-secondary);
             cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
             transition: all 0.2s;
+            margin-bottom: -2px;
         }
 
-        .page-item:hover {
-            background: #f0f0f0;
-            border-color: #3498db;
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
         }
 
-        .page-item.selected {
-            background: #e3f2fd;
-            border-color: #3498db;
+        .tab-content {
+            display: none;
         }
 
-        .page-item-title {
-            font-weight: 500;
-            color: #2c3e50;
-            margin-bottom: 5px;
+        .tab-content.active {
+            display: block;
         }
 
-        .page-item-url {
-            font-size: 12px;
-            color: #7f8c8d;
-            word-break: break-all;
+        .hidden {
+            display: none !important;
         }
 
-        .page-details {
-            background: white;
-            padding: 15px;
-            border-radius: 4px;
-            border: 1px solid #ddd;
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
         }
 
-        .detail-section {
-            margin-bottom: 20px;
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
 
-        .detail-section h3 {
+        .message {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+
+        .message.success {
+            background: rgba(16, 185, 129, 0.1);
+            color: #059669;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+        }
+
+        .message.error {
+            background: rgba(239, 68, 68, 0.1);
+            color: #dc2626;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .future-discovery-section {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .future-discovery-section h3 {
+            color: var(--primary);
+            margin-bottom: 12px;
             font-size: 16px;
-            color: #2c3e50;
-            margin-bottom: 10px;
-            padding-bottom: 5px;
-            border-bottom: 2px solid #3498db;
         }
 
-        .detail-item {
-            padding: 8px;
-            margin-bottom: 5px;
-            background: #f8f9fa;
-            border-radius: 3px;
-        }
-
-        .field-item {
-            padding: 10px;
-            margin-bottom: 8px;
-            background: #f8f9fa;
-            border-left: 3px solid #3498db;
-            border-radius: 3px;
-        }
-
-        .field-label {
-            font-weight: 500;
-            color: #2c3e50;
-            margin-bottom: 5px;
-        }
-
-        .field-meta {
-            font-size: 12px;
-            color: #7f8c8d;
-        }
-
-        .action-item {
-            padding: 8px;
-            margin-bottom: 5px;
-            border-radius: 3px;
-        }
-
-        .action-item.dangerous {
-            background: #fee;
-            border-left: 3px solid #e74c3c;
-        }
-
-        .action-item.safe {
-            background: #efe;
-            border-left: 3px solid #27ae60;
+        .future-discovery-section p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.6;
         }
     </style>
 </head>
@@ -555,18 +762,17 @@
             <div class="app-iframe-container">
                 <div class="app-iframe-header">
                     <h3>📱 Application UI</h3>
-                    <button id="open_app_tab_btn" class="hidden" style="padding: 6px 12px; font-size: 12px; background: #27ae60;">
+                    <button id="open_app_tab_btn" class="btn-sm hidden" style="background: var(--success);">
                         Open in New Tab
                     </button>
                 </div>
                 <iframe id="app_iframe" class="app-iframe" src="about:blank" title="Application"></iframe>
-                <div id="iframe_blocked" class="iframe-blocked hidden">
-                    <p>⚠️ Application cannot be embedded (X-Frame-Options blocked)</p>
-                    <p class="info-text">
-                        This is a security feature that prevents embedding. The QA Buddy will still work - 
-                        it uses Playwright in the background to interact with your application.
+                <div id="iframe_blocked" class="hidden" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; background: var(--bg-tertiary);">
+                    <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 16px;">⚠️ Application cannot be embedded (X-Frame-Options blocked)</p>
+                    <p style="color: var(--text-secondary); font-size: 14px; max-width: 400px; margin-bottom: 20px;">
+                        This is a security feature. QA Buddy uses Playwright in the background to interact with your application.
                     </p>
-                    <button id="open_app_tab_btn2" style="padding: 10px 20px; margin-top: 10px;">
+                    <button id="open_app_tab_btn2" onclick="window.open(currentAppUrl || document.getElementById('base_url').value, '_blank')">
                         Open Application in New Tab
                     </button>
                 </div>
@@ -575,168 +781,506 @@
 
         <!-- Right Panel: QA Buddy -->
         <div class="buddy-panel">
-            <div class="container">
-                <h1>🔍 Interactive QA Buddy</h1>
-                <p class="subtitle">Automated testing with interactive guidance</p>
+            <div class="buddy-header">
+                <h1>QA Buddy</h1>
+                <p class="subtitle">AI-Powered Intelligent Test Discovery & Automation</p>
+            </div>
 
-        <!-- Configuration Section -->
-        <div class="section">
-            <h2>Configuration</h2>
-            <div class="form-group">
-                <label for="base_url">Base URL *</label>
-                <input type="text" id="base_url" placeholder="https://your-app.example.com" value="">
-            </div>
-            <div class="form-group">
-                <label for="env">Environment</label>
-                <select id="env">
-                    <option value="dev">Development</option>
-                    <option value="staging">Staging</option>
-                    <option value="prod">Production</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="headless" checked>
-                    <label for="headless">Run in headless mode</label>
+            <div class="buddy-content">
+                <!-- Tabs -->
+                <div class="tabs">
+                    <button class="tab active" onclick="switchTab('config')">1️⃣ Configuration</button>
+                    <button class="tab" onclick="switchTab('media')">2️⃣ Upload Images (Optional)</button>
+                    <button class="tab" onclick="switchTab('discovery')">3️⃣ Discovery & Results</button>
                 </div>
-            </div>
-            <div class="form-group">
-                <label for="auth_type">Authentication Type</label>
-                <select id="auth_type">
-                    <option value="none">None</option>
-                    <option value="keycloak" selected>Keycloak</option>
-                </select>
-            </div>
-            <div class="form-group" id="auth_fields">
-                <label for="username">Username</label>
-                <input type="text" id="username" placeholder="Enter username">
-                <label for="password" style="margin-top: 10px;">Password</label>
-                <input type="password" id="password" placeholder="Enter password">
-            </div>
-            <button id="start_btn" onclick="startRun()">Start Run</button>
-            <button id="stop_btn" class="btn-danger hidden" onclick="stopRun()">Stop Polling</button>
-        </div>
 
-        <!-- Free Text Input Section -->
-        <div class="free-text-section" id="free_text_section" style="display: none;">
-            <h3>💬 Ask QA Buddy</h3>
-            <div class="free-text-input-group">
-                <textarea id="free_text_input" placeholder="What should I test / check / skip?"></textarea>
-                <button id="submit_free_text_btn" onclick="submitFreeText()">Send</button>
-            </div>
-        </div>
+                <!-- Configuration Tab -->
+                <div id="tab-config" class="tab-content active">
+                    <!-- Workflow Guide -->
+                    <div class="card" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%); border: 2px solid rgba(99, 102, 241, 0.2);">
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                            <span style="font-size: 24px;">💡</span>
+                            <h3 style="font-size: 16px; font-weight: 600; color: var(--primary);">Quick Start Guide</h3>
+                        </div>
+                        <ol style="margin-left: 20px; color: var(--text-secondary); line-height: 1.8;">
+                            <li><strong>Configure</strong> your application URL and authentication below</li>
+                            <li><strong>Upload Images</strong> (optional) - Switch to tab 2️⃣ to upload screenshots that help guide discovery</li>
+                            <li><strong>Start Discovery</strong> - Click the button below to begin comprehensive testing</li>
+                        </ol>
+                    </div>
 
-        <!-- Status Section -->
-        <div class="section" id="status_section" style="display: none;">
-            <h2>Run Status</h2>
-            <div id="status_panel" class="status-panel">
-                <div class="status-item">
-                    <span class="status-label">Run ID:</span>
-                    <span class="status-value" id="run_id_display">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">State:</span>
-                    <span class="status-value" id="state_display">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Current URL:</span>
-                    <span class="status-value" id="current_url_display">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Last Step:</span>
-                    <span class="status-value" id="last_step_display">-</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Progress:</span>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progress_fill" style="width: 0%">0%</div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">⚙️</span> Run Configuration</h2>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="base_url">Base URL *</label>
+                            <input type="url" id="base_url" placeholder="https://your-app.example.com" value="">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="env">Environment</label>
+                            <select id="env">
+                                <option value="dev">Development</option>
+                                <option value="staging" selected>Staging</option>
+                                <option value="prod">Production</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="headless" checked>
+                                <label for="headless">Run in headless mode</label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="discovery_debug">
+                                <label for="discovery_debug">Enable discovery debug mode (headed, slowMo, video)</label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="auth_type">Authentication Type</label>
+                            <select id="auth_type">
+                                <option value="none">None</option>
+                                <option value="keycloak" selected>Keycloak</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group" id="auth_fields">
+                            <label for="username">Username</label>
+                            <input type="text" id="username" placeholder="Enter username">
+                            <label for="password" style="margin-top: 12px;">Password</label>
+                            <input type="password" id="password" placeholder="Enter password">
+                        </div>
+
+                        <div style="margin-top: 16px; padding: 12px; background: var(--bg-tertiary); border-radius: 8px; font-size: 13px; color: var(--text-secondary);">
+                            💡 <strong>Tip:</strong> Upload screenshots in tab 2️⃣ before starting for better discovery results
+                        </div>
+
+                        <button id="start_btn" onclick="startRun()" style="width: 100%; margin-top: 12px;">
+                            🚀 Start Discovery Run
+                        </button>
+                        <button id="stop_btn" class="btn-danger hidden" onclick="stopRun()" style="width: 100%; margin-top: 8px;">
+                            ⏹️ Stop Polling
+                        </button>
+                    </div>
+
+                    <!-- Status Card -->
+                    <div class="card hidden" id="status_card">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">📊</span> Run Status</h2>
+                            <span id="status_badge" class="status-badge">-</span>
+                        </div>
+                        <div id="status_content"></div>
+                    </div>
+
+                    <!-- Question Card -->
+                    <div class="card hidden" id="question_card">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">❓</span> Action Required</h2>
+                        </div>
+                        <div id="question_content"></div>
+                    </div>
+
+                    <!-- Free Text Input -->
+                    <div class="card hidden" id="free_text_card">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">💬</span> Ask QA Buddy</h2>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <textarea id="free_text_input" placeholder="What should I test / check / skip?" rows="3" style="flex: 1;"></textarea>
+                            <button onclick="submitFreeText()" style="align-self: flex-end;">Send</button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Question Section -->
-        <div class="section hidden" id="question_section">
-            <h2>Action Required</h2>
-            <div id="question_panel" class="question-panel">
-                <div class="question-text" id="question_text"></div>
-                <div id="question_content"></div>
-                <div id="question_screenshot" class="screenshot"></div>
-            </div>
-        </div>
+                <!-- Discovery Tab -->
+                <div id="tab-discovery" class="tab-content">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">🔍</span> Live Discovery</h2>
+                        </div>
+                        <div class="discovery-stats">
+                            <div class="stat-card">
+                                <div class="stat-value" id="discovery_pages_count">0</div>
+                                <div class="stat-label">Pages</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="discovery_forms_count">0</div>
+                                <div class="stat-label">Forms</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="discovery_actions_count">0</div>
+                                <div class="stat-label">Actions</div>
+                            </div>
+                        </div>
+                        <div id="discovery_feed" class="discovery-feed"></div>
+                    </div>
 
-        <!-- Discovery Live Feed Section -->
-        <div class="section hidden" id="discovery_section">
-            <h2>🔍 Live Discovery</h2>
-            <div id="discovery_feed" class="discovery-feed">
-                <div class="discovery-stats">
-                    <div class="stat-item">
-                        <span class="stat-label">Pages:</span>
-                        <span class="stat-value" id="discovery_pages_count">0</span>
+                    <div class="card hidden" id="pages_card">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">📄</span> Discovered Pages</h2>
+                        </div>
+                        <div id="pages_list" style="max-height: 400px; overflow-y: auto;"></div>
                     </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Forms:</span>
-                        <span class="stat-value" id="discovery_forms_count">0</span>
+
+                    <div class="card hidden" id="page_details_card">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">📋</span> Page Details</h2>
+                        </div>
+                        <div id="page_details_content"></div>
                     </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Actions:</span>
-                        <span class="stat-value" id="discovery_actions_count">0</span>
+
+                    <!-- Feature-wise Test Cases -->
+                    <div class="card hidden" id="features_card">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">🎯</span> Discovered Test Cases by Feature</h2>
+                        </div>
+                        <div id="features_summary" style="margin-bottom: 16px;"></div>
+                        <div id="features_list"></div>
                     </div>
                 </div>
-                <div id="discovery_log" class="discovery-log"></div>
-            </div>
-        </div>
 
-        <!-- Discovered Pages Section -->
-        <div class="section hidden" id="pages_section">
-            <h2>📄 Discovered Pages</h2>
-            <div id="pages_list" class="pages-list"></div>
-        </div>
+                <!-- Media Upload Tab -->
+                <div id="tab-media" class="tab-content">
+                    <!-- Info Banner -->
+                    <div class="card" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, rgba(5, 150, 105, 0.05) 100%); border: 2px solid rgba(16, 185, 129, 0.2);">
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                            <span style="font-size: 24px;">ℹ️</span>
+                            <h3 style="font-size: 16px; font-weight: 600; color: var(--success);">Upload Before Discovery</h3>
+                        </div>
+                        <p style="color: var(--text-secondary); line-height: 1.6;">
+                            Upload screenshots of your application <strong>before starting discovery</strong>. The AI will analyze images to detect UI patterns, forms, tables, and workflows to guide comprehensive testing.
+                        </p>
+                    </div>
 
-        <!-- Page Details Section -->
-        <div class="section hidden" id="page_details_section">
-            <h2>📋 Page Details</h2>
-            <div id="page_details_content" class="page-details"></div>
-        </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">📸</span> Image Upload</h2>
+                        </div>
+                        <div class="file-upload-area" id="image_upload_area" onclick="document.getElementById('image_input').click()">
+                            <div class="file-upload-icon">📷</div>
+                            <div class="file-upload-text">Click to upload or drag & drop images</div>
+                            <div class="file-upload-hint">Supports: JPG, PNG, GIF, WebP (Max 10MB each)</div>
+                            <input type="file" id="image_input" accept="image/*" multiple>
+                        </div>
+                        <div class="file-preview" id="image_preview"></div>
+                        <button onclick="uploadImages()" style="width: 100%; margin-top: 12px;" id="upload_images_btn" disabled>
+                            📤 Upload Images
+                        </button>
 
-        <!-- Report Section -->
-        <div class="section hidden" id="report_section">
-            <h2>Test Report</h2>
-            <div class="report-section">
-                <button id="open_report_btn" class="btn-success" onclick="openReport()">Open Report</button>
-                <button id="toggle_report_btn" class="btn-success hidden" onclick="toggleReport()">Show/Hide Report</button>
-                <iframe id="report_frame" class="hidden" style="display: none;"></iframe>
-            </div>
-        </div>
+                        <!-- Uploaded Images List -->
+                        <div id="uploaded_images_list" style="margin-top: 20px; display: none;">
+                            <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text);">✅ Uploaded Images</h3>
+                            <div id="uploaded_images_container" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                        </div>
+                    </div>
 
-        <!-- Messages -->
-        <div id="message_area"></div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">🎥</span> Video Upload</h2>
+                        </div>
+                        <div class="file-upload-area" id="video_upload_area" onclick="document.getElementById('video_input').click()">
+                            <div class="file-upload-icon">🎬</div>
+                            <div class="file-upload-text">Click to upload or drag & drop videos</div>
+                            <div class="file-upload-hint">Supports: MP4, WebM, MOV (Max 100MB each)</div>
+                            <input type="file" id="video_input" accept="video/*" multiple>
+                        </div>
+                        <div class="file-preview" id="video_preview"></div>
+                        <button onclick="uploadVideos()" style="width: 100%; margin-top: 12px;" id="upload_videos_btn" disabled>
+                            📤 Upload Videos
+                        </button>
+                    </div>
+
+                    <div class="future-discovery-section">
+                        <h3>🔮 Future Discovery Features</h3>
+                        <p>
+                            Uploaded images and videos will be analyzed to:
+                        </p>
+                        <ul style="margin-top: 8px; padding-left: 20px; color: var(--text-secondary); font-size: 14px;">
+                            <li>Extract UI elements and components</li>
+                            <li>Identify workflows and user journeys</li>
+                            <li>Generate test cases from visual patterns</li>
+                            <li>Detect accessibility issues</li>
+                            <li>Compare UI changes over time</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Report Section -->
+                <div class="card hidden" id="report_card">
+                    <div class="card-header">
+                        <h2 class="card-title"><span class="icon">📊</span> Test Report</h2>
+                    </div>
+                    <div style="text-align: center;">
+                        <button class="btn-success" onclick="openReport()" style="width: 100%;">
+                            📄 Open Full Report
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Messages -->
+                <div id="message_area"></div>
             </div>
         </div>
     </div>
 
     <script>
         // Configuration
-        const API_BASE = window.location.origin; // Use same origin, or set to 'http://localhost:8000' for different host
-
+        const API_BASE = window.location.origin;
+        
         // State
         let currentRunId = null;
         let pollingInterval = null;
         let eventsPollingInterval = null;
         let currentQuestion = null;
-        let currentAppUrl = null; // Track current application URL
+        let currentAppUrl = null;
         let eventsCursor = 0;
         let discoveredPages = [];
         let selectedPageIndex = null;
+        let uploadedImages = [];
+        let uploadedVideos = [];
+        let uploadedImageResults = [];  // Store uploaded image metadata for discovery
 
-        // Initialize
-        document.getElementById('auth_type').addEventListener('change', function() {
-            const authFields = document.getElementById('auth_fields');
-            if (this.value === 'none') {
-                authFields.style.display = 'none';
-            } else {
-                authFields.style.display = 'block';
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+
+        // File upload handlers
+        document.getElementById('image_input').addEventListener('change', handleImageSelect);
+        document.getElementById('video_input').addEventListener('change', handleVideoSelect);
+
+        // Drag and drop
+        setupDragAndDrop('image_upload_area', 'image_input', handleImageSelect);
+        setupDragAndDrop('video_upload_area', 'video_input', handleVideoSelect);
+
+        function setupDragAndDrop(areaId, inputId, handler) {
+            const area = document.getElementById(areaId);
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                area.addEventListener(eventName, preventDefaults, false);
+            });
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                area.addEventListener(eventName, () => area.classList.add('dragover'), false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                area.addEventListener(eventName, () => area.classList.remove('dragover'), false);
+            });
+
+            area.addEventListener('drop', (e) => {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                document.getElementById(inputId).files = files;
+                handler({target: {files: Array.from(files)}});
+            }, false);
+        }
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        function handleImageSelect(e) {
+            const files = Array.from(e.target.files || []);
+            uploadedImages = [...uploadedImages, ...files];
+            renderImagePreviews();
+            document.getElementById('upload_images_btn').disabled = uploadedImages.length === 0;
+        }
+
+        function handleVideoSelect(e) {
+            const files = Array.from(e.target.files || []);
+            uploadedVideos = [...uploadedVideos, ...files];
+            renderVideoPreviews();
+            document.getElementById('upload_videos_btn').disabled = uploadedVideos.length === 0;
+        }
+
+        function renderImagePreviews() {
+            const preview = document.getElementById('image_preview');
+            preview.innerHTML = '';
+            uploadedImages.forEach((file, index) => {
+                const item = document.createElement('div');
+                item.className = 'file-preview-item';
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(file);
+                const name = document.createElement('span');
+                name.textContent = file.name;
+                const remove = document.createElement('button');
+                remove.className = 'file-remove';
+                remove.textContent = '×';
+                remove.onclick = () => {
+                    uploadedImages.splice(index, 1);
+                    renderImagePreviews();
+                    document.getElementById('upload_images_btn').disabled = uploadedImages.length === 0;
+                };
+                item.appendChild(img);
+                item.appendChild(name);
+                item.appendChild(remove);
+                preview.appendChild(item);
+            });
+        }
+
+        function renderVideoPreviews() {
+            const preview = document.getElementById('video_preview');
+            preview.innerHTML = '';
+            uploadedVideos.forEach((file, index) => {
+                const item = document.createElement('div');
+                item.className = 'file-preview-item';
+                const video = document.createElement('video');
+                video.src = URL.createObjectURL(file);
+                video.muted = true;
+                const name = document.createElement('span');
+                name.textContent = file.name;
+                const remove = document.createElement('button');
+                remove.className = 'file-remove';
+                remove.textContent = '×';
+                remove.onclick = () => {
+                    uploadedVideos.splice(index, 1);
+                    renderVideoPreviews();
+                    document.getElementById('upload_videos_btn').disabled = uploadedVideos.length === 0;
+                };
+                item.appendChild(video);
+                item.appendChild(name);
+                item.appendChild(remove);
+                preview.appendChild(item);
+            });
+        }
+
+        function displayUploadedImages(newResults) {
+            const listContainer = document.getElementById('uploaded_images_list');
+            const imagesContainer = document.getElementById('uploaded_images_container');
+
+            // Show the list
+            listContainer.style.display = 'block';
+
+            // Add new images
+            newResults.forEach((result, idx) => {
+                const imageCard = document.createElement('div');
+                imageCard.style.cssText = 'background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; align-items: center; gap: 12px;';
+
+                const workflows = result.analysis?.workflows || [];
+                const workflowText = workflows.length > 0 ? workflows.join(', ') : 'No workflows detected';
+
+                imageCard.innerHTML = `
+                    <div style="flex-shrink: 0; width: 40px; height: 40px; background: var(--gradient-success); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;">
+                        📷
+                    </div>
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="font-weight: 600; font-size: 13px; color: var(--text); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${result.filename}
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">
+                            ${result.analysis.ui_elements_count} elements • ${result.analysis.components_detected?.length || 0} components
+                        </div>
+                        <div style="font-size: 11px; color: var(--success); margin-top: 2px;">
+                            💡 ${workflowText}
+                        </div>
+                    </div>
+                    <div style="flex-shrink: 0; padding: 4px 8px; background: rgba(16, 185, 129, 0.1); color: var(--success); border-radius: 4px; font-size: 11px; font-weight: 600;">
+                        ✓ Analyzed
+                    </div>
+                `;
+
+                imagesContainer.appendChild(imageCard);
+            });
+        }
+
+        async function uploadImages() {
+            if (uploadedImages.length === 0) return;
+
+            try {
+                showMessage('Uploading images...', 'success');
+
+                // Upload images one by one to pre-run endpoint (no run_id needed)
+                const results = [];
+                for (const file of uploadedImages) {
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    const response = await fetch(`${API_BASE}/runs/upload/image/pre-run`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.text();
+                        throw new Error(error || `HTTP ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    results.push(data);
+                }
+
+                // Store results for discovery
+                uploadedImageResults = uploadedImageResults.concat(results);
+
+                // Show combined analysis results
+                const totalElements = results.reduce((sum, r) => sum + (r.analysis?.ui_elements_count || 0), 0);
+                const totalComponents = results.reduce((sum, r) => sum + (r.analysis?.components_detected?.length || 0), 0);
+                const totalWorkflows = results.reduce((sum, r) => sum + (r.analysis?.workflow_hints || 0), 0);
+
+                showMessage(
+                    `✅ Uploaded ${results.length} image(s)! Analysis: ${totalElements} UI elements, ${totalComponents} components, ${totalWorkflows} workflows detected`,
+                    'success'
+                );
+
+                // Display uploaded images
+                displayUploadedImages(results);
+
+                // Clear upload area
+                uploadedImages = [];
+                document.getElementById('image_preview').innerHTML = '';
+                document.getElementById('upload_images_btn').disabled = true;
+            } catch (error) {
+                showMessage(`Failed to upload images: ${error.message}`, 'error');
             }
+        }
+
+        async function uploadVideos() {
+            if (uploadedVideos.length === 0) return;
+            if (!currentRunId) {
+                showMessage('Please start a run first', 'error');
+                return;
+            }
+
+            try {
+                showMessage('Uploading videos...', 'success');
+                const formData = new FormData();
+                uploadedVideos.forEach(file => {
+                    formData.append('files', file);
+                });
+
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/upload/videos`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.text();
+                    throw new Error(error || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                showMessage(`Successfully uploaded ${data.uploaded_count} video(s)`, 'success');
+                uploadedVideos = [];
+                renderVideoPreviews();
+                document.getElementById('upload_videos_btn').disabled = true;
+            } catch (error) {
+                showMessage(`Failed to upload videos: ${error.message}`, 'error');
+            }
+        }
+
+        // Auth type change
+        document.getElementById('auth_type').addEventListener('change', function() {
+            document.getElementById('auth_fields').style.display = this.value === 'none' ? 'none' : 'block';
         });
 
         // Start run
@@ -747,26 +1291,26 @@
                 return;
             }
 
-            const env = document.getElementById('env').value;
-            const headless = document.getElementById('headless').checked;
-            const authType = document.getElementById('auth_type').value;
-
             const payload = {
                 base_url: baseUrl,
-                env: env,
-                headless: headless
+                env: document.getElementById('env').value,
+                headless: document.getElementById('headless').checked,
+                discovery_debug: document.getElementById('discovery_debug').checked,
+                uploaded_images: uploadedImageResults  // Include pre-uploaded images
             };
 
+            const authType = document.getElementById('auth_type').value;
             if (authType === 'keycloak') {
                 const username = document.getElementById('username').value.trim();
                 const password = document.getElementById('password').value.trim();
                 if (username && password) {
-                    payload.auth = {
-                        type: 'keycloak',
-                        username: username,
-                        password: password
-                    };
+                    payload.auth = { type: 'keycloak', username, password };
                 }
+            }
+
+            // Show message if images are being used
+            if (uploadedImageResults.length > 0) {
+                showMessage(`🎯 Using ${uploadedImageResults.length} uploaded image(s) to guide discovery...`, 'success');
             }
 
             try {
@@ -775,28 +1319,21 @@
 
                 const response = await fetch(`${API_BASE}/runs/start`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
-                if (!response.ok) {
-                    const error = await response.text();
-                    throw new Error(error || `HTTP ${response.status}`);
-                }
+                if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
 
                 const data = await response.json();
                 currentRunId = data.run_id;
 
                 showMessage(`Run started: ${currentRunId}`, 'success');
-                document.getElementById('status_section').style.display = 'block';
-                document.getElementById('free_text_section').style.display = 'block';
+                document.getElementById('status_card').classList.remove('hidden');
+                document.getElementById('free_text_card').classList.remove('hidden');
                 document.getElementById('stop_btn').classList.remove('hidden');
                 
-                // Load application in iframe
                 loadAppInIframe(baseUrl, data.current_url);
-                
                 updateStatus(data);
                 startPolling();
                 startEventsPolling();
@@ -807,43 +1344,33 @@
             }
         }
 
-        // Start polling
         function startPolling() {
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-            }
-
+            if (pollingInterval) clearInterval(pollingInterval);
             pollingInterval = setInterval(async () => {
                 if (!currentRunId) return;
-
                 try {
                     const response = await fetch(`${API_BASE}/runs/${currentRunId}/status`);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
                     updateStatus(data);
-
-                    // Check if done
                     if (data.state === 'DONE' || data.state === 'FAILED') {
                         stopPolling();
                         stopEventsPolling();
                         checkReportAvailable();
                     }
-                    
-                    // Show discovery section when discovery starts
                     if (data.state === 'DISCOVERY_RUN' || data.state === 'DISCOVERY_SUMMARY') {
-                        document.getElementById('discovery_section').classList.remove('hidden');
+                        switchTab('discovery');
                     }
-
+                    if (data.state === 'DISCOVERY_SUMMARY' || data.state === 'WAIT_TEST_INTENT') {
+                        // Discovery completed, fetch and display features
+                        fetchAndDisplayFeatures();
+                    }
                 } catch (error) {
                     console.error('Polling error:', error);
                 }
-            }, 2000); // Poll every 2 seconds
+            }, 2000);
         }
 
-        // Stop polling
         function stopRun() {
             stopPolling();
             document.getElementById('start_btn').disabled = false;
@@ -861,39 +1388,144 @@
             }
         }
 
-        // Start polling events
         function startEventsPolling() {
-            if (eventsPollingInterval) {
-                clearInterval(eventsPollingInterval);
-            }
-
+            if (eventsPollingInterval) clearInterval(eventsPollingInterval);
             eventsPollingInterval = setInterval(async () => {
                 if (!currentRunId) return;
-
                 try {
                     const response = await fetch(`${API_BASE}/runs/${currentRunId}/events?after=${eventsCursor}`);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
-
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
-                    
                     if (data.events && data.events.length > 0) {
                         processEvents(data.events);
                         eventsCursor = data.next_cursor;
                     }
-
                 } catch (error) {
                     console.error('Events polling error:', error);
                 }
-            }, 2000); // Poll every 2 seconds
+            }, 2000);
         }
 
-        // Process discovery events
+        async function fetchAndDisplayFeatures() {
+            if (!currentRunId) return;
+            try {
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/discovery/features`);
+                if (!response.ok) return;
+                const data = await response.json();
+
+                if (data.features && data.features.length > 0) {
+                    displayFeatures(data);
+                }
+            } catch (error) {
+                console.error('Failed to fetch features:', error);
+            }
+        }
+
+        function displayFeatures(data) {
+            const featuresCard = document.getElementById('features_card');
+            const featuresSummary = document.getElementById('features_summary');
+            const featuresList = document.getElementById('features_list');
+
+            // Show card
+            featuresCard.classList.remove('hidden');
+
+            // Display summary
+            featuresSummary.innerHTML = `
+                <div style="display: flex; gap: 16px; padding: 12px; background: rgba(99, 102, 241, 0.05); border-radius: 8px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                    <div style="flex: 1; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 600; color: var(--primary);">${data.total_features}</div>
+                        <div style="font-size: 12px; color: var(--text-secondary);">Features</div>
+                    </div>
+                    <div style="flex: 1; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 600; color: var(--success);">${data.total_test_cases}</div>
+                        <div style="font-size: 12px; color: var(--text-secondary);">Test Cases</div>
+                    </div>
+                </div>
+            `;
+
+            // Display features
+            let html = '';
+            data.features.forEach((feature, idx) => {
+                const testCasesByType = {};
+                feature.test_cases.forEach(tc => {
+                    if (!testCasesByType[tc.test_type]) {
+                        testCasesByType[tc.test_type] = [];
+                    }
+                    testCasesByType[tc.test_type].push(tc);
+                });
+
+                const typeColors = {
+                    'navigation': '#3b82f6',
+                    'crud_create': '#10b981',
+                    'crud_update': '#f59e0b',
+                    'crud_delete': '#ef4444',
+                    'data_validation': '#8b5cf6',
+                    'form_submission': '#06b6d4'
+                };
+
+                html += `
+                    <div style="margin-bottom: 20px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
+                        <div style="background: var(--gradient-primary); padding: 16px; cursor: pointer;" onclick="toggleFeature(${idx})">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <h3 style="color: white; margin: 0; font-size: 16px; font-weight: 600;">
+                                        ${feature.feature_name}
+                                    </h3>
+                                    <p style="color: rgba(255,255,255,0.8); margin: 4px 0 0 0; font-size: 13px;">
+                                        ${feature.pages.length} pages • ${feature.test_cases.length} test cases
+                                    </p>
+                                </div>
+                                <span id="feature_arrow_${idx}" style="color: white; font-size: 20px; transition: transform 0.3s;">▼</span>
+                            </div>
+                        </div>
+                        <div id="feature_content_${idx}" style="display: none; padding: 16px; background: var(--bg-secondary);">
+                            ${Object.entries(testCasesByType).map(([type, testCases]) => `
+                                <div style="margin-bottom: 16px;">
+                                    <div style="display: inline-block; padding: 6px 12px; background: ${typeColors[type] || '#6b7280'}; color: white; border-radius: 6px; font-size: 12px; font-weight: 600; margin-bottom: 8px;">
+                                        ${type.replace(/_/g, ' ').toUpperCase()} (${testCases.length})
+                                    </div>
+                                    ${testCases.map(tc => `
+                                        <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px;">
+                                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                                <div>
+                                                    <span style="font-weight: 600; color: var(--text);">${tc.test_name}</span>
+                                                    <span style="margin-left: 8px; padding: 2px 8px; background: ${tc.priority === 'high' ? '#fef3c7' : '#e0e7ff'}; color: ${tc.priority === 'high' ? '#92400e' : '#3730a3'}; border-radius: 4px; font-size: 11px; font-weight: 600;">${tc.priority.toUpperCase()}</span>
+                                                </div>
+                                            </div>
+                                            <div style="font-size: 13px; color: var(--text-secondary);">
+                                                <strong>Steps:</strong>
+                                                <ol style="margin: 4px 0 0 0; padding-left: 20px;">
+                                                    ${tc.steps.map(step => `<li>${step}</li>`).join('')}
+                                                </ol>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+
+            featuresList.innerHTML = html;
+        }
+
+        function toggleFeature(idx) {
+            const content = document.getElementById(`feature_content_${idx}`);
+            const arrow = document.getElementById(`feature_arrow_${idx}`);
+
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                arrow.style.transform = 'rotate(180deg)';
+            } else {
+                content.style.display = 'none';
+                arrow.style.transform = 'rotate(0deg)';
+            }
+        }
+
         function processEvents(events) {
             events.forEach(event => {
                 addEventToLog(event);
-                
                 if (event.type === 'page_discovered') {
                     addPageToList(event.data);
                 } else if (event.type === 'discovery_completed') {
@@ -903,530 +1535,263 @@
             });
         }
 
-        // Add event to discovery log
         function addEventToLog(event) {
-            const log = document.getElementById('discovery_log');
+            const feed = document.getElementById('discovery_feed');
             const entry = document.createElement('div');
-            entry.className = 'discovery-log-entry';
-            
+            entry.style.cssText = 'padding: 8px; margin-bottom: 4px; background: white; border-radius: 4px; font-size: 12px;';
             const timestamp = new Date(event.timestamp).toLocaleTimeString();
             const type = event.type.replace(/_/g, ' ');
-            
             let message = '';
             if (event.type === 'page_discovered') {
-                message = `Discovered page: ${event.data.title || event.data.url}`;
+                message = `📄 ${event.data.page_name || event.data.title || event.data.url}`;
             } else if (event.type === 'dropdowns_discovered') {
-                message = `Found ${event.data.count} dropdown(s)`;
+                message = `🔽 Found ${event.data.count} dropdown(s)`;
             } else if (event.type === 'navigation_discovered') {
-                message = `Found ${event.data.count} navigation item(s)`;
+                message = `🧭 Found ${event.data.count} navigation item(s)`;
             } else if (event.type === 'discovery_completed') {
-                message = `Discovery completed: ${event.data.pages_count} pages, ${event.data.forms_count} forms`;
-            } else {
-                message = JSON.stringify(event.data);
+                message = `✅ Discovery completed: ${event.data.pages_count} pages, ${event.data.forms_count} forms`;
             }
-            
-            entry.innerHTML = `
-                <span class="log-timestamp">${timestamp}</span>
-                <span class="log-type ${event.type}">${type}</span>
-                <span>${message}</span>
-            `;
-            
-            log.appendChild(entry);
-            log.scrollTop = log.scrollHeight;
+            entry.innerHTML = `<span style="color: #999; margin-right: 8px;">${timestamp}</span>${message}`;
+            feed.appendChild(entry);
+            feed.scrollTop = feed.scrollHeight;
         }
 
-        // Add page to pages list
         function addPageToList(pageData) {
             const page = {
                 url: pageData.url,
                 title: pageData.title || pageData.url,
+                page_name: pageData.page_name || pageData.title || pageData.url,
                 nav_path: pageData.nav_path || '',
                 forms_count: pageData.forms_count || 0,
                 actions_count: pageData.actions_count || 0
             };
-            
-            // Check if already exists
             const exists = discoveredPages.find(p => p.url === page.url);
-            if (exists) return;
-            
-            discoveredPages.push(page);
+            if (exists) {
+                const index = discoveredPages.findIndex(p => p.url === page.url);
+                discoveredPages[index] = { ...discoveredPages[index], ...page };
+            } else {
+                discoveredPages.push(page);
+            }
             renderPagesList();
         }
 
-        // Render pages list
         function renderPagesList() {
             const list = document.getElementById('pages_list');
             list.innerHTML = '';
-            
             discoveredPages.forEach((page, index) => {
                 const item = document.createElement('div');
-                item.className = `page-item ${selectedPageIndex === index ? 'selected' : ''}`;
+                item.style.cssText = 'padding: 12px; margin-bottom: 8px; background: var(--bg-tertiary); border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;';
+                item.onmouseover = () => item.style.borderColor = 'var(--primary)';
+                item.onmouseout = () => item.style.borderColor = 'transparent';
                 item.onclick = () => selectPage(index);
-                
+                if (selectedPageIndex === index) {
+                    item.style.borderColor = 'var(--primary)';
+                    item.style.background = 'rgba(99, 102, 241, 0.1)';
+                }
                 item.innerHTML = `
-                    <div class="page-item-title">${page.title}</div>
-                    <div class="page-item-url">${page.url}</div>
-                    <div style="font-size: 11px; color: #999; margin-top: 5px;">
+                    <div style="font-weight: 500; margin-bottom: 4px;">${page.page_name || page.title}</div>
+                    <div style="font-size: 11px; color: var(--text-secondary); word-break: break-all;">${page.url}</div>
+                    <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
                         ${page.forms_count} forms, ${page.actions_count} actions
                     </div>
                 `;
-                
                 list.appendChild(item);
             });
-            
             if (discoveredPages.length > 0) {
-                document.getElementById('pages_section').classList.remove('hidden');
+                document.getElementById('pages_card').classList.remove('hidden');
             }
         }
 
-        // Select a page to show details
-        async function selectPage(index) {
+        function selectPage(index) {
             selectedPageIndex = index;
             renderPagesList();
-            
-            // Load page details from discovery.json
-            try {
-                const response = await fetch(`${API_BASE}/runs/${currentRunId}/status`);
-                const status = await response.json();
-                
-                // For now, show basic info. In production, you'd fetch from discovery.json
-                const page = discoveredPages[index];
-                showPageDetails(page);
-            } catch (error) {
-                console.error('Error loading page details:', error);
-            }
+            const page = discoveredPages[index];
+            showPageDetails(page);
         }
 
-        // Show page details
         function showPageDetails(page) {
             const details = document.getElementById('page_details_content');
             details.innerHTML = `
-                <div class="detail-section">
-                    <h3>Page Information</h3>
-                    <div class="detail-item">
-                        <strong>Title:</strong> ${page.title}
-                    </div>
-                    <div class="detail-item">
-                        <strong>URL:</strong> ${page.url}
-                    </div>
-                    <div class="detail-item">
-                        <strong>Navigation Path:</strong> ${page.nav_path || 'N/A'}
-                    </div>
-                </div>
-                <div class="detail-section">
-                    <h3>Summary</h3>
-                    <div class="detail-item">
-                        <strong>Forms:</strong> ${page.forms_count}
-                    </div>
-                    <div class="detail-item">
-                        <strong>Actions:</strong> ${page.actions_count}
-                    </div>
+                <div style="margin-bottom: 16px;">
+                    <strong>Page Name:</strong> ${page.page_name || page.title || 'N/A'}<br>
+                    <strong>URL:</strong> ${page.url}<br>
+                    <strong>Forms:</strong> ${page.forms_count}<br>
+                    <strong>Actions:</strong> ${page.actions_count}
                 </div>
             `;
-            
-            document.getElementById('page_details_section').classList.remove('hidden');
+            document.getElementById('page_details_card').classList.remove('hidden');
         }
 
-        // Update discovery stats
         function updateDiscoveryStats(data) {
             document.getElementById('discovery_pages_count').textContent = data.pages_count || 0;
             document.getElementById('discovery_forms_count').textContent = data.forms_count || 0;
             document.getElementById('discovery_actions_count').textContent = data.actions_count || 0;
-            
-            document.getElementById('discovery_section').classList.remove('hidden');
         }
 
-        function stopEventsPolling() {
-            if (eventsPollingInterval) {
-                clearInterval(eventsPollingInterval);
-                eventsPollingInterval = null;
-            }
-        }
-
-        // Update status display
         function updateStatus(data) {
-            document.getElementById('run_id_display').textContent = data.run_id || '-';
-            document.getElementById('state_display').textContent = data.state || '-';
-            document.getElementById('current_url_display').textContent = data.current_url || '-';
-            document.getElementById('last_step_display').textContent = data.last_step || '-';
+            document.getElementById('run_id_display')?.textContent || (document.getElementById('status_content').innerHTML = `
+                <div style="margin-bottom: 8px;"><strong>Run ID:</strong> ${data.run_id || '-'}</div>
+                <div style="margin-bottom: 8px;"><strong>State:</strong> ${data.state || '-'}</div>
+                <div style="margin-bottom: 8px;"><strong>URL:</strong> ${data.current_url || '-'}</div>
+                <div class="progress-bar"><div class="progress-fill" style="width: ${data.progress || 0}%"></div></div>
+            `);
+            
+            const badge = document.getElementById('status_badge');
+            if (badge) {
+                badge.textContent = data.state || '-';
+                badge.className = 'status-badge ' + (data.state === 'DONE' ? 'active' : data.state === 'FAILED' ? 'error' : 'running');
+            }
 
-            const progress = data.progress || 0;
-            const progressFill = document.getElementById('progress_fill');
-            progressFill.style.width = `${progress}%`;
-            progressFill.textContent = `${progress}%`;
-
-            // Update app URL if changed (e.g., after login)
             if (data.current_url && data.current_url !== currentAppUrl) {
                 currentAppUrl = data.current_url;
-                // Try to reload iframe with new URL (if not blocked)
                 const iframe = document.getElementById('app_iframe');
                 const iframeBlocked = document.getElementById('iframe_blocked');
                 if (iframeBlocked.classList.contains('hidden')) {
                     iframe.src = data.current_url;
                 }
-                // Update "Open in New Tab" button to use current URL
-                const openTabBtn = document.getElementById('open_app_tab_btn');
-                const openTabBtn2 = document.getElementById('open_app_tab_btn2');
-                const openInNewTab = () => window.open(data.current_url, '_blank');
-                if (openTabBtn) openTabBtn.onclick = openInNewTab;
-                if (openTabBtn2) openTabBtn2.onclick = openInNewTab;
             }
 
-            // Show test execution status in app panel
-            updateTestExecutionStatus(data);
-
-            // Check for report when done
-            if (data.state === 'DONE' || data.state === 'REPORT_GENERATE') {
-                checkReportAvailable();
-            }
-
-            // Handle question
             if (data.question) {
                 currentQuestion = data.question;
                 showQuestion(data.question);
             } else {
-                hideQuestion();
+                document.getElementById('question_card').classList.add('hidden');
             }
         }
 
-        // Update test execution status in app panel
-        function updateTestExecutionStatus(data) {
-            const appHeader = document.querySelector('.app-iframe-header h3');
-            if (!appHeader) return;
-
-            let statusText = '📱 Application UI';
-            
-            // Show test execution status
-            if (data.state === 'TEST_EXECUTE') {
-                statusText = '🧪 Running Tests...';
-            } else if (data.state === 'TEST_PLAN_BUILD') {
-                statusText = '📋 Building Test Plan...';
-            } else if (data.state === 'DISCOVERY_RUN') {
-                statusText = '🔍 Discovering Application...';
-            } else if (data.state === 'LOGIN_ATTEMPT' || data.state === 'POST_LOGIN_VALIDATE') {
-                statusText = '🔐 Logging In...';
-            } else if (data.state === 'DONE') {
-                statusText = '✅ Tests Complete';
-            } else if (data.state === 'FAILED') {
-                statusText = '❌ Tests Failed';
-            } else if (data.current_url) {
-                statusText = '📱 Application UI';
-            }
-
-            appHeader.textContent = statusText;
-        }
-
-        // Show question
         function showQuestion(question) {
-            const questionSection = document.getElementById('question_section');
-            const questionText = document.getElementById('question_text');
-            const questionContent = document.getElementById('question_content');
-            const questionScreenshot = document.getElementById('question_screenshot');
-
-            questionSection.classList.remove('hidden');
-            questionText.textContent = question.text || '';
-
-            // Clear previous content
-            questionContent.innerHTML = '';
-            questionScreenshot.innerHTML = '';
-
-            // Render based on type
+            const card = document.getElementById('question_card');
+            const content = document.getElementById('question_content');
+            card.classList.remove('hidden');
+            content.innerHTML = `<div class="question-text">${question.text || ''}</div>`;
+            
             if (question.type === 'select_one' && question.options) {
-                const optionsDiv = document.createElement('div');
-                optionsDiv.className = 'question-options';
+                const options = document.createElement('div');
+                options.className = 'question-options';
                 question.options.forEach(option => {
-                    const button = document.createElement('button');
-                    button.className = 'option-button';
-                    button.textContent = option.label || option.id;
-                    button.onclick = () => submitAnswer(question.id, option.id);
-                    optionsDiv.appendChild(button);
+                    const btn = document.createElement('button');
+                    btn.className = 'option-button';
+                    btn.textContent = option.label || option.id;
+                    btn.onclick = () => submitAnswer(question.id, option.id);
+                    options.appendChild(btn);
                 });
-                questionContent.appendChild(optionsDiv);
+                content.appendChild(options);
             } else if (question.type === 'confirm') {
-                const buttonsDiv = document.createElement('div');
-                buttonsDiv.className = 'confirm-buttons';
-                
-                const yesBtn = document.createElement('button');
-                yesBtn.className = 'btn-success';
-                yesBtn.textContent = 'Yes';
-                yesBtn.onclick = () => submitAnswer(question.id, 'yes');
-                
-                const noBtn = document.createElement('button');
-                noBtn.className = 'btn-danger';
-                noBtn.textContent = 'No';
-                noBtn.onclick = () => submitAnswer(question.id, 'no');
-                
-                buttonsDiv.appendChild(yesBtn);
-                buttonsDiv.appendChild(noBtn);
-                questionContent.appendChild(buttonsDiv);
-            } else if (question.type === 'text') {
-                const inputGroup = document.createElement('div');
-                inputGroup.className = 'text-input-group';
-                
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.id = 'answer_input';
-                input.placeholder = 'Enter your answer...';
-                
-                const submitBtn = document.createElement('button');
-                submitBtn.textContent = 'Submit';
-                submitBtn.onclick = () => {
-                    const answer = document.getElementById('answer_input').value.trim();
-                    if (answer) {
-                        submitAnswer(question.id, answer);
-                    }
-                };
-                
-                input.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') {
-                        submitBtn.onclick();
-                    }
+                const buttons = document.createElement('div');
+                buttons.style.cssText = 'display: flex; gap: 10px;';
+                ['Yes', 'No'].forEach(answer => {
+                    const btn = document.createElement('button');
+                    btn.className = answer === 'Yes' ? 'btn-success' : 'btn-danger';
+                    btn.textContent = answer;
+                    btn.onclick = () => submitAnswer(question.id, answer.toLowerCase());
+                    buttons.appendChild(btn);
                 });
-                
-                inputGroup.appendChild(input);
-                inputGroup.appendChild(submitBtn);
-                questionContent.appendChild(inputGroup);
-            }
-
-            // Show screenshot if available
-            if (question.screenshot_path) {
-                const img = document.createElement('img');
-                img.src = question.screenshot_path;
-                img.alt = 'Screenshot';
-                img.onerror = () => {
-                    questionScreenshot.innerHTML = '<p style="color: #999;">Screenshot not available</p>';
-                };
-                questionScreenshot.appendChild(img);
+                content.appendChild(buttons);
             }
         }
 
-        // Hide question
-        function hideQuestion() {
-            document.getElementById('question_section').classList.add('hidden');
-            currentQuestion = null;
-        }
-
-        // Submit answer
         async function submitAnswer(questionId, answer) {
             if (!currentRunId) return;
-
             try {
-                showMessage('Submitting answer...', 'success');
-                
                 const response = await fetch(`${API_BASE}/runs/${currentRunId}/answer`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        question_id: questionId,
-                        answer: answer
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question_id: questionId, answer })
                 });
-
-                if (!response.ok) {
-                    const error = await response.text();
-                    throw new Error(error || `HTTP ${response.status}`);
-                }
-
+                if (!response.ok) throw new Error(await response.text());
                 const data = await response.json();
-                showMessage('Answer submitted successfully', 'success');
+                showMessage('Answer submitted', 'success');
                 updateStatus(data);
-
             } catch (error) {
-                showMessage(`Failed to submit answer: ${error.message}`, 'error');
+                showMessage(`Failed: ${error.message}`, 'error');
             }
         }
 
-        // Check if report is available
-        async function checkReportAvailable() {
-            if (!currentRunId) return;
-
+        async function submitFreeText() {
+            const input = document.getElementById('free_text_input');
+            const text = input.value.trim();
+            if (!text || !currentRunId) {
+                showMessage('Please enter a question', 'error');
+                return;
+            }
             try {
-                const response = await fetch(`${API_BASE}/runs/${currentRunId}/report`);
-                if (response.ok) {
-                    document.getElementById('report_section').style.display = 'block';
-                    document.getElementById('open_report_btn').disabled = false;
-                    document.getElementById('toggle_report_btn').style.display = 'inline-block';
-                    showMessage('📊 Test report is now available!', 'success');
-                }
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/answer`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question_id: 'free_text', answer: text })
+                });
+                if (!response.ok) throw new Error(await response.text());
+                input.value = '';
+                showMessage('Message sent', 'success');
             } catch (error) {
-                // Report not ready yet
+                showMessage(`Failed: ${error.message}`, 'error');
             }
         }
 
-
-        // Open report
-        function openReport() {
-            if (!currentRunId) return;
-            window.open(`${API_BASE}/runs/${currentRunId}/report`, '_blank');
-        }
-
-        // Toggle report inline
-        function toggleReport() {
-            const frame = document.getElementById('report_frame');
-            if (frame.style.display === 'none') {
-                frame.src = `${API_BASE}/runs/${currentRunId}/report`;
-                frame.style.display = 'block';
-            } else {
-                frame.style.display = 'none';
-            }
-        }
-
-        // Load application in iframe
         function loadAppInIframe(baseUrl, currentUrl = null) {
             const iframe = document.getElementById('app_iframe');
             const iframeBlocked = document.getElementById('iframe_blocked');
-            const openTabBtn = document.getElementById('open_app_tab_btn');
-            const openTabBtn2 = document.getElementById('open_app_tab_btn2');
-            
-            // Use current URL if available (logged-in page), otherwise use base URL
             const urlToLoad = currentUrl || baseUrl;
             currentAppUrl = urlToLoad;
-            
-            // Set up open in new tab buttons - use current URL (logged-in page)
-            const openInNewTab = () => {
-                const url = currentAppUrl || baseUrl;
-                window.open(url, '_blank');
-            };
-            openTabBtn.onclick = openInNewTab;
-            openTabBtn2.onclick = openInNewTab;
-            
-            // Reset visibility
             iframeBlocked.classList.add('hidden');
-            iframe.classList.remove('hidden');
-            openTabBtn.classList.add('hidden');
-            
-            // Try to load in iframe - use current URL if available
             iframe.src = urlToLoad;
-            
-            let checkAttempts = 0;
-            const maxAttempts = 3;
-            
-            // Check for X-Frame-Options blocking
-            const checkIfBlocked = () => {
-                checkAttempts++;
-                try {
-                    // Try to access iframe content (will fail if blocked by X-Frame-Options)
-                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                    // If we can access it, it's not blocked
-                    if (iframeDoc && iframeDoc.location) {
-                        iframeBlocked.classList.add('hidden');
-                        iframe.classList.remove('hidden');
-                        openTabBtn.classList.add('hidden');
-                        return; // Success - not blocked
-                    }
-                } catch (e) {
-                    // Cross-origin or X-Frame-Options blocked
-                    // This is expected for most applications
-                }
-                
-                // If we've tried enough times, assume it's blocked
-                if (checkAttempts >= maxAttempts) {
-                    // Check if iframe actually loaded something
-                    try {
-                        // If we can't access content, it's likely blocked
-                        iframeBlocked.classList.remove('hidden');
-                        iframe.classList.add('hidden');
-                        openTabBtn.classList.remove('hidden');
-                    } catch (e) {
-                        // Definitely blocked
-                        iframeBlocked.classList.remove('hidden');
-                        iframe.classList.add('hidden');
-                        openTabBtn.classList.remove('hidden');
-                    }
-                } else {
-                    // Try again after a delay
-                    setTimeout(checkIfBlocked, 1000);
-                }
-            };
-            
-            // Start checking after iframe starts loading
-            iframe.onload = () => {
-                setTimeout(checkIfBlocked, 500);
-            };
-            
-            // Also check after initial delay
-            setTimeout(checkIfBlocked, 1500);
-            
-            // Listen for load error
-            iframe.onerror = () => {
-                iframeBlocked.classList.remove('hidden');
-                iframe.classList.add('hidden');
-                openTabBtn.classList.remove('hidden');
-            };
-        }
-
-        // Submit free text
-        async function submitFreeText() {
-            if (!currentRunId) {
-                showMessage('No active run. Please start a run first.', 'error');
-                return;
-            }
-
-            const input = document.getElementById('free_text_input');
-            const text = input.value.trim();
-            
-            if (!text) {
-                showMessage('Please enter a question or command.', 'error');
-                return;
-            }
-
-            try {
-                showMessage('Sending message to QA Buddy...', 'success');
-                
-                const response = await fetch(`${API_BASE}/runs/${currentRunId}/answer`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        question_id: 'free_text',
-                        answer: text
-                    })
-                });
-
-                if (!response.ok) {
-                    const error = await response.text();
-                    throw new Error(error || `HTTP ${response.status}`);
-                }
-
-                const data = await response.json();
-                showMessage('Message sent successfully', 'success');
-                input.value = ''; // Clear input
-                updateStatus(data);
-
-            } catch (error) {
-                showMessage(`Failed to send message: ${error.message}`, 'error');
-            }
-        }
-
-        // Allow Enter key to submit free text (Shift+Enter for new line)
-        document.addEventListener('DOMContentLoaded', () => {
-            const freeTextInput = document.getElementById('free_text_input');
-            if (freeTextInput) {
-                freeTextInput.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        submitFreeText();
-                    }
-                });
-            }
-        });
-
-        // Show message
-        function showMessage(message, type) {
-            const messageArea = document.getElementById('message_area');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = type === 'error' ? 'error' : 'success';
-            messageDiv.textContent = message;
-            messageArea.innerHTML = '';
-            messageArea.appendChild(messageDiv);
-
-            // Auto-hide after 5 seconds
             setTimeout(() => {
-                messageDiv.remove();
-            }, 5000);
+                try {
+                    iframe.contentDocument;
+                } catch (e) {
+                    iframeBlocked.classList.remove('hidden');
+                    iframe.classList.add('hidden');
+                }
+            }, 1500);
+        }
+
+        function checkReportAvailable() {
+            if (!currentRunId) return;
+            fetch(`${API_BASE}/runs/${currentRunId}/report`)
+                .then(r => r.ok && document.getElementById('report_card').classList.remove('hidden'))
+                .catch(() => {});
+        }
+
+        function openReport() {
+            if (currentRunId) window.open(`${API_BASE}/runs/${currentRunId}/report`, '_blank');
+        }
+
+        function showMessage(message, type) {
+            const area = document.getElementById('message_area');
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.textContent = message;
+            area.innerHTML = '';
+            area.appendChild(div);
+            setTimeout(() => div.remove(), 5000);
+        }
+
+        function displayImageAnalysis(results) {
+            // Create or update analysis display card
+            let analysisCard = document.getElementById('image_analysis_card');
+            if (!analysisCard) {
+                analysisCard = document.createElement('div');
+                analysisCard.id = 'image_analysis_card';
+                analysisCard.className = 'card';
+                analysisCard.style.marginTop = '20px';
+                document.getElementById('tab-media').appendChild(analysisCard);
+            }
+            
+            let html = '<div class="card-header"><h2 class="card-title"><span class="icon">🔍</span> Image Analysis Results</h2></div>';
+            html += '<div style="padding: 16px;">';
+            
+            results.forEach((result, idx) => {
+                html += `<div style="margin-bottom: 16px; padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">`;
+                html += `<strong>${result.filename}</strong><br>`;
+                html += `<div style="margin-top: 8px; font-size: 14px; color: var(--text-secondary);">`;
+                html += `📊 UI Elements: ${result.ui_elements || 0}<br>`;
+                html += `🧩 Components: ${result.components?.join(', ') || 'None'}<br>`;
+                html += `🔄 Workflows: ${result.workflows || 0}`;
+                html += `</div></div>`;
+            });
+            
+            html += '</div>';
+            analysisCard.innerHTML = html;
         }
     </script>
 </body>

@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: qa-buddy-postgres
+    environment:
+      POSTGRES_DB: qa_buddy
+      POSTGRES_USER: qa_user
+      POSTGRES_PASSWORD: qa_password_change_me
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - qa-buddy-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qa_user -d qa_buddy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qa-buddy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: qa-buddy-agent
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount data directory for persistence
+      - ./data:/app/data
+      # Mount app for hot-reload during development
+      - ./app:/app/app
+      - ./ui:/app/ui
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql+asyncpg://qa_user:qa_password_change_me@postgres:5432/qa_buddy
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - qa-buddy-network
+
+networks:
+  qa-buddy-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

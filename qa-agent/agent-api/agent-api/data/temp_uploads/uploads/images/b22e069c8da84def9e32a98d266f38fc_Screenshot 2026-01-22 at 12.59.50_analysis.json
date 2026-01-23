@@ -1,0 +1,45 @@
+{
+  "image_info": {
+    "filename": "b22e069c8da84def9e32a98d266f38fc_Screenshot 2026-01-22 at 12.59.50.png",
+    "file_path": "agent-api/data/temp_uploads/images/b22e069c8da84def9e32a98d266f38fc_Screenshot 2026-01-22 at 12.59.50.png",
+    "file_size": 50379,
+    "analyzed_at": "2026-01-23T07:33:27.049917Z",
+    "run_id": "pre-run"
+  },
+  "ui_elements": [
+    {
+      "type": "unknown",
+      "text": "Image analysis pending - install pytesseract for OCR",
+      "position": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0
+      },
+      "note": "Install pytesseract and Pillow for text extraction"
+    }
+  ],
+  "text_content": [],
+  "color_scheme": {
+    "primary": null,
+    "secondary": null,
+    "background": null,
+    "text": null
+  },
+  "layout_structure": {
+    "type": "unknown",
+    "regions": [],
+    "has_sidebar": false,
+    "has_header": false,
+    "has_footer": false
+  },
+  "components_detected": [],
+  "workflow_hints": [],
+  "accessibility_notes": [
+    {
+      "type": "text_readability",
+      "severity": "warning",
+      "message": "No text detected - may indicate image-only content without alt text"
+    }
+  ]
+}
