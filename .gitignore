@@ -66,6 +66,12 @@ qa-agent/data/
 qa-agent/agent-api/.env
 qa-agent/runner/node_modules/
 
+# QA Agent generated uploads / temp files
+qa-agent/agent-api/agent-api/data/temp_uploads/
+
+# QA Agent local runtime data (generated)
+qa-agent/agent-api/data/
+
 # Artifacts
 /data/artifacts/
 
