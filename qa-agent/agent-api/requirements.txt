@@ -12,6 +12,10 @@ playwright==1.57.0
 Pillow>=10.0.0
 pytesseract>=0.3.10
 
+# Document parsing (for PRD/requirements analysis)
+python-docx>=1.1.0
+PyPDF2>=3.0.0
+
 # Database (PostgreSQL + SQLite for development)
 asyncpg>=0.29.0
 aiosqlite>=0.20.0

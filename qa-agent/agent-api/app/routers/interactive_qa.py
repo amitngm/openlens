@@ -50,6 +50,8 @@ class StartRunRequest(BaseModel):
     auth: Optional[AuthConfig] = Field(None, description="Authentication configuration")
     discovery_debug: Optional[bool] = Field(False, description="Enable discovery debug trace + screenshots")
     uploaded_images: Optional[list] = Field(None, description="Pre-uploaded image analysis results to guide discovery")
+    uploaded_documents: Optional[list] = Field(None, description="Pre-uploaded document analysis results (PRD, requirements)")
+    test_phase: Optional[str] = Field("phase1_get_operations", description="Test phase: phase1_get_operations or phase2_full_testing")
     
     class Config:
         json_schema_extra = {
@@ -133,6 +135,84 @@ class AnswerResponse(BaseModel):
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+async def _load_image_analysis_hints(
+    uploaded_images: Optional[list],
+    artifacts_path: str
+) -> Optional[list]:
+    """Load and aggregate GET operation hints from all uploaded images."""
+    if not uploaded_images:
+        return None
+
+    all_hints = []
+
+    for img_data in uploaded_images:
+        file_id = img_data.get("file_id")
+        if not file_id:
+            continue
+
+        analysis_file = Path(artifacts_path) / "uploads" / "images" / f"{file_id}_analysis.json"
+
+        if analysis_file.exists():
+            try:
+                with open(analysis_file, 'r') as f:
+                    analysis = json.load(f)
+
+                # Extract GET operation hints
+                if "get_operation_hints" in analysis:
+                    all_hints.extend(analysis["get_operation_hints"])
+            except Exception as e:
+                logger.warning(f"Failed to load image analysis {file_id}: {e}")
+
+    return all_hints if all_hints else None
+
+
+async def _load_document_analysis(
+    uploaded_documents: Optional[list],
+    artifacts_path: str
+) -> Optional[dict]:
+    """Load and aggregate document analysis from all uploaded PRDs."""
+    if not uploaded_documents:
+        return None
+
+    combined_analysis = {
+        "features": [],
+        "workflows": [],
+        "acceptance_criteria": [],
+        "test_scenarios": []
+    }
+
+    for doc_data in uploaded_documents:
+        file_id = doc_data.get("file_id")
+        if not file_id:
+            continue
+
+        # Try different possible filenames
+        possible_files = [
+            Path(artifacts_path) / "uploads" / "documents" / f"{file_id}_analysis.json",
+            Path(artifacts_path).parent / "data" / "temp_uploads" / "uploads" / "documents" / f"{file_id}_analysis.json"
+        ]
+
+        for analysis_file in possible_files:
+            if analysis_file.exists():
+                try:
+                    with open(analysis_file, 'r') as f:
+                        analysis = json.load(f)
+
+                    combined_analysis["features"].extend(analysis.get("features", []))
+                    combined_analysis["workflows"].extend(analysis.get("workflows", []))
+                    combined_analysis["acceptance_criteria"].extend(analysis.get("acceptance_criteria", []))
+                    combined_analysis["test_scenarios"].extend(analysis.get("test_scenarios", []))
+                    break
+                except Exception as e:
+                    logger.warning(f"Failed to load document analysis {file_id}: {e}")
+
+    return combined_analysis if any(combined_analysis.values()) else None
+
+
+# =============================================================================
 # Endpoints
 # =============================================================================
 
@@ -156,7 +236,10 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
             env=request.env or "staging",
             headless=request.headless if request.headless is not None else True,
             auth=request.auth,
-            discovery_debug=bool(request.discovery_debug)
+            discovery_debug=bool(request.discovery_debug),
+            uploaded_images=request.uploaded_images,
+            uploaded_documents=request.uploaded_documents,
+            test_phase=request.test_phase or "phase1_get_operations"
         )
         
         # Transition to OPEN_URL (opens URL in check_session)
@@ -299,13 +382,26 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
                                 else:
                                     # If transitioning to DISCOVERY_RUN, execute discovery
                                     if detect_result["next_state"] == RunState.DISCOVERY_RUN:
+                                        # Load image/document analysis hints
+                                        image_hints = await _load_image_analysis_hints(
+                                            context.uploaded_images,
+                                            context.artifacts_path
+                                        )
+                                        document_analysis = await _load_document_analysis(
+                                            context.uploaded_documents,
+                                            context.artifacts_path
+                                        )
+
                                         discovery_runner = get_discovery_runner()
                                         discovery_result = await discovery_runner.run_discovery(
                                             page=page,
                                             run_id=run_id,
-                                            base_url=request.base_url,
+                                            base_url=context.base_url,
                                             artifacts_path=context.artifacts_path,
-                                            debug=getattr(context, "discovery_debug", False)
+                                            debug=getattr(context, "discovery_debug", False),
+                                            image_hints=image_hints,
+                                            document_analysis=document_analysis,
+                                            phase=context.test_phase
                                         )
                                         
                                         # Store discovery summary in context
@@ -839,13 +935,26 @@ async def answer_question(
                                     else:
                                         # Context selected - proceed to discovery
                                         if detect_result["next_state"] == RunState.DISCOVERY_RUN:
+                                            # Load image/document analysis hints
+                                            image_hints = await _load_image_analysis_hints(
+                                                context.uploaded_images,
+                                                context.artifacts_path
+                                            )
+                                            document_analysis = await _load_document_analysis(
+                                                context.uploaded_documents,
+                                                context.artifacts_path
+                                            )
+
                                             discovery_runner = get_discovery_runner()
                                             discovery_result = await discovery_runner.run_discovery(
                                                 page=page,
                                                 run_id=run_id,
                                                 base_url=context.base_url,
                                                 artifacts_path=context.artifacts_path,
-                                                debug=getattr(context, "discovery_debug", False)
+                                                debug=getattr(context, "discovery_debug", False),
+                                                image_hints=image_hints,
+                                                document_analysis=document_analysis,
+                                                phase=context.test_phase
                                             )
                                             
                                             # Store discovery summary in context
@@ -1472,6 +1581,83 @@ async def upload_image(
     except Exception as e:
         logger.error(f"[{run_id}] Failed to upload image: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to upload image: {str(e)}")
+
+
+@router.post("/upload/document/pre-run", summary="Upload PRD/spec document before starting run")
+async def upload_document_pre_run(
+    file: UploadFile = File(..., description="Document file (TXT, MD, PDF, DOCX)")
+):
+    """
+    Upload and analyze PRD/requirements document for test planning.
+
+    This extracts:
+    - Features and functionality requirements
+    - User workflows and journeys
+    - Acceptance criteria
+    - Test scenarios
+    - UI components mentioned
+    - API endpoints mentioned
+    """
+    try:
+        # Validate file type
+        allowed_extensions = ['.txt', '.md', '.pdf', '.docx']
+        file_ext = Path(file.filename).suffix.lower()
+
+        if file_ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type. Allowed: {', '.join(allowed_extensions)}"
+            )
+
+        # Save document
+        temp_uploads_dir = Path("agent-api/data/temp_uploads/documents")
+        temp_uploads_dir.mkdir(parents=True, exist_ok=True)
+
+        file_id = uuid.uuid4().hex
+        file_path = temp_uploads_dir / f"{file_id}_{file.filename}"
+
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            if len(content) > 50 * 1024 * 1024:  # 50MB limit
+                raise HTTPException(status_code=400, detail="Document file too large (max 50MB)")
+            f.write(content)
+
+        logger.info(f"[PRE-RUN] Document uploaded: {file.filename} -> {file_path}")
+
+        # Analyze document
+        from app.services.document_analyzer import get_document_analyzer
+        doc_analyzer = get_document_analyzer()
+
+        analysis_result = await doc_analyzer.analyze_document(
+            doc_path=file_path,
+            run_id="pre-run",
+            artifacts_path=str(temp_uploads_dir.parent)
+        )
+
+        return JSONResponse({
+            "file_id": file_id,
+            "filename": file.filename,
+            "file_path": str(file_path),
+            "size": len(content),
+            "format": file_ext,
+            "analysis": {
+                "features_count": len(analysis_result.get("features", [])),
+                "workflows_count": len(analysis_result.get("workflows", [])),
+                "acceptance_criteria_count": len(analysis_result.get("acceptance_criteria", [])),
+                "test_scenarios_count": len(analysis_result.get("test_scenarios", [])),
+                "features": [f["name"] for f in analysis_result.get("features", [])[:5]],  # First 5
+                "workflows": [w["name"] for w in analysis_result.get("workflows", [])[:3]],  # First 3
+                "ui_components_mentioned": analysis_result.get("ui_components_mentioned", []),
+                "api_endpoints_mentioned": analysis_result.get("api_endpoints_mentioned", [])[:5]  # First 5
+            },
+            "message": "Document analyzed successfully. Test plan will be generated based on requirements."
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[PRE-RUN] Failed to upload document: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload document: {str(e)}")
 
 
 @router.post("/{run_id}/upload/video", summary="Upload video for future discovery analysis")

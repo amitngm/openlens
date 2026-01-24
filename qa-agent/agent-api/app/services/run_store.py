@@ -34,7 +34,10 @@ class RunStore:
         env: str = "staging",
         headless: bool = True,
         auth: Optional[AuthConfig] = None,
-        discovery_debug: bool = False
+        discovery_debug: bool = False,
+        uploaded_images: Optional[list] = None,
+        uploaded_documents: Optional[list] = None,
+        test_phase: str = "phase1_get_operations"
     ) -> RunContext:
         """
         Create a new run context.
@@ -60,6 +63,9 @@ class RunStore:
             state=RunState.START,
             artifacts_path=artifacts_path,
             discovery_debug=discovery_debug,
+            uploaded_images=uploaded_images,
+            uploaded_documents=uploaded_documents,
+            test_phase=test_phase,
             timestamps={RunState.START.value: datetime.utcnow().isoformat() + "Z"}
         )
         

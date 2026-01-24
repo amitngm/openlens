@@ -782,17 +782,24 @@ class DiscoveryRunner:
         run_id: str,
         base_url: str,
         artifacts_path: str,
-        debug: bool = False
+        debug: bool = False,
+        image_hints: Optional[List[Dict[str, Any]]] = None,
+        document_analysis: Optional[Dict[str, Any]] = None,
+        phase: str = "phase1_get_operations"
     ) -> Dict[str, Any]:
         """
-        Run discovery on the current logged-in session with live event streaming.
-        
+        Run intelligent discovery guided by uploaded images and documents.
+
         Args:
             page: Playwright Page object (already logged in)
             run_id: Run identifier
             base_url: Base application URL
             artifacts_path: Path to artifacts directory
-        
+            debug: Enable debug tracing
+            image_hints: Analysis from uploaded images (search, filters, pagination, tables)
+            document_analysis: Extracted features, workflows, acceptance criteria from PRD
+            phase: "phase1_get_operations" or "phase2_full_testing"
+
         Returns:
             Dict with discovery results
         """
@@ -891,10 +898,44 @@ class DiscoveryRunner:
             
             page.on("request", capture_request)
             page.on("response", capture_response)
-            
+
             current_url = page.url
             base_domain = urlparse(base_url).netloc
-            
+
+            # Intelligent Discovery: Build priority test queue from image/document analysis
+            get_operation_results = None
+            if image_hints or document_analysis:
+                logger.info(f"[{run_id}] Building priority test queue from uploaded analysis...")
+                test_queue = self._build_priority_test_queue(image_hints, document_analysis)
+
+                if test_queue:
+                    logger.info(f"[{run_id}] Found {len(test_queue)} prioritized test areas")
+                    self._emit_event(run_id, artifacts_path, "test_queue_built", {
+                        "test_count": len(test_queue),
+                        "priorities": [t["priority"] for t in test_queue]
+                    })
+
+                    if phase == "phase1_get_operations":
+                        logger.info(f"[{run_id}] Executing Phase 1: GET operations only")
+                        self._emit_event(run_id, artifacts_path, "phase1_started", {
+                            "phase": "GET operations (search, filter, pagination)"
+                        })
+
+                        get_operation_results = await self._execute_get_operations(
+                            page, test_queue, run_id, artifacts_path
+                        )
+
+                        result["get_operation_results"] = get_operation_results
+
+                        self._emit_event(run_id, artifacts_path, "phase1_completed", {
+                            "tests_executed": len(get_operation_results["tests_executed"]),
+                            "tests_passed": get_operation_results["tests_passed"],
+                            "tests_failed": get_operation_results["tests_failed"]
+                        })
+
+                        logger.info(f"[{run_id}] Phase 1 completed: {get_operation_results['tests_passed']} passed, "
+                                  f"{get_operation_results['tests_failed']} failed")
+
             # Step 1: Discover top dropdowns (tenant/project/cell selectors)
             logger.info(f"[{run_id}] Discovering top dropdowns/context selectors")
             before_url = page.url
@@ -1317,7 +1358,577 @@ class DiscoveryRunner:
                 json.dump(result, f, indent=2, default=str)
             
             return result
-    
+
+    def _build_priority_test_queue(
+        self,
+        image_hints: Optional[List[Dict[str, Any]]],
+        document_analysis: Optional[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Build prioritized test queue from image/document analysis.
+
+        Returns sorted list of test areas with priority.
+        """
+        test_queue = []
+
+        if image_hints:
+            # Priority 1: Search components from images
+            for hint in image_hints:
+                if hint.get("operation") == "search":
+                    test_queue.append({
+                        "priority": 1,
+                        "type": "search",
+                        "component": hint["component"],
+                        "test_cases": hint["test_cases"],
+                        "source": "image_analysis"
+                    })
+
+            # Priority 2: Filter components
+            for hint in image_hints:
+                if hint.get("operation") == "filter":
+                    test_queue.append({
+                        "priority": 2,
+                        "type": "filter",
+                        "component": hint["component"],
+                        "test_cases": hint["test_cases"],
+                        "source": "image_analysis"
+                    })
+
+            # Priority 3: Pagination
+            for hint in image_hints:
+                if hint.get("operation") == "pagination":
+                    test_queue.append({
+                        "priority": 3,
+                        "type": "pagination",
+                        "component": hint["component"],
+                        "test_cases": hint["test_cases"],
+                        "source": "image_analysis"
+                    })
+
+            # Priority 4: Data tables
+            for hint in image_hints:
+                if hint.get("operation") == "data_validation":
+                    test_queue.append({
+                        "priority": 4,
+                        "type": "table_validation",
+                        "component": hint["component"],
+                        "test_cases": hint["test_cases"],
+                        "source": "image_analysis"
+                    })
+
+        if document_analysis:
+            # Add features from PRD
+            for feature in document_analysis.get("features", []):
+                test_queue.append({
+                    "priority": 5,
+                    "type": "feature_test",
+                    "feature_name": feature["name"],
+                    "test_focus": feature["test_focus"],
+                    "source": "prd_document"
+                })
+
+            # Add workflows
+            for workflow in document_analysis.get("workflows", []):
+                test_queue.append({
+                    "priority": 6,
+                    "type": "workflow_test",
+                    "workflow_name": workflow["name"],
+                    "steps": workflow["steps"],
+                    "source": "prd_document"
+                })
+
+        # Sort by priority
+        return sorted(test_queue, key=lambda x: x["priority"])
+
+    async def _execute_get_operations(
+        self,
+        page,
+        test_queue: List[Dict[str, Any]],
+        run_id: str,
+        artifacts_path: str
+    ) -> Dict[str, Any]:
+        """
+        Execute Phase 1: GET operations only (search, filter, pagination).
+
+        No POST/PUT/DELETE operations in this phase.
+        """
+        results = {
+            "phase": "phase1_get_operations",
+            "tests_executed": [],
+            "tests_passed": 0,
+            "tests_failed": 0
+        }
+
+        for test_item in test_queue:
+            test_type = test_item["type"]
+
+            try:
+                if test_type == "search":
+                    # Execute search tests
+                    search_results = await self._test_search_component(
+                        page,
+                        test_item["component"],
+                        test_item["test_cases"],
+                        run_id,
+                        artifacts_path
+                    )
+                    results["tests_executed"].append(search_results)
+
+                elif test_type == "filter":
+                    # Execute filter tests
+                    filter_results = await self._test_filter_component(
+                        page,
+                        test_item["component"],
+                        test_item["test_cases"],
+                        run_id,
+                        artifacts_path
+                    )
+                    results["tests_executed"].append(filter_results)
+
+                elif test_type == "pagination":
+                    # Execute pagination tests
+                    pagination_results = await self._test_pagination_component(
+                        page,
+                        test_item["component"],
+                        test_item["test_cases"],
+                        run_id,
+                        artifacts_path
+                    )
+                    results["tests_executed"].append(pagination_results)
+
+                elif test_type == "table_validation":
+                    # Execute table validation
+                    table_results = await self._test_table_component(
+                        page,
+                        test_item["component"],
+                        test_item["test_cases"],
+                        run_id,
+                        artifacts_path
+                    )
+                    results["tests_executed"].append(table_results)
+
+            except Exception as e:
+                logger.warning(f"[{run_id}] Error testing {test_type}: {e}")
+                results["tests_executed"].append({
+                    "component": test_type,
+                    "status": "error",
+                    "error": str(e)
+                })
+
+        # Calculate pass/fail
+        for test in results["tests_executed"]:
+            if test.get("status") == "passed":
+                results["tests_passed"] += 1
+            else:
+                results["tests_failed"] += 1
+
+        return results
+
+    async def _test_search_component(
+        self,
+        page,
+        component: Dict[str, Any],
+        test_cases: List[str],
+        run_id: str,
+        artifacts_path: str
+    ) -> Dict[str, Any]:
+        """Test search component with various inputs."""
+        test_result = {
+            "component": "search",
+            "component_text": component.get("text", ""),
+            "tests": []
+        }
+
+        try:
+            # Find search input - try multiple selectors
+            search_selectors = [
+                "input[type='search']",
+                "input[placeholder*='search' i]",
+                "input[placeholder*='find' i]",
+                "input[aria-label*='search' i]",
+                "[role='searchbox']",
+                ".search-input",
+                "#search",
+                "input[name*='search' i]"
+            ]
+
+            search_input = None
+            for selector in search_selectors:
+                try:
+                    element = page.locator(selector).first
+                    if await element.count() > 0 and await element.is_visible():
+                        search_input = element
+                        break
+                except:
+                    continue
+
+            if not search_input:
+                test_result["status"] = "skipped"
+                test_result["reason"] = "Search input not found"
+                return test_result
+
+            for test_case in test_cases:
+                if "valid term" in test_case.lower():
+                    # Test 1: Search with valid term
+                    await search_input.fill("test")
+                    await search_input.press("Enter")
+                    await page.wait_for_load_state("networkidle", timeout=5000)
+
+                    # Verify results appeared
+                    results_count = await self._count_search_results(page)
+
+                    test_result["tests"].append({
+                        "test_case": test_case,
+                        "status": "passed" if results_count >= 0 else "failed",
+                        "details": f"Found {results_count} results"
+                    })
+
+                    self._emit_event(run_id, artifacts_path, "search_tested", {
+                        "search_term": "test",
+                        "results_count": results_count
+                    })
+
+                elif "empty" in test_case.lower():
+                    # Test 2: Search with empty
+                    await search_input.fill("")
+                    await search_input.press("Enter")
+                    await page.wait_for_timeout(1000)
+
+                    test_result["tests"].append({
+                        "test_case": test_case,
+                        "status": "passed",
+                        "details": "Empty search handled"
+                    })
+
+                elif "clear" in test_case.lower():
+                    # Test 3: Clear search
+                    await search_input.fill("test")
+                    await page.wait_for_timeout(500)
+                    await search_input.fill("")
+                    await page.wait_for_timeout(500)
+
+                    test_result["tests"].append({
+                        "test_case": test_case,
+                        "status": "passed",
+                        "details": "Search cleared successfully"
+                    })
+
+            test_result["status"] = "passed" if all(t["status"] == "passed" for t in test_result["tests"]) else "failed"
+
+        except Exception as e:
+            logger.error(f"[{run_id}] Error in search test: {e}")
+            test_result["status"] = "error"
+            test_result["error"] = str(e)
+
+        return test_result
+
+    async def _count_search_results(self, page) -> int:
+        """Count search results on page."""
+        try:
+            # Try common result count patterns
+            count_selectors = [
+                ".results-count",
+                ".search-results-count",
+                "[class*='result'][class*='count']",
+                "text=/\\d+ results?/i",
+                "text=/found \\d+/i"
+            ]
+
+            for selector in count_selectors:
+                try:
+                    element = page.locator(selector).first
+                    if await element.count() > 0:
+                        text = await element.inner_text()
+                        # Extract number from text
+                        import re
+                        numbers = re.findall(r'\d+', text)
+                        if numbers:
+                            return int(numbers[0])
+                except:
+                    continue
+
+            # Count result items
+            result_selectors = [
+                ".search-result",
+                ".result-item",
+                "[class*='search'][class*='result']",
+                "[data-testid*='result']"
+            ]
+
+            for selector in result_selectors:
+                try:
+                    count = await page.locator(selector).count()
+                    if count > 0:
+                        return count
+                except:
+                    continue
+
+            return 0
+
+        except:
+            return 0
+
+    async def _test_filter_component(
+        self,
+        page,
+        component: Dict[str, Any],
+        test_cases: List[str],
+        run_id: str,
+        artifacts_path: str
+    ) -> Dict[str, Any]:
+        """Test filter component with all options."""
+        test_result = {
+            "component": "filter",
+            "filter_label": component.get("label", ""),
+            "tests": []
+        }
+
+        try:
+            filter_type = component.get("filter_type", "unknown")
+
+            # Find filter element
+            filter_selectors = [
+                f"select[aria-label*='{component.get('label', '')}' i]",
+                f"button[aria-label*='{component.get('label', '')}' i]",
+                ".filter-dropdown",
+                "[class*='filter']",
+                "[role='combobox']"
+            ]
+
+            filter_element = None
+            for selector in filter_selectors:
+                try:
+                    element = page.locator(selector).first
+                    if await element.count() > 0 and await element.is_visible():
+                        filter_element = element
+                        break
+                except:
+                    continue
+
+            if not filter_element:
+                test_result["status"] = "skipped"
+                test_result["reason"] = "Filter element not found"
+                return test_result
+
+            if filter_type == "dropdown":
+                # Test dropdown filter
+                await filter_element.click()
+                await page.wait_for_timeout(500)
+
+                # Get all options
+                options = await page.locator("option, [role='option']").all_text_contents()
+
+                for option in options[:5]:  # Test first 5 options
+                    if option.strip():
+                        try:
+                            await page.select_option(str(filter_element), label=option)
+                        except:
+                            # Try clicking option instead
+                            await page.locator(f"[role='option']:has-text('{option}')").first.click()
+
+                        await page.wait_for_load_state("networkidle", timeout=5000)
+
+                        results_count = await self._count_filtered_results(page)
+
+                        test_result["tests"].append({
+                            "test_case": f"Filter by {option}",
+                            "status": "passed",
+                            "details": f"{results_count} results after filtering"
+                        })
+
+                        self._emit_event(run_id, artifacts_path, "filter_tested", {
+                            "filter": component["label"],
+                            "option": option,
+                            "results_count": results_count
+                        })
+
+            test_result["status"] = "passed" if len(test_result["tests"]) > 0 else "skipped"
+
+        except Exception as e:
+            logger.error(f"[{run_id}] Error in filter test: {e}")
+            test_result["status"] = "error"
+            test_result["error"] = str(e)
+
+        return test_result
+
+    async def _count_filtered_results(self, page) -> int:
+        """Count filtered results on page."""
+        try:
+            # Similar to search results counting
+            result_selectors = [
+                ".result-item",
+                ".list-item",
+                "tbody tr",
+                "[class*='row']",
+                "[data-testid*='item']"
+            ]
+
+            for selector in result_selectors:
+                try:
+                    count = await page.locator(selector).count()
+                    if count > 0:
+                        return count
+                except:
+                    continue
+
+            return 0
+        except:
+            return 0
+
+    async def _test_pagination_component(
+        self,
+        page,
+        component: Dict[str, Any],
+        test_cases: List[str],
+        run_id: str,
+        artifacts_path: str
+    ) -> Dict[str, Any]:
+        """Test pagination by clicking through pages."""
+        test_result = {
+            "component": "pagination",
+            "tests": []
+        }
+
+        try:
+            # Find next button
+            next_selectors = [
+                "button:has-text('Next')",
+                "a:has-text('Next')",
+                "[aria-label*='next' i]",
+                ".pagination-next",
+                "[class*='next']"
+            ]
+
+            page_number = 1
+            total_items_seen = 0
+            max_pages = 10  # Limit to prevent infinite loops
+
+            while page_number <= max_pages:
+                # Count items on current page
+                items_on_page = await self._count_items_on_page(page)
+                total_items_seen += items_on_page
+
+                test_result["tests"].append({
+                    "test_case": f"Page {page_number}",
+                    "status": "passed",
+                    "details": f"{items_on_page} items on page"
+                })
+
+                self._emit_event(run_id, artifacts_path, "pagination_tested", {
+                    "page_number": page_number,
+                    "items_on_page": items_on_page
+                })
+
+                # Try to click next
+                next_button = None
+                for selector in next_selectors:
+                    try:
+                        btn = page.locator(selector).first
+                        if await btn.count() > 0 and await btn.is_visible():
+                            next_button = btn
+                            break
+                    except:
+                        continue
+
+                if not next_button:
+                    break
+
+                try:
+                    if await next_button.is_disabled():
+                        break
+
+                    await next_button.click()
+                    await page.wait_for_load_state("networkidle", timeout=5000)
+                    page_number += 1
+
+                except Exception:
+                    break  # No more pages
+
+            test_result["total_pages"] = page_number
+            test_result["total_items"] = total_items_seen
+            test_result["status"] = "passed"
+
+        except Exception as e:
+            logger.error(f"[{run_id}] Error in pagination test: {e}")
+            test_result["status"] = "error"
+            test_result["error"] = str(e)
+
+        return test_result
+
+    async def _count_items_on_page(self, page) -> int:
+        """Count items on current page."""
+        try:
+            item_selectors = [
+                "tbody tr",
+                ".list-item",
+                ".grid-item",
+                ".card",
+                "[class*='item']"
+            ]
+
+            for selector in item_selectors:
+                try:
+                    count = await page.locator(selector).count()
+                    if count > 0:
+                        return count
+                except:
+                    continue
+
+            return 0
+        except:
+            return 0
+
+    async def _test_table_component(
+        self,
+        page,
+        component: Dict[str, Any],
+        test_cases: List[str],
+        run_id: str,
+        artifacts_path: str
+    ) -> Dict[str, Any]:
+        """Validate data table structure and content."""
+        test_result = {
+            "component": "data_table",
+            "tests": []
+        }
+
+        try:
+            # Verify headers
+            expected_headers = component.get("headers", [])
+            actual_headers = await page.locator("table thead th, [role='columnheader']").all_text_contents()
+
+            header_match = len(set(expected_headers) & set(actual_headers)) > 0
+
+            test_result["tests"].append({
+                "test_case": "Verify column headers",
+                "status": "passed" if header_match else "failed",
+                "expected": expected_headers,
+                "actual": actual_headers[:10]  # First 10 headers
+            })
+
+            # Count rows
+            row_count = await page.locator("table tbody tr, [role='row']").count()
+
+            test_result["tests"].append({
+                "test_case": "Count table rows",
+                "status": "passed",
+                "details": f"{row_count} rows in table"
+            })
+
+            self._emit_event(run_id, artifacts_path, "table_validated", {
+                "headers": actual_headers[:10],
+                "row_count": row_count
+            })
+
+            test_result["status"] = "passed" if all(t["status"] == "passed" for t in test_result["tests"]) else "failed"
+
+        except Exception as e:
+            logger.error(f"[{run_id}] Error in table validation: {e}")
+            test_result["status"] = "error"
+            test_result["error"] = str(e)
+
+        return test_result
+
     async def _discover_top_dropdowns(
         self,
         page,

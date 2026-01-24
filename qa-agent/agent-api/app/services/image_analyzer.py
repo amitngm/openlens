@@ -59,15 +59,43 @@ class ImageAnalyzer:
                 logger.debug(f"[{run_id}] Could not read image dimensions: {e}")
             
             # Extract UI elements and patterns
+            ui_elements = await self._extract_ui_elements(image_path, run_id)
+            text_content = await self._extract_text_content(image_path, run_id)
+            color_scheme = await self._extract_color_scheme(image_path, run_id)
+            layout_structure = await self._extract_layout_structure(image_path, run_id)
+            components_detected = await self._detect_components(image_path, run_id)
+            workflow_hints = await self._identify_workflow_hints(image_path, run_id)
+            accessibility_notes = await self._check_accessibility(image_path, run_id)
+
+            # NEW: Specialized component detection for intelligent testing
+            search_components = await self._detect_search_components(image_path, run_id)
+            filter_components = await self._detect_filter_components(image_path, run_id)
+            pagination_components = await self._detect_pagination_components(image_path, run_id)
+            data_tables = await self._detect_data_tables(image_path, run_id)
+
+            # NEW: Generate GET operation test hints
+            get_operation_hints = self._generate_get_operation_hints(
+                search_components,
+                filter_components,
+                pagination_components,
+                data_tables
+            )
+
             analysis_result = {
                 "image_info": image_info,
-                "ui_elements": await self._extract_ui_elements(image_path, run_id),
-                "text_content": await self._extract_text_content(image_path, run_id),
-                "color_scheme": await self._extract_color_scheme(image_path, run_id),
-                "layout_structure": await self._extract_layout_structure(image_path, run_id),
-                "components_detected": await self._detect_components(image_path, run_id),
-                "workflow_hints": await self._identify_workflow_hints(image_path, run_id),
-                "accessibility_notes": await self._check_accessibility(image_path, run_id)
+                "ui_elements": ui_elements,
+                "text_content": text_content,
+                "color_scheme": color_scheme,
+                "layout_structure": layout_structure,
+                "components_detected": components_detected,
+                "workflow_hints": workflow_hints,
+                "accessibility_notes": accessibility_notes,
+                # NEW: Specialized components for intelligent discovery
+                "search_components": search_components,
+                "filter_components": filter_components,
+                "pagination_components": pagination_components,
+                "data_tables": data_tables,
+                "get_operation_hints": get_operation_hints
             }
             
             # Save analysis results
@@ -400,6 +428,242 @@ class ImageAnalyzer:
             logger.debug(f"[{run_id}] Accessibility check error: {e}")
         
         return notes
+
+    async def _detect_search_components(
+        self,
+        image_path: Path,
+        run_id: str
+    ) -> List[Dict[str, Any]]:
+        """Detect search boxes, search buttons, and search-related UI."""
+        search_components = []
+
+        try:
+            text_content = await self._extract_text_content(image_path, run_id)
+            all_text_items = []
+
+            for item in text_content:
+                if isinstance(item, dict) and "text" in item:
+                    all_text_items.append(item)
+
+            # Search keywords
+            search_keywords = ['search', 'find', 'query', 'lookup', 'explore', 'buscar']
+
+            for item in all_text_items:
+                text_lower = item.get("text", "").lower()
+                if any(kw in text_lower for kw in search_keywords):
+                    # Classify component type
+                    if len(text_lower) < 20:
+                        component_type = "search_input" if len(text_lower) < 10 else "search_button"
+                    else:
+                        component_type = "search_label"
+
+                    search_components.append({
+                        "type": component_type,
+                        "text": item.get("text"),
+                        "confidence": "high",
+                        "test_hints": [
+                            "Enter search term",
+                            "Clear search",
+                            "Verify results load",
+                            "Test empty search"
+                        ]
+                    })
+
+        except Exception as e:
+            logger.debug(f"[{run_id}] Search component detection error: {e}")
+
+        return search_components
+
+    async def _detect_filter_components(
+        self,
+        image_path: Path,
+        run_id: str
+    ) -> List[Dict[str, Any]]:
+        """Detect filter dropdowns, checkboxes, and filter controls."""
+        filter_components = []
+
+        try:
+            text_content = await self._extract_text_content(image_path, run_id)
+            all_text_items = []
+
+            for item in text_content:
+                if isinstance(item, dict) and "text" in item:
+                    all_text_items.append(item)
+
+            # Filter keywords
+            filter_keywords = ['filter', 'status', 'type', 'category', 'from', 'to', 'date range', 'sort by']
+
+            for item in all_text_items:
+                text_lower = item.get("text", "").lower()
+                if any(kw in text_lower for kw in filter_keywords):
+                    # Infer filter type
+                    if 'date' in text_lower or 'from' in text_lower or 'to' in text_lower:
+                        filter_type = "daterange"
+                    elif 'status' in text_lower or 'type' in text_lower or 'category' in text_lower:
+                        filter_type = "dropdown"
+                    else:
+                        filter_type = "checkbox"
+
+                    filter_components.append({
+                        "type": "filter_control",
+                        "filter_type": filter_type,
+                        "label": item.get("text"),
+                        "confidence": "high",
+                        "test_hints": [
+                            "Test all filter options",
+                            "Combine multiple filters",
+                            "Clear filters",
+                            "Verify filtered results count"
+                        ]
+                    })
+
+        except Exception as e:
+            logger.debug(f"[{run_id}] Filter component detection error: {e}")
+
+        return filter_components
+
+    async def _detect_pagination_components(
+        self,
+        image_path: Path,
+        run_id: str
+    ) -> List[Dict[str, Any]]:
+        """Detect pagination controls: next, prev, page numbers."""
+        pagination_components = []
+
+        try:
+            text_content = await self._extract_text_content(image_path, run_id)
+            all_text_items = []
+
+            for item in text_content:
+                if isinstance(item, dict) and "text" in item:
+                    all_text_items.append(item)
+
+            # Pagination keywords
+            pagination_keywords = ['next', 'previous', 'prev', 'page', 'of', '←', '→', '«', '»']
+
+            for item in all_text_items:
+                text = item.get("text", "")
+                text_lower = text.lower()
+
+                if any(kw in text_lower for kw in pagination_keywords) or any(symbol in text for symbol in ['←', '→', '«', '»']):
+                    # Classify control type
+                    if 'next' in text_lower or '→' in text or '»' in text:
+                        control_type = "next_button"
+                    elif 'prev' in text_lower or '←' in text or '«' in text:
+                        control_type = "prev_button"
+                    elif text.isdigit() or 'of' in text_lower or '/' in text:
+                        control_type = "page_number"
+                    else:
+                        control_type = "per_page_selector"
+
+                    pagination_components.append({
+                        "type": "pagination_control",
+                        "control_type": control_type,
+                        "text": text,
+                        "confidence": "high",
+                        "test_hints": [
+                            "Click through all pages",
+                            "Verify page counts",
+                            "Test items per page options",
+                            "Validate total count"
+                        ]
+                    })
+
+        except Exception as e:
+            logger.debug(f"[{run_id}] Pagination component detection error: {e}")
+
+        return pagination_components
+
+    async def _detect_data_tables(
+        self,
+        image_path: Path,
+        run_id: str
+    ) -> List[Dict[str, Any]]:
+        """Detect data tables/grids with columns and rows."""
+        tables = []
+
+        try:
+            text_content = await self._extract_text_content(image_path, run_id)
+            all_text_items = []
+
+            for item in text_content:
+                if isinstance(item, dict) and "text" in item:
+                    all_text_items.append(item)
+
+            # Look for table-like patterns
+            # Simple heuristic: repeated vertical alignment suggests columns
+            table_keywords = ['name', 'email', 'status', 'date', 'id', 'actions', 'user', 'title']
+            potential_headers = [item for item in all_text_items
+                                if any(kw in item.get("text", "").lower() for kw in table_keywords)]
+
+            if len(potential_headers) >= 3:
+                # Likely a table with multiple columns
+                tables.append({
+                    "type": "data_table",
+                    "headers": [item.get("text") for item in potential_headers],
+                    "estimated_columns": len(potential_headers),
+                    "confidence": "medium",
+                    "test_hints": [
+                        "Verify column headers",
+                        "Check row count",
+                        "Test sorting (if sortable)",
+                        "Validate data accuracy",
+                        "Test row selection/actions"
+                    ]
+                })
+
+        except Exception as e:
+            logger.debug(f"[{run_id}] Data table detection error: {e}")
+
+        return tables
+
+    def _generate_get_operation_hints(
+        self,
+        search_comps: List[Dict[str, Any]],
+        filter_comps: List[Dict[str, Any]],
+        pagination_comps: List[Dict[str, Any]],
+        tables: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Generate prioritized list of GET operations to test."""
+        hints = []
+
+        # Priority 1: Search operations
+        for search in search_comps:
+            hints.append({
+                "priority": 1,
+                "operation": "search",
+                "component": search,
+                "test_cases": search.get("test_hints", [])
+            })
+
+        # Priority 2: Filter operations
+        for filter_comp in filter_comps:
+            hints.append({
+                "priority": 2,
+                "operation": "filter",
+                "component": filter_comp,
+                "test_cases": filter_comp.get("test_hints", [])
+            })
+
+        # Priority 3: Pagination
+        for pagination in pagination_comps:
+            hints.append({
+                "priority": 3,
+                "operation": "pagination",
+                "component": pagination,
+                "test_cases": pagination.get("test_hints", [])
+            })
+
+        # Priority 4: Table data validation
+        for table in tables:
+            hints.append({
+                "priority": 4,
+                "operation": "data_validation",
+                "component": table,
+                "test_cases": table.get("test_hints", [])
+            })
+
+        return sorted(hints, key=lambda x: x['priority'])
 
 
 # Singleton instance
