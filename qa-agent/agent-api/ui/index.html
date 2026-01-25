@@ -875,6 +875,28 @@
             50% { opacity: 0.6; }
         }
 
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
+
         .health-page-title {
             font-weight: 500;
             color: #111827;
@@ -935,9 +957,25 @@
             <div id="testcases-view" class="app-view">
                 <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
                     <div style="margin-bottom: 24px;">
-                        <h2 style="font-size: 22px; font-weight: 700; margin-bottom: 16px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-                            <span>✅</span> Test Cases
-                        </h2>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h2 style="font-size: 22px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin: 0;">
+                                <span>✅</span> Test Cases
+                            </h2>
+                            <div style="display: flex; gap: 8px;">
+                                <button onclick="selectAllTestCases()" class="btn-secondary btn-sm" id="select_all_btn" style="display: none;">
+                                    Select All
+                                </button>
+                                <button onclick="deselectAllTestCases()" class="btn-secondary btn-sm" id="deselect_all_btn" style="display: none;">
+                                    Deselect All
+                                </button>
+                                <button onclick="executeSelectedTests()" class="btn-success btn-sm" id="execute_tests_btn" style="display: none;">
+                                    ▶️ Run Selected Tests
+                                </button>
+                                <button onclick="viewReport()" class="btn-secondary btn-sm" id="view_report_btn" style="display: none;">
+                                    📊 View Report
+                                </button>
+                            </div>
+                        </div>
                         <div id="testcases_summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 24px;">
                             <!-- Summary stats will be populated here -->
                         </div>
@@ -1318,6 +1356,7 @@
         let currentRunId = null;
         let pollingInterval = null;
         let eventsPollingInterval = null;
+        let testCasesPollingInterval = null;
         let currentQuestion = null;
         let currentAppUrl = null;
         let eventsCursor = 0;
@@ -1326,6 +1365,7 @@
         let uploadedImages = [];
         let uploadedVideos = [];
         let uploadedImageResults = [];  // Store uploaded image metadata for discovery
+        let selectedTestCases = new Set(); // Track selected test cases for execution
 
         // Tab switching (right panel)
         function switchTab(tabName) {
@@ -1638,10 +1678,32 @@
                 document.getElementById('free_text_card').classList.remove('hidden');
                 document.getElementById('stop_btn').classList.remove('hidden');
                 
-                loadAppInIframe(baseUrl, data.current_url);
+                // Load app in iframe immediately with base URL
+                if (baseUrl) {
+                    loadAppInIframe(baseUrl, data.current_url || baseUrl);
+                    // Switch to Application tab to show the app
+                    const appTab = document.querySelector('.app-tab[onclick*="app"]');
+                    if (appTab) {
+                        switchAppTab('app');
+                        appTab.classList.add('active');
+                    }
+                }
+                
+                // Reset progress stats
+                document.getElementById('app_progress_pages').textContent = '0';
+                document.getElementById('app_progress_forms').textContent = '0';
+                document.getElementById('app_progress_actions').textContent = '0';
+                
+                // Clear progress feed and show starting message
+                const appFeed = document.getElementById('app_progress_feed');
+                if (appFeed) {
+                    appFeed.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--success); font-weight: 500;">🚀 Discovery starting...</div>';
+                }
+                
                 updateStatus(data);
                 startPolling();
                 startEventsPolling();
+                startTestCasesPolling(); // Start polling for test cases during discovery
 
             } catch (error) {
                 showMessage(`Failed to start run: ${error.message}`, 'error');
@@ -1661,19 +1723,41 @@
                     if (data.state === 'DONE' || data.state === 'FAILED') {
                         stopPolling();
                         stopEventsPolling();
+                        if (testCasesPollingInterval) {
+                            clearInterval(testCasesPollingInterval);
+                            testCasesPollingInterval = null;
+                        }
+                        // Final fetch of test cases
+                        fetchAndDisplayFeatures();
                         checkReportAvailable();
+                        
+                        // Show completion notification
+                        if (data.state === 'DONE') {
+                            showCompletionNotification('🎉 Discovery and testing completed! View test cases and report.', 'success');
+                            // Auto-switch to test cases tab after a delay
+                            setTimeout(() => {
+                                const testCasesTab = document.querySelector('.app-tab[onclick*="testcases"]');
+                                if (testCasesTab) {
+                                    switchAppTab('testcases');
+                                    testCasesTab.classList.add('active');
+                                }
+                            }, 1500);
+                        } else {
+                            showCompletionNotification('❌ Discovery failed. Check logs for details.', 'error');
+                        }
                     }
                     if (data.state === 'DISCOVERY_RUN' || data.state === 'DISCOVERY_SUMMARY') {
                         switchTab('discovery');
+                        // Auto-switch to progress view during discovery
+                        const progressTab = document.querySelector('.app-tab[onclick*="progress"]');
+                        if (progressTab && !progressTab.classList.contains('active')) {
+                            switchAppTab('progress');
+                            progressTab.classList.add('active');
+                        }
                     }
                     if (data.state === 'DISCOVERY_SUMMARY' || data.state === 'WAIT_TEST_INTENT') {
                         // Discovery completed, fetch and display features
                         fetchAndDisplayFeatures();
-                        // Auto-switch to test cases view when available
-                        const testCasesList = document.getElementById('testcases_list');
-                        if (testCasesList && testCasesList.children.length > 0 && !testCasesList.children[0].textContent.includes('No test cases')) {
-                            // Test cases are available, but don't auto-switch (let user choose)
-                        }
                     }
                 } catch (error) {
                     console.error('Polling error:', error);
@@ -1696,6 +1780,10 @@
                 clearInterval(eventsPollingInterval);
                 eventsPollingInterval = null;
             }
+            if (testCasesPollingInterval) {
+                clearInterval(testCasesPollingInterval);
+                testCasesPollingInterval = null;
+            }
         }
 
         function startEventsPolling() {
@@ -1709,11 +1797,82 @@
                     if (data.events && data.events.length > 0) {
                         processEvents(data.events);
                         eventsCursor = data.next_cursor;
+                        
+                        // Update progress stats in real-time from events
+                        data.events.forEach(event => {
+                            if (event.type === 'discovery_completed') {
+                                updateDiscoveryStats(event.data);
+                                showCompletionNotification('Discovery completed successfully!', 'success');
+                            } else if (event.type === 'page_discovered') {
+                                // Update stats incrementally
+                                const pagesCount = document.getElementById('app_progress_pages');
+                                const formsCount = document.getElementById('app_progress_forms');
+                                const actionsCount = document.getElementById('app_progress_actions');
+                                if (pagesCount) {
+                                    const current = parseInt(pagesCount.textContent) || 0;
+                                    pagesCount.textContent = current + 1;
+                                }
+                                if (formsCount && event.data.forms_count) {
+                                    const current = parseInt(formsCount.textContent) || 0;
+                                    formsCount.textContent = current + (event.data.forms_count || 0);
+                                }
+                                if (actionsCount && event.data.actions_count) {
+                                    const current = parseInt(actionsCount.textContent) || 0;
+                                    actionsCount.textContent = current + (event.data.actions_count || 0);
+                                }
+                            }
+                        });
                     }
                 } catch (error) {
                     console.error('Events polling error:', error);
                 }
-            }, 2000);
+            }, 1000); // Poll every 1 second for faster updates
+        }
+
+        function startTestCasesPolling() {
+            // Poll for test cases during discovery (not just at end)
+            if (testCasesPollingInterval) clearInterval(testCasesPollingInterval);
+            testCasesPollingInterval = setInterval(async () => {
+                if (!currentRunId) return;
+                try {
+                    await fetchAndDisplayFeatures();
+                } catch (error) {
+                    // Silently fail - test cases may not be available yet
+                }
+            }, 5000); // Poll every 5 seconds for test cases
+        }
+
+        function showCompletionNotification(message, type) {
+            // Show a prominent notification
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: ${type === 'success' ? 'var(--success)' : 'var(--danger)'};
+                color: white;
+                padding: 16px 24px;
+                border-radius: 12px;
+                box-shadow: var(--shadow-xl);
+                z-index: 10000;
+                font-weight: 600;
+                font-size: 15px;
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                animation: slideIn 0.3s ease-out;
+            `;
+            notification.innerHTML = `
+                <span style="font-size: 24px;">${type === 'success' ? '✅' : '❌'}</span>
+                <span>${message}</span>
+            `;
+            document.body.appendChild(notification);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                notification.style.animation = 'slideOut 0.3s ease-out';
+                setTimeout(() => notification.remove(), 300);
+            }, 5000);
         }
 
         async function fetchAndDisplayFeatures() {
@@ -1999,11 +2158,15 @@
             // Also add to app panel progress feed
             const appFeed = document.getElementById('app_progress_feed');
             if (appFeed) {
-                // Clear "waiting" message if present
-                if (appFeed.children.length === 1 && appFeed.children[0].textContent.includes('Waiting')) {
-                    appFeed.innerHTML = '';
+                // Clear "waiting" or "starting" message if present
+                if (appFeed.children.length === 1) {
+                    const firstChild = appFeed.children[0];
+                    if (firstChild.textContent.includes('Waiting') || firstChild.textContent.includes('starting')) {
+                        appFeed.innerHTML = '';
+                    }
                 }
-                appFeed.appendChild(entry.cloneNode(true));
+                const clonedEntry = entry.cloneNode(true);
+                appFeed.appendChild(clonedEntry);
                 appFeed.scrollTop = appFeed.scrollHeight;
             }
         }
@@ -2146,29 +2309,42 @@
                     const priorityColor = tc.priority === 'high' ? '#fef3c7' : '#e0e7ff';
                     const priorityTextColor = tc.priority === 'high' ? '#92400e' : '#3730a3';
                     
+                    const testCaseId = `${feature.feature_name}_${tc.test_id || tcIdx}`;
+                    const isSelected = selectedTestCases.has(testCaseId);
+                    
                     html += `
-                        <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 16px; transition: all 0.2s;">
-                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                        <div style="background: white; border: ${isSelected ? '2px solid var(--primary)' : '1px solid var(--border)'}; border-radius: 8px; padding: 16px; transition: all 0.2s;">
+                            <div style="display: flex; gap: 12px; align-items: start;">
+                                <input type="checkbox" 
+                                    id="tc_${testCaseId}" 
+                                    test-case-id="${testCaseId}"
+                                    onchange="toggleTestCase('${testCaseId}')"
+                                    ${isSelected ? 'checked' : ''}
+                                    style="width: 20px; height: 20px; margin-top: 2px; cursor: pointer; flex-shrink: 0;">
                                 <div style="flex: 1;">
-                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                                        <span style="font-weight: 600; color: var(--text-primary); font-size: 15px;">${tc.test_name}</span>
-                                        <span style="padding: 4px 10px; background: ${statusStyle.bg}; color: ${statusStyle.color}; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
-                                            ${statusStyle.icon} ${status.toUpperCase()}
-                                        </span>
-                                        <span style="padding: 4px 10px; background: ${priorityColor}; color: ${priorityTextColor}; border-radius: 12px; font-size: 11px; font-weight: 600;">
-                                            ${tc.priority.toUpperCase()}
-                                        </span>
+                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                                        <div style="flex: 1;">
+                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+                                                <span style="font-weight: 600; color: var(--text-primary); font-size: 15px;">${tc.test_name}</span>
+                                                <span style="padding: 4px 10px; background: ${statusStyle.bg}; color: ${statusStyle.color}; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                                    ${statusStyle.icon} ${status.toUpperCase()}
+                                                </span>
+                                                <span style="padding: 4px 10px; background: ${priorityColor}; color: ${priorityTextColor}; border-radius: 12px; font-size: 11px; font-weight: 600;">
+                                                    ${tc.priority.toUpperCase()}
+                                                </span>
+                                            </div>
+                                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                                                <strong>Feature:</strong> ${feature.feature_name} | <strong>Type:</strong> ${tc.test_type.replace(/_/g, ' ')} | <strong>ID:</strong> ${tc.test_id || 'N/A'}
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-                                        <strong>Feature:</strong> ${feature.feature_name} | <strong>Type:</strong> ${tc.test_type.replace(/_/g, ' ')}
+                                    <div style="font-size: 13px; color: var(--text-secondary);">
+                                        <strong style="color: var(--text-primary);">Steps:</strong>
+                                        <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.6;">
+                                            ${tc.steps.map(step => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
+                                        </ol>
                                     </div>
                                 </div>
-                            </div>
-                            <div style="font-size: 13px; color: var(--text-secondary);">
-                                <strong style="color: var(--text-primary);">Steps:</strong>
-                                <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.6;">
-                                    ${tc.steps.map(step => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
-                                </ol>
                             </div>
                         </div>
                     `;
@@ -2176,6 +2352,131 @@
             });
             
             testCasesList.innerHTML = html || '<div style="text-align: center; padding: 40px; color: var(--text-secondary);"><p>No test cases available yet.</p></div>';
+            
+            // Show action buttons if test cases exist
+            if (totalTestCases > 0) {
+                document.getElementById('select_all_btn').style.display = 'inline-flex';
+                document.getElementById('deselect_all_btn').style.display = 'inline-flex';
+                document.getElementById('execute_tests_btn').style.display = 'inline-flex';
+                updateExecuteButtonState();
+            }
+        }
+
+        function toggleTestCase(testCaseId) {
+            const checkbox = document.getElementById(`tc_${testCaseId}`);
+            if (checkbox.checked) {
+                selectedTestCases.add(testCaseId);
+            } else {
+                selectedTestCases.delete(testCaseId);
+            }
+            updateExecuteButtonState();
+            // Update visual selection
+            const card = checkbox.closest('div[style*="background: white"]');
+            if (card) {
+                if (checkbox.checked) {
+                    card.style.borderColor = 'var(--primary)';
+                    card.style.borderWidth = '2px';
+                } else {
+                    card.style.borderColor = 'var(--border)';
+                    card.style.borderWidth = '1px';
+                }
+            }
+        }
+
+        function selectAllTestCases() {
+            document.querySelectorAll('input[type="checkbox"][test-case-id]').forEach(cb => {
+                cb.checked = true;
+                const testCaseId = cb.getAttribute('test-case-id');
+                selectedTestCases.add(testCaseId);
+                toggleTestCase(testCaseId);
+            });
+        }
+
+        function deselectAllTestCases() {
+            document.querySelectorAll('input[type="checkbox"][test-case-id]').forEach(cb => {
+                cb.checked = false;
+                const testCaseId = cb.getAttribute('test-case-id');
+                selectedTestCases.delete(testCaseId);
+                toggleTestCase(testCaseId);
+            });
+        }
+
+        function updateExecuteButtonState() {
+            const btn = document.getElementById('execute_tests_btn');
+            if (btn) {
+                const count = selectedTestCases.size;
+                if (count > 0) {
+                    btn.textContent = `▶️ Run ${count} Selected Test${count > 1 ? 's' : ''}`;
+                    btn.disabled = false;
+                } else {
+                    btn.textContent = '▶️ Run Selected Tests';
+                    btn.disabled = true;
+                }
+            }
+        }
+
+        async function executeSelectedTests() {
+            if (selectedTestCases.size === 0 || !currentRunId) {
+                showMessage('Please select at least one test case to run', 'error');
+                return;
+            }
+
+            try {
+                showMessage(`Executing ${selectedTestCases.size} test case(s)...`, 'success');
+                document.getElementById('execute_tests_btn').disabled = true;
+
+                // Get selected test case details
+                const testCasesToRun = [];
+                selectedTestCases.forEach(testCaseId => {
+                    // Extract test case info from the UI
+                    const checkbox = document.getElementById(`tc_${testCaseId}`);
+                    if (checkbox) {
+                        const card = checkbox.closest('div[style*="background: white"]');
+                        if (card) {
+                            const testName = card.querySelector('span[style*="font-weight: 600"]')?.textContent;
+                            const testType = card.textContent.match(/Type:\s*([^|]+)/)?.[1]?.trim();
+                            if (testName) {
+                                testCasesToRun.push({
+                                    test_id: testCaseId,
+                                    test_name: testName,
+                                    test_type: testType || 'unknown'
+                                });
+                            }
+                        }
+                    }
+                });
+
+                // Execute via free text command
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/answer`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question_id: 'free_text',
+                        answer: `Execute the following test cases: ${testCasesToRun.map(tc => tc.test_name).join(', ')}`
+                    })
+                });
+
+                if (!response.ok) throw new Error(await response.text());
+
+                showMessage(`Test execution started for ${testCasesToRun.length} test case(s)`, 'success');
+                showCompletionNotification(`Running ${testCasesToRun.length} selected test case(s)...`, 'success');
+                
+                // Resume polling to see execution progress
+                startPolling();
+                startEventsPolling();
+
+            } catch (error) {
+                showMessage(`Failed to execute tests: ${error.message}`, 'error');
+                document.getElementById('execute_tests_btn').disabled = false;
+            }
+        }
+
+        function viewReport() {
+            if (!currentRunId) {
+                showMessage('No run ID available', 'error');
+                return;
+            }
+            window.open(`${API_BASE}/runs/${currentRunId}/report`, '_blank');
         }
 
         // Health Check Dashboard Functions
@@ -2447,23 +2748,62 @@
             const iframe = document.getElementById('app_iframe');
             const iframeBlocked = document.getElementById('iframe_blocked');
             const urlToLoad = currentUrl || baseUrl;
+            
+            if (!urlToLoad || urlToLoad === 'about:blank') {
+                // Show placeholder if no URL
+                iframeBlocked.classList.remove('hidden');
+                iframe.classList.add('hidden');
+                iframeBlocked.innerHTML = `
+                    <div style="text-align: center;">
+                        <div style="font-size: 48px; margin-bottom: 16px;">🌐</div>
+                        <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 16px;">Application will appear here</p>
+                        <p style="color: var(--text-secondary); font-size: 14px; max-width: 400px; margin: 0 auto;">
+                            Enter a base URL and start discovery to view your application.
+                        </p>
+                    </div>
+                `;
+                return;
+            }
+            
             currentAppUrl = urlToLoad;
             iframeBlocked.classList.add('hidden');
+            iframe.classList.remove('hidden');
             iframe.src = urlToLoad;
+            
+            // Show loading indicator
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = 'iframe_loading';
+            loadingDiv.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; z-index: 10;';
+            loadingDiv.innerHTML = '<div class="loading" style="width: 32px; height: 32px; margin: 0 auto 12px;"></div><p style="color: var(--text-secondary);">Loading application...</p>';
+            iframe.parentElement.style.position = 'relative';
+            iframe.parentElement.appendChild(loadingDiv);
+            
             setTimeout(() => {
                 try {
                     iframe.contentDocument;
+                    // Iframe loaded successfully
+                    const loading = document.getElementById('iframe_loading');
+                    if (loading) loading.remove();
                 } catch (e) {
+                    // X-Frame-Options blocked
+                    const loading = document.getElementById('iframe_loading');
+                    if (loading) loading.remove();
                     iframeBlocked.classList.remove('hidden');
                     iframe.classList.add('hidden');
                 }
-            }, 1500);
+            }, 2000);
         }
 
         function checkReportAvailable() {
             if (!currentRunId) return;
             fetch(`${API_BASE}/runs/${currentRunId}/report`)
-                .then(r => r.ok && document.getElementById('report_card').classList.remove('hidden'))
+                .then(r => {
+                    if (r.ok) {
+                        document.getElementById('report_card').classList.remove('hidden');
+                        const viewReportBtn = document.getElementById('view_report_btn');
+                        if (viewReportBtn) viewReportBtn.style.display = 'inline-flex';
+                    }
+                })
                 .catch(() => {});
         }
 
