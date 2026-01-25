@@ -358,16 +358,29 @@ class TestCaseGenerator:
 
         # Load existing test cases if file exists
         all_test_cases = []
+        existing_ids = set()
         if test_cases_file.exists():
             try:
                 with open(test_cases_file, "r") as f:
                     existing_data = json.load(f)
                     all_test_cases = existing_data.get("all_test_cases", [])
+                    # Track existing test case IDs to prevent duplicates
+                    existing_ids = {tc.get("id") for tc in all_test_cases if tc.get("id")}
             except Exception as e:
                 logger.warning(f"[{run_id}] Failed to load existing test cases: {e}")
 
-        # Add new test cases
-        all_test_cases.extend(new_test_cases)
+        # Add only new test cases (skip duplicates)
+        added_count = 0
+        for tc in new_test_cases:
+            tc_id = tc.get("id")
+            if tc_id not in existing_ids:
+                all_test_cases.append(tc)
+                existing_ids.add(tc_id)
+                added_count += 1
+            else:
+                logger.debug(f"[{run_id}] Skipping duplicate test case: {tc_id}")
+
+        logger.info(f"[{run_id}] Added {added_count} new test cases (skipped {len(new_test_cases) - added_count} duplicates)")
 
         # Save updated list
         self.save_test_cases(run_id, artifacts_path, all_test_cases)
