@@ -1798,6 +1798,11 @@
         }
 
         function startPolling() {
+            // Don't start polling if no run ID exists
+            if (!currentRunId) {
+                console.log('⚠️ No run ID, skipping polling start');
+                return;
+            }
             if (pollingInterval) clearInterval(pollingInterval);
             pollingInterval = setInterval(async () => {
                 if (!currentRunId) return;
@@ -1875,6 +1880,11 @@
         }
 
         function startEventsPolling() {
+            // Don't start polling if no run ID exists
+            if (!currentRunId) {
+                console.log('⚠️ No run ID, skipping events polling start');
+                return;
+            }
             if (eventsPollingInterval) clearInterval(eventsPollingInterval);
             console.log('🔄 Starting events polling for run:', currentRunId);
             eventsPollingInterval = setInterval(async () => {
@@ -1924,6 +1934,11 @@
         }
 
         function startTestCasesPolling() {
+            // Don't start polling if no run ID exists
+            if (!currentRunId) {
+                console.log('⚠️ No run ID, skipping test cases polling start');
+                return;
+            }
             // Poll for test cases during discovery (not just at end)
             if (testCasesPollingInterval) clearInterval(testCasesPollingInterval);
             testCasesPollingInterval = setInterval(async () => {
@@ -3579,20 +3594,20 @@
                         // Update UI with current status
                         updateStatus(data);
 
-                        // If run is active, start polling
+                        // Only start polling if discovery is still in progress (not DONE or FAILED)
                         if (data.state !== 'DONE' && data.state !== 'FAILED') {
-                            console.log('🔄 Resuming polling for active run...');
+                            console.log('🔄 Discovery in progress, resuming polling...');
                             startPolling();
                             startEventsPolling();
                             startTestCasesPolling();
 
-                            // Show status card
+                            // Show status card and stop button
                             document.getElementById('status_card').classList.remove('hidden');
                             document.getElementById('free_text_card').classList.remove('hidden');
                             document.getElementById('stop_btn').classList.remove('hidden');
                         } else {
-                            // Run is complete, just fetch the final data
-                            console.log('✅ Run is complete, fetching final data...');
+                            // Discovery is complete, just fetch final data (no polling needed)
+                            console.log('✅ Discovery complete, fetching final data (no polling)...');
                             fetchAndDisplayFeatures();
                             fetchTestCases();
                             checkReportAvailable();
