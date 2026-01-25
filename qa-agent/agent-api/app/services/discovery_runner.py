@@ -10,6 +10,7 @@ from datetime import datetime
 from urllib.parse import urlparse, urljoin
 
 from app.models.run_state import RunState
+from app.services.live_validator import LiveValidator
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ class DiscoveryRunner:
     def __init__(self, config: Optional[DiscoveryConfig] = None):
         """Initialize discovery runner."""
         self.config = config or DiscoveryConfig()
+        self.live_validator = LiveValidator()  # Initialize live validator for real-time feature testing
         self.event_writers: Dict[str, Any] = {}  # run_id -> file handle
         self.trace_writers: Dict[str, Any] = {}  # run_id -> file handle
         self.trace_step_no: Dict[str, int] = {}  # run_id -> step counter
@@ -129,6 +131,37 @@ class DiscoveryRunner:
             writer.flush()
         except Exception as e:
             logger.warning(f"[{run_id}] Failed to emit event: {e}")
+
+    async def _save_validation_report(
+        self,
+        run_id: str,
+        artifacts_path: Path,
+        validation_stats: Dict[str, Any],
+        visited_pages: List[Dict[str, Any]]
+    ):
+        """Save comprehensive validation report."""
+        report_file = artifacts_path / "validation_report.json"
+
+        report = {
+            "run_id": run_id,
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "statistics": validation_stats,
+            "pages_validated": [
+                {
+                    "page_url": page.get("url"),
+                    "page_name": page.get("page_signature", {}).get("page_name"),
+                    "page_title": page.get("title"),
+                    "validation_results": page.get("validation_results", {})
+                }
+                for page in visited_pages
+                if "validation_results" in page and "error" not in page.get("validation_results", {})
+            ]
+        }
+
+        with open(report_file, "w") as f:
+            json.dump(report, f, indent=2)
+
+        logger.info(f"[{run_id}] 💾 Saved validation report: {report_file}")
 
     def _get_trace_writer(self, run_id: str, artifacts_path: str):
         """Get or create discovery trace writer for a run."""
@@ -1098,6 +1131,27 @@ class DiscoveryRunner:
                 page_info = await self._analyze_page_enhanced(
                     page, base_url, "Home", run_id, discovery_dir, len(visited_pages), artifacts_path
                 )
+
+                # 🧪 LIVE VALIDATION - Test features immediately during discovery
+                try:
+                    validation_results = await self.live_validator.validate_page_live(
+                        page=page,
+                        page_info=page_info,
+                        run_id=run_id,
+                        artifacts_path=artifacts_path
+                    )
+                    page_info["validation_results"] = validation_results
+
+                    logger.info(
+                        f"[{run_id}] ✅ Live validation complete | "
+                        f"Passed: {validation_results['passed_count']}, "
+                        f"Failed: {validation_results['failed_count']}, "
+                        f"Skipped: {validation_results['skipped_count']}"
+                    )
+                except Exception as e:
+                    logger.error(f"[{run_id}] ❌ Live validation error: {e}")
+                    page_info["validation_results"] = {"error": str(e)}
+
                 visited_pages.append(page_info)
                 visited_urls.add(base_url)
                 
@@ -1241,6 +1295,26 @@ class DiscoveryRunner:
                     page_info = await self._analyze_page_enhanced(
                         page, final_url, nav.get("text", "Unknown"), run_id, discovery_dir, len(visited_pages), artifacts_path
                     )
+
+                    # 🧪 LIVE VALIDATION - Test features immediately
+                    try:
+                        validation_results = await self.live_validator.validate_page_live(
+                            page=page,
+                            page_info=page_info,
+                            run_id=run_id,
+                            artifacts_path=artifacts_path
+                        )
+                        page_info["validation_results"] = validation_results
+
+                        logger.info(
+                            f"[{run_id}] ✅ Validation | "
+                            f"Passed: {validation_results['passed_count']}, "
+                            f"Failed: {validation_results['failed_count']}"
+                        )
+                    except Exception as e:
+                        logger.error(f"[{run_id}] ❌ Validation error: {e}")
+                        page_info["validation_results"] = {"error": str(e)}
+
                     visited_pages.append(page_info)
 
                     # Reset counter since we discovered a new page
@@ -1517,9 +1591,25 @@ class DiscoveryRunner:
             
             # Clean up modal forms storage
             self.modal_forms.pop(run_id, None)
-            
+
+            # 💾 Save validation report
+            try:
+                validation_stats = self.live_validator.get_validation_stats()
+                await self._save_validation_report(
+                    run_id, artifacts_path, validation_stats, visited_pages
+                )
+                logger.info(
+                    f"[{run_id}] 📊 Validation Report: "
+                    f"Total: {validation_stats['total_validations']}, "
+                    f"Passed: {validation_stats['passed']}, "
+                    f"Failed: {validation_stats['failed']}, "
+                    f"Pass Rate: {validation_stats['pass_rate']:.1f}%"
+                )
+            except Exception as e:
+                logger.error(f"[{run_id}] Failed to save validation report: {e}")
+
             logger.info(f"[{run_id}] Discovery completed: {len(visited_pages)} pages, {len(forms_found)} forms, {len(api_requests)} APIs")
-            
+
             return result
         
         except Exception as e:

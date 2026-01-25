@@ -945,6 +945,7 @@
             <div class="app-tabs">
                 <button class="app-tab active" onclick="switchAppTab('testcases')">✅ Test Cases</button>
                 <button class="app-tab" onclick="switchAppTab('progress')">📊 Live Progress</button>
+                <button class="app-tab" onclick="switchAppTab('validation')">🧪 Live Validation</button>
                 <button class="app-tab" onclick="switchAppTab('history')">📜 Run History</button>
             </div>
 
@@ -1061,6 +1062,50 @@
                             <p style="font-size: 14px; margin-bottom: 12px;">Progress will appear here in real-time</p>
                             <p style="font-size: 12px; color: var(--primary); font-weight: 500;">
                                 ⚡ Auto-updates every second - no refresh needed!
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Validation View -->
+            <div id="validation-view" class="app-view">
+                <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
+                    <div style="margin-bottom: 24px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h2 style="font-size: 22px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin: 0;">
+                                <span>🧪</span> Live Validation Results
+                                <span style="font-size: 12px; font-weight: 400; color: var(--text-secondary); margin-left: 8px;">(Real-time feature testing)</span>
+                            </h2>
+                        </div>
+                        <!-- Summary Cards -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px;">
+                            <div class="stat-card" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
+                                <div class="stat-value" id="validation_passed" style="color: white;">0</div>
+                                <div class="stat-label" style="color: rgba(255, 255, 255, 0.9);">✅ Passed</div>
+                            </div>
+                            <div class="stat-card" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white;">
+                                <div class="stat-value" id="validation_failed" style="color: white;">0</div>
+                                <div class="stat-label" style="color: rgba(255, 255, 255, 0.9);">❌ Failed</div>
+                            </div>
+                            <div class="stat-card" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white;">
+                                <div class="stat-value" id="validation_skipped" style="color: white;">0</div>
+                                <div class="stat-label" style="color: rgba(255, 255, 255, 0.9);">⏭️ Skipped</div>
+                            </div>
+                            <div class="stat-card" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white;">
+                                <div class="stat-value" id="validation_rate" style="color: white;">0%</div>
+                                <div class="stat-label" style="color: rgba(255, 255, 255, 0.9);">📊 Pass Rate</div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Validation Feed -->
+                    <div id="validation_feed" style="max-height: calc(100vh - 350px); background: white; border-radius: 12px; padding: 16px;">
+                        <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary);">
+                            <div style="font-size: 48px; margin-bottom: 16px;">🧪</div>
+                            <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">Waiting for validation to start...</p>
+                            <p style="font-size: 14px; margin-bottom: 12px;">Live validation results will appear here</p>
+                            <p style="font-size: 12px; color: var(--primary); font-weight: 500;">
+                                ⚡ Validations run as pages are discovered!
                             </p>
                         </div>
                     </div>
@@ -2214,6 +2259,8 @@
                     incrementHealthCounter('pages_validated');
                 } else if (event.type === 'health_check_completed') {
                     showHealthCheckSummary(event.data);
+                } else if (event.type === 'live_validation_completed') {
+                    handleLiveValidationEvent(event.data);
                 } else if (event.type === 'free_text_execution_started') {
                     showFreeTextExecutionStarted(event.data);
                 } else if (event.type === 'free_text_test_started') {
@@ -2735,6 +2782,100 @@
                 return;
             }
             window.open(`${API_BASE}/runs/${currentRunId}/report`, '_blank');
+        }
+
+        // Live Validation Event Handlers
+        function handleLiveValidationEvent(data) {
+            const { page_name, page_url, passed, failed, skipped, validations } = data;
+
+            // Update counters
+            updateValidationCounters(passed || 0, failed || 0, skipped || 0);
+
+            // Add to feed
+            const feedHtml = `
+                <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid ${failed > 0 ? '#ef4444' : '#10b981'};">
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px; font-size: 14px;">${page_name || 'Page'}</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); word-break: break-all;">${page_url}</div>
+                        </div>
+                        <div style="display: flex; gap: 8px; margin-left: 12px;">
+                            <span style="padding: 6px 12px; background: #d1fae5; color: #065f46; border-radius: 12px; font-size: 11px; font-weight: 600;">✅ ${passed}</span>
+                            <span style="padding: 6px 12px; background: #fee2e2; color: #991b1b; border-radius: 12px; font-size: 11px; font-weight: 600;">❌ ${failed}</span>
+                            <span style="padding: 6px 12px; background: #fef3c7; color: #92400e; border-radius: 12px; font-size: 11px; font-weight: 600;">⏭️ ${skipped}</span>
+                        </div>
+                    </div>
+                    <div style="display: grid; gap: 6px;">
+                        ${(validations || []).map(v => `
+                            <div style="display: flex; align-items: center; gap: 8px; padding: 8px; background: ${getValidationBg(v.status)}; border-radius: 6px; font-size: 12px;">
+                                <span style="font-size: 16px;">${getValidationIcon(v.status)}</span>
+                                <span style="flex: 1; font-weight: 500; color: var(--text-primary);">${v.name}</span>
+                                <span style="padding: 4px 8px; background: white; border-radius: 8px; font-size: 10px; font-weight: 600; color: ${getValidationColor(v.status)};">${v.status.toUpperCase()}</span>
+                                ${v.severity ? `<span style="padding: 4px 8px; background: rgba(0,0,0,0.05); border-radius: 8px; font-size: 10px; font-weight: 600; color: var(--text-secondary);">${v.severity.toUpperCase()}</span>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+
+            const feed = document.getElementById('validation_feed');
+            if (feed) {
+                // Clear empty state if present
+                const emptyState = feed.querySelector('div[style*="text-align: center"]');
+                if (emptyState) {
+                    feed.innerHTML = '';
+                }
+                feed.insertAdjacentHTML('afterbegin', feedHtml);
+                feed.scrollTop = 0; // Scroll to show latest
+            }
+        }
+
+        function updateValidationCounters(passed, failed, skipped) {
+            const passedElem = document.getElementById('validation_passed');
+            const failedElem = document.getElementById('validation_failed');
+            const skippedElem = document.getElementById('validation_skipped');
+            const rateElem = document.getElementById('validation_rate');
+
+            if (!passedElem || !failedElem || !skippedElem || !rateElem) return;
+
+            const currentPassed = parseInt(passedElem.textContent) + passed;
+            const currentFailed = parseInt(failedElem.textContent) + failed;
+            const currentSkipped = parseInt(skippedElem.textContent) + skipped;
+            const total = currentPassed + currentFailed;
+            const passRate = total > 0 ? Math.round((currentPassed / total) * 100) : 0;
+
+            passedElem.textContent = currentPassed;
+            failedElem.textContent = currentFailed;
+            skippedElem.textContent = currentSkipped;
+            rateElem.textContent = passRate + '%';
+        }
+
+        function getValidationIcon(status) {
+            switch(status) {
+                case 'passed': return '✅';
+                case 'failed': return '❌';
+                case 'skipped': return '⏭️';
+                case 'running': return '⏳';
+                default: return '⏳';
+            }
+        }
+
+        function getValidationBg(status) {
+            switch(status) {
+                case 'passed': return 'rgba(16, 185, 129, 0.08)';
+                case 'failed': return 'rgba(239, 68, 68, 0.08)';
+                case 'skipped': return 'rgba(245, 158, 11, 0.08)';
+                default: return 'rgba(107, 114, 128, 0.08)';
+            }
+        }
+
+        function getValidationColor(status) {
+            switch(status) {
+                case 'passed': return '#065f46';
+                case 'failed': return '#991b1b';
+                case 'skipped': return '#92400e';
+                default: return '#6b7280';
+            }
         }
 
         function updateDiscoveryStatus(status, data) {
