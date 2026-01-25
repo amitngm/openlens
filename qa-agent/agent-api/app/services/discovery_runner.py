@@ -18,13 +18,13 @@ class DiscoveryConfig:
     """Configuration for discovery behavior."""
     def __init__(
         self,
-        max_pages: int = 500,
-        max_forms_per_page: int = 20,
-        max_table_rows_to_click: int = 10,
+        max_pages: int = 2000,  # Increased from 500 to 2000 for thorough discovery
+        max_forms_per_page: int = 50,  # Increased from 20 to 50
+        max_table_rows_to_click: int = 50,  # Increased from 10 to 50
         max_pagination_pages: Optional[int] = None,  # None = unlimited
         max_contexts_to_explore: Optional[int] = None,  # None = explore ALL
-        max_discovery_time_minutes: int = 30,
-        max_recursion_depth: int = 5,
+        max_discovery_time_minutes: int = 60,  # Increased from 30 to 60 minutes
+        max_recursion_depth: int = 10,  # Increased from 5 to 10
         enable_form_submission: bool = True,
         enable_table_row_clicking: bool = True,
         enable_context_switching: bool = True,
@@ -199,7 +199,39 @@ class DiscoveryRunner:
         writer.write(json.dumps(rec, default=str) + "\n")
         writer.flush()
         return step_no
-    
+
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URL for consistent comparison - improved to handle more cases."""
+        from urllib.parse import urlparse, parse_qs, urlencode
+
+        try:
+            parsed = urlparse(url)
+
+            # Remove fragment
+            normalized = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+            # Normalize trailing slash (keep root /, remove others)
+            if normalized.endswith('/') and len(parsed.path) > 1:
+                normalized = normalized[:-1]
+
+            # Sort query parameters for consistent comparison
+            # Also remove common tracking/analytics params that don't affect page content
+            tracking_params = ['utm_source', 'utm_medium', 'utm_campaign', '_ga', '_gid', 'ref', 'source']
+            if parsed.query:
+                params = parse_qs(parsed.query, keep_blank_values=True)
+                # Remove tracking params
+                for key in tracking_params:
+                    params.pop(key, None)
+                if params:
+                    sorted_query = urlencode(sorted(params.items()), doseq=True)
+                    normalized += f"?{sorted_query}"
+
+            return normalized.lower()
+        except Exception as e:
+            # If normalization fails, return original URL
+            logger.warning(f"URL normalization failed for {url}: {e}")
+            return url.lower()
+
     def _create_fingerprint(self, nav_path: str, url: str, heading: str) -> str:
         """Create a fingerprint for visited pages to avoid loops."""
         # Normalize URL by replacing numeric IDs with placeholder
@@ -209,7 +241,8 @@ class DiscoveryRunner:
         normalized_url = re.sub(r'[?&]id=\d+', '?id={id}', normalized_url)
         normalized_url = re.sub(r'[?&]uuid=[a-f0-9-]+', '?uuid={uuid}', normalized_url)
 
-        combined = f"{nav_path}|{normalized_url}|{heading}"
+        # Exclude nav_path from fingerprint to prevent same page being "discovered" via different paths
+        combined = f"{normalized_url}|{heading}"
         return hashlib.md5(combined.encode()).hexdigest()
 
     async def _dom_sig(self, page) -> str:
@@ -785,7 +818,8 @@ class DiscoveryRunner:
         debug: bool = False,
         image_hints: Optional[List[Dict[str, Any]]] = None,
         document_analysis: Optional[Dict[str, Any]] = None,
-        phase: str = "phase1_get_operations"
+        phase: str = "phase1_get_operations",
+        config_overrides: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Run intelligent discovery guided by uploaded images and documents.
@@ -799,16 +833,27 @@ class DiscoveryRunner:
             image_hints: Analysis from uploaded images (search, filters, pagination, tables)
             document_analysis: Extracted features, workflows, acceptance criteria from PRD
             phase: "phase1_get_operations" or "phase2_full_testing"
+            config_overrides: Optional dict to override discovery config (max_pages, max_forms_per_page, etc.)
 
         Returns:
             Dict with discovery results
         """
         try:
             logger.info(f"[{run_id}] Starting enhanced discovery from: {base_url}")
-            
+
+            # Apply config overrides if provided
+            original_config = {}
+            if config_overrides:
+                logger.info(f"[{run_id}] Applying config overrides: {config_overrides}")
+                for key, value in config_overrides.items():
+                    if hasattr(self.config, key) and value is not None:
+                        original_config[key] = getattr(self.config, key)
+                        setattr(self.config, key, value)
+                        logger.info(f"[{run_id}] Override {key}: {original_config[key]} → {value}")
+
             discovery_dir = Path(artifacts_path)
             discovery_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Initialize events.jsonl
             events_file = discovery_dir / "events.jsonl"
             if events_file.exists():
@@ -823,7 +868,13 @@ class DiscoveryRunner:
 
             self._emit_event(run_id, artifacts_path, "discovery_started", {
                 "base_url": base_url,
-                "run_id": run_id
+                "run_id": run_id,
+                "config": {
+                    "max_pages": self.config.max_pages,
+                    "max_forms_per_page": self.config.max_forms_per_page,
+                    "max_table_rows_to_click": self.config.max_table_rows_to_click,
+                    "max_discovery_time_minutes": self.config.max_discovery_time_minutes
+                }
             })
             
             # Initialize discovery result
@@ -1076,10 +1127,9 @@ class DiscoveryRunner:
                     "resources": []
                 })
                 
-                # Deep discover from home page
-                await self._deep_discover_page_enhanced(
-                    page, base_url, visited_urls, visited_fingerprints, visited_pages, forms_found,
-                    base_domain, run_id, discovery_dir, max_pages, artifacts_path, "", debug
+                # Test all interactions on home page before moving on
+                await self._test_page_interactions_complete(
+                    page, base_url, page_info, run_id, artifacts_path, visited_urls, visited_fingerprints, visited_pages, forms_found, base_domain, discovery_dir, max_pages, "", debug
                 )
             except Exception as e:
                 logger.warning(f"[{run_id}] Failed to visit base URL: {e}")
@@ -1106,14 +1156,33 @@ class DiscoveryRunner:
                     if not url:
                         continue
                     
+                    # Normalize URL for comparison
+                    normalized_url = self._normalize_url(url)
+                    
                     if urlparse(url).netloc != base_domain:
                         continue
                     
-                    if url in visited_urls:
+                    # Check normalized URL to avoid duplicates
+                    if normalized_url in visited_urls:
+                        pages_without_new_discovery += 1
+                        continue
+                    
+                    # Normalize URL before checking and storing
+                    normalized_url = self._normalize_url(url)
+                    if normalized_url in visited_urls:
                         pages_without_new_discovery += 1
                         continue
                     
                     logger.info(f"[{run_id}] Visiting page {len(visited_pages)+1}/{max_pages}: {url}")
+                    
+                    # Emit progress event
+                    self._emit_event(run_id, artifacts_path, "page_visit_started", {
+                        "url": url,
+                        "page_number": len(visited_pages) + 1,
+                        "total_pages_limit": max_pages,
+                        "nav_path": nav.get("nav_path", "")
+                    })
+                    
                     await self._instrumented_action(
                         run_id=run_id,
                         artifacts_path=artifacts_path,
@@ -1128,11 +1197,24 @@ class DiscoveryRunner:
                     )
                     await asyncio.sleep(0.5)
                     
+                    # Get final URL after navigation (handles redirects)
+                    final_url = page.url
+                    normalized_final = self._normalize_url(final_url)
+                    
+                    # Check again after redirect
+                    if normalized_final in visited_urls:
+                        pages_without_new_discovery += 1
+                        logger.info(f"[{run_id}] Page redirected to already visited URL: {final_url}")
+                        continue
+                    
+                    # Mark as visited with normalized URL
+                    visited_urls.add(normalized_url)
+                    visited_urls.add(normalized_final)
+                    
                     page_info = await self._analyze_page_enhanced(
-                        page, url, nav.get("text", "Unknown"), run_id, discovery_dir, len(visited_pages), artifacts_path
+                        page, final_url, nav.get("text", "Unknown"), run_id, discovery_dir, len(visited_pages), artifacts_path
                     )
                     visited_pages.append(page_info)
-                    visited_urls.add(url)
 
                     # Reset counter since we discovered a new page
                     pages_without_new_discovery = 0
@@ -1146,7 +1228,19 @@ class DiscoveryRunner:
                     if page_info.get("forms"):
                         forms_found.extend(page_info["forms"])
 
+                    # CRITICAL: Test ALL page interactions BEFORE moving to next page
+                    # This ensures we fully validate each page (search, filters, sort, pagination) in one go
+                    try:
+                        logger.info(f"[{run_id}] Testing all interactions on page: {final_url}")
+                        await self._test_page_interactions_complete(
+                            page, final_url, page_info, run_id, artifacts_path, visited_urls, visited_fingerprints, visited_pages, forms_found, base_domain, discovery_dir, max_pages, nav_path, debug
+                        )
+                    except Exception as e:
+                        logger.warning(f"[{run_id}] Error testing page interactions: {e}")
+
                     # PHASE 6: Recursive discovery - process forms, tables, and pagination
+                    # Note: This is now done inside _test_page_interactions_complete to ensure we stay on the page
+                    # But keep this as fallback for pages without standard interactions
                     if self.config.enable_form_submission and page_info.get("forms"):
                         try:
                             logger.info(f"[{run_id}] Processing {len(page_info['forms'])} forms on page")
@@ -1155,7 +1249,8 @@ class DiscoveryRunner:
                             )
                             # Add discovered pages from forms to the navigation queue
                             for form_page in form_pages:
-                                if form_page["url"] not in visited_urls:
+                                normalized_form_url = self._normalize_url(form_page.get("url", ""))
+                                if normalized_form_url and normalized_form_url not in visited_urls:
                                     logger.info(f"[{run_id}] Form led to new page: {form_page['url']}")
                         except Exception as e:
                             logger.debug(f"[{run_id}] Error processing forms: {e}")
@@ -1174,7 +1269,8 @@ class DiscoveryRunner:
                                         page, table, run_id, artifacts_path, visited_urls, depth=1
                                     )
                                     for table_page in table_pages:
-                                        if table_page["url"] not in visited_urls:
+                                        normalized_table_url = self._normalize_url(table_page.get("url", ""))
+                                        if normalized_table_url and normalized_table_url not in visited_urls:
                                             logger.info(f"[{run_id}] Table row led to new page: {table_page['url']}")
                                 except Exception as e:
                                     logger.debug(f"[{run_id}] Error processing table {i}: {e}")
@@ -1212,7 +1308,7 @@ class DiscoveryRunner:
                     
                     # Emit richer event so UI can show page details live
                     self._emit_event(run_id, artifacts_path, "page_discovered", {
-                        "url": url,
+                        "url": final_url,
                         "title": page_info.get("title", ""),
                         "page_name": page_name,
                         "nav_path": nav_path,
@@ -1224,11 +1320,11 @@ class DiscoveryRunner:
                         "tables": page_info.get("tables", [])[:3],
                     })
                     
-                    # Deep discover from this page
-                    await self._deep_discover_page_enhanced(
-                        page, url, visited_urls, visited_fingerprints, visited_pages, forms_found,
-                        base_domain, run_id, discovery_dir, max_pages, artifacts_path, nav_path, debug
-                    )
+                    # NOTE: We no longer call _deep_discover_page_enhanced here because:
+                    # 1. _test_page_interactions_complete already tests all interactions
+                    # 2. _deep_discover_page_enhanced would navigate away and might not return
+                    # 3. We want to complete testing on current page before moving to next
+                    # Deep discovery of cards/tabs is now handled within _test_page_interactions_complete
                 except Exception as e:
                     logger.warning(f"[{run_id}] Failed to visit {url}: {e}")
                     continue
@@ -1297,7 +1393,33 @@ class DiscoveryRunner:
                 "api_endpoints_tested": len(sanity_results) if sanity_results else 0,
                 "summary": result["summary"]
             })
-            
+
+            # Phase 1: Execute health checks on all discovered pages
+            logger.info(f"[{run_id}] Starting Phase 1 health checks on {len(visited_pages)} pages...")
+
+            try:
+                from app.services.health_check_executor import HealthCheckExecutor
+
+                health_checker = HealthCheckExecutor(max_concurrent=3)
+                health_report = await health_checker.execute_health_checks(
+                    run_id=run_id,
+                    pages=visited_pages,
+                    browser_context=context,
+                    debug=debug
+                )
+
+                # Save health check report
+                health_report_path = discovery_dir / "health_check_report.json"
+                with open(health_report_path, "w") as f:
+                    f.write(health_report.json(indent=2))
+
+                logger.info(f"[{run_id}] Health checks completed: {health_report.checks_passed} passed, "
+                           f"{health_report.checks_failed} failed, {health_report.checks_skipped} skipped")
+
+            except Exception as health_error:
+                logger.error(f"[{run_id}] Health check execution failed: {health_error}", exc_info=True)
+                # Continue even if health checks fail
+
             # Close event writer
             if run_id in self.event_writers:
                 self.event_writers[run_id].close()
@@ -1356,8 +1478,15 @@ class DiscoveryRunner:
             discovery_file = discovery_dir / "discovery.json"
             with open(discovery_file, "w") as f:
                 json.dump(result, f, indent=2, default=str)
-            
+
             return result
+
+        finally:
+            # Restore original config if overrides were applied
+            if config_overrides and original_config:
+                for key, value in original_config.items():
+                    setattr(self.config, key, value)
+                logger.info(f"[{run_id}] Restored original config")
 
     def _build_priority_test_queue(
         self,
@@ -1801,7 +1930,7 @@ class DiscoveryRunner:
 
             page_number = 1
             total_items_seen = 0
-            max_pages = 10  # Limit to prevent infinite loops
+            max_pages = 100  # Increased from 10 to 100 for thorough pagination testing
 
             while page_number <= max_pages:
                 # Count items on current page
@@ -2326,16 +2455,23 @@ class DiscoveryRunner:
         """Discover sidebar navigation by clicking menu items and collapsible sections to reveal submenus."""
         nav_items = []
         discovered_urls: Set[str] = set()
-        
+        discovered_texts: Set[str] = set()  # Track by text to avoid duplicates
+
+        logger.info(f"[{run_id}] === SIDEBAR NAVIGATION DISCOVERY START ===")
+        logger.info(f"[{run_id}] Testing {len(self.SIDEBAR_SELECTORS)} standard sidebar selectors...")
+
         try:
             # Find sidebar/nav containers
+            sidebar_found = False
             for sidebar_sel in self.SIDEBAR_SELECTORS:
                 try:
                     sidebars = page.locator(sidebar_sel)
                     count = await sidebars.count()
-                    
+                    logger.info(f"[{run_id}] Found {count} sidebar(s) with selector: {sidebar_sel}")
+
                     for sidebar_idx in range(min(count, 3)):  # Max 3 sidebars
                         sidebar = sidebars.nth(sidebar_idx)
+                        sidebar_found = True
                         
                         # First, find and expand all collapsible sections (RESOURCES, ADMIN, etc.)
                         await self._expand_collapsible_sections(
@@ -2415,46 +2551,397 @@ class DiscoveryRunner:
                                             debug,
                                         )
                                         
-                                        # Add main item if it has href
-                                        if href:
-                                            full_url = urljoin(page.url, href)
-                                            parsed = urlparse(full_url)
-                                            
-                                            if (parsed.netloc == base_domain or parsed.netloc == "") and href not in discovered_urls:
-                                                nav_path = text.strip()
+                                        # Add main item if it has href OR is clickable (button/interactive element)
+                                        text_key = text.strip().lower()
+                                        if text_key and text_key not in discovered_texts:
+                                            discovered_texts.add(text_key)
+
+                                            if href:
+                                                full_url = urljoin(page.url, href)
+                                                parsed = urlparse(full_url)
+
+                                                if (parsed.netloc == base_domain or parsed.netloc == "") and href not in discovered_urls:
+                                                    nav_path = text.strip()
+                                                    nav_items.append({
+                                                        "text": text.strip()[:100],
+                                                        "href": href,
+                                                        "full_url": full_url,
+                                                        "nav_path": nav_path,
+                                                        "submenu_items": submenu_items,
+                                                        "is_resource": "RESOURCE" in text.upper() or "RESOURCES" in text.upper() or any(word in text.lower() for word in ["virtual", "machine", "network", "storage", "image", "instance"])
+                                                    })
+                                                    discovered_urls.add(href)
+                                            elif is_button or await item.get_attribute("role") in ["button", "menuitem", "tab"]:
+                                                # Add clickable items without href (buttons, menu items)
                                                 nav_items.append({
                                                     "text": text.strip()[:100],
-                                                    "href": href,
-                                                    "full_url": full_url,
-                                                    "nav_path": nav_path,
+                                                    "href": None,
+                                                    "full_url": page.url,  # Current URL since no href
+                                                    "nav_path": text.strip(),
+                                                    "element": menu_sel,  # Store selector for clicking
                                                     "submenu_items": submenu_items,
-                                                    "is_resource": "RESOURCE" in text.upper() or "RESOURCES" in text.upper()
+                                                    "is_resource": any(word in text.lower() for word in ["virtual", "machine", "network", "storage", "image", "instance", "compute", "volume"])
                                                 })
-                                                discovered_urls.add(href)
-                                        
+
                                         # Add submenu items
                                         for sub_item in submenu_items:
                                             nav_path = f"{text.strip()} > {sub_item['text']}"
-                                            nav_items.append({
-                                                "text": sub_item["text"],
-                                                "href": sub_item["href"],
-                                                "full_url": sub_item["full_url"],
-                                                "nav_path": nav_path,
-                                                "submenu_items": [],
-                                                "is_resource": True
-                                            })
+                                            submenu_text_key = sub_item['text'].lower()
+                                            if submenu_text_key not in discovered_texts:
+                                                discovered_texts.add(submenu_text_key)
+                                                nav_items.append({
+                                                    "text": sub_item["text"],
+                                                    "href": sub_item["href"],
+                                                    "full_url": sub_item["full_url"],
+                                                    "nav_path": nav_path,
+                                                    "submenu_items": [],
+                                                    "is_resource": True
+                                                })
                                     except Exception as e:
                                         logger.debug(f"[{run_id}] Error processing nav item {i}: {e}")
                                         continue
                             except:
                                 continue
-                except:
+                except Exception as e:
+                    logger.debug(f"[{run_id}] Error with sidebar selector {sidebar_sel}: {e}")
                     continue
         except Exception as e:
             logger.warning(f"[{run_id}] Error discovering sidebar navigation: {e}")
-        
+
+        # FALLBACK: If no nav items found from structured sidebar, do aggressive link collection
+        if len(nav_items) == 0:
+            logger.warning(f"[{run_id}] No navigation items found via sidebar selectors. Falling back to aggressive link collection...")
+            try:
+                # STRATEGY 1: Try to find sidebar by visual characteristics (dark background, fixed position, left side)
+                # Look for divs/sections that might be sidebars
+                potential_sidebars = page.locator("div:visible, section:visible, aside:visible")
+                sidebar_count = await potential_sidebars.count()
+                logger.info(f"[{run_id}] Fallback: Scanning {sidebar_count} potential sidebar containers...")
+
+                sidebar_elements_found = []
+                for i in range(min(sidebar_count, 50)):  # Check first 50 containers
+                    try:
+                        container = potential_sidebars.nth(i)
+
+                        # Check if this looks like a sidebar (narrow width, full height, left position)
+                        bounding_box = await container.bounding_box()
+                        if not bounding_box:
+                            continue
+
+                        width = bounding_box['width']
+                        height = bounding_box['height']
+                        x = bounding_box['x']
+
+                        # Get viewport height for relative sizing
+                        viewport = await page.viewport_size()
+                        viewport_height = viewport['height']
+
+                        # Sidebar characteristics: wider range (50-400px), at least half viewport height, on left side (x < 150)
+                        if (50 < width < 400 and
+                            x < 150 and
+                            height > viewport_height * 0.5):
+                            logger.info(f"[{run_id}] Fallback: Found potential sidebar at x={x}, width={width}, height={height}")
+
+                            # Get all clickable elements in this sidebar (including hidden/collapsed items)
+                            sidebar_links = container.locator("a, button, [role='button'], [role='menuitem'], [role='tab'], div[onclick]")
+                            sidebar_link_count = await sidebar_links.count()
+
+                            # Verify it has enough links to be a real navigation sidebar
+                            if sidebar_link_count >= 3:
+                                logger.info(f"[{run_id}] CONFIRMED sidebar: {sidebar_link_count} nav elements")
+                            else:
+                                logger.debug(f"[{run_id}] Skipping container: only {sidebar_link_count} clickable elements (need >= 3)")
+                                continue
+
+                            for j in range(min(sidebar_link_count, 100)):
+                                try:
+                                    link = sidebar_links.nth(j)
+                                    text = await link.inner_text()
+                                    text = text.strip()
+
+                                    if not text or len(text) > 50:  # Skip empty or very long text
+                                        continue
+
+                                    if self._is_destructive(text):
+                                        continue
+
+                                    text_key = text.lower()
+                                    if text_key in discovered_texts:
+                                        continue
+
+                                    discovered_texts.add(text_key)
+
+                                    href = await link.get_attribute("href")
+                                    if href:
+                                        full_url = urljoin(page.url, href)
+                                        parsed = urlparse(full_url)
+
+                                        if parsed.netloc == base_domain or parsed.netloc == "":
+                                            is_resource = any(word in text.lower() for word in ["virtual", "machine", "network", "storage", "image", "instance", "compute", "volume", "server", "database", "container"])
+
+                                            sidebar_elements_found.append({
+                                                "text": text[:100],
+                                                "href": href,
+                                                "full_url": full_url,
+                                                "nav_path": text,
+                                                "submenu_items": [],
+                                                "is_resource": is_resource
+                                            })
+                                            logger.debug(f"[{run_id}] Fallback: Sidebar link '{text}' -> {href}")
+                                    else:
+                                        # Button without href
+                                        tag_name = await link.evaluate("el => el.tagName.toLowerCase()")
+                                        role = await link.get_attribute("role")
+
+                                        if tag_name == "button" or role in ["button", "menuitem", "tab"]:
+                                            is_resource = any(word in text.lower() for word in ["virtual", "machine", "network", "storage", "image", "instance", "compute", "volume"])
+
+                                            sidebar_elements_found.append({
+                                                "text": text[:100],
+                                                "href": None,
+                                                "full_url": page.url,
+                                                "nav_path": text,
+                                                "submenu_items": [],
+                                                "is_resource": is_resource,
+                                                "clickable_element": True
+                                            })
+                                            logger.debug(f"[{run_id}] Fallback: Sidebar button '{text}'")
+
+                                except Exception as e:
+                                    logger.debug(f"[{run_id}] Error collecting sidebar link {j}: {e}")
+                                    continue
+
+                    except Exception as e:
+                        continue
+
+                if len(sidebar_elements_found) > 0:
+                    nav_items.extend(sidebar_elements_found)
+                    logger.info(f"[{run_id}] Strategy A (Visual): {len(sidebar_elements_found)} items found")
+
+                # STRATEGY B: Text-content search if visual detection found nothing/little
+                if len(nav_items) < 5:  # Less than 5 items suggests we missed the real sidebar
+                    logger.warning(f"[{run_id}] Visual detection found only {len(nav_items)} items. Trying text-content search...")
+
+                    text_based_items = await self._find_navigation_by_text_content(
+                        page, run_id, base_domain, discovered_texts
+                    )
+
+                    nav_items.extend(text_based_items)
+                    logger.info(f"[{run_id}] After text search: {len(nav_items)} total items")
+
+                # STRATEGY C: If still nothing, collect ALL clickable links and buttons on the page
+                if len(nav_items) == 0:
+                    logger.warning(f"[{run_id}] Strategies A & B found 0 items. Activating Strategy C (Aggressive)...")
+                    all_links = page.locator("a[href], button:visible, [role='button']:visible, [role='menuitem']:visible")
+                    link_count = await all_links.count()
+                    logger.info(f"[{run_id}] Strategy C: Found {link_count} clickable elements on page")
+
+                    for i in range(min(link_count, 200)):  # Limit to 200 to avoid explosion
+                        try:
+                            link = all_links.nth(i)
+                            text = await link.inner_text()
+                            text = text.strip()
+
+                            if not text or len(text) > 100:
+                                continue
+
+                            if self._is_destructive(text):
+                                continue
+
+                            # Skip common false positives
+                            skip_patterns = [
+                                "search", "logout", "login", "sign in", "sign out",
+                                "help", "support", "documentation", "close", "cancel",
+                                "×", "menu", "toggle", "expand", "collapse",
+                                "more", "less", "show", "hide"
+                            ]
+                            if any(pattern in text.lower() for pattern in skip_patterns):
+                                continue
+
+                            text_key = text.lower()
+                            if text_key in discovered_texts:
+                                continue
+
+                            discovered_texts.add(text_key)
+
+                            href = await link.get_attribute("href")
+                            if href:
+                                full_url = urljoin(page.url, href)
+                                parsed = urlparse(full_url)
+
+                                # Only add same-domain links
+                                if parsed.netloc == base_domain or parsed.netloc == "":
+                                    # Detect if it's a resource based on comprehensive keywords
+                                    navigation_keywords = [
+                                        # Resources
+                                        "virtual", "machine", "instance", "compute", "server",
+                                        "network", "storage", "volume", "image", "snapshot",
+                                        "database", "container", "cluster", "node", "pod",
+                                        # Common navigation
+                                        "dashboard", "overview", "monitor", "admin", "settings",
+                                        "users", "groups", "roles", "permissions", "access",
+                                        # Actions/views
+                                        "list", "view", "manage", "create", "edit"
+                                    ]
+                                    is_resource = any(word in text.lower() for word in navigation_keywords)
+
+                                    nav_items.append({
+                                        "text": text[:100],
+                                        "href": href,
+                                        "full_url": full_url,
+                                        "nav_path": text,
+                                        "submenu_items": [],
+                                        "is_resource": is_resource
+                                    })
+                                    logger.debug(f"[{run_id}] Fallback: Added link '{text}' -> {href}")
+                            else:
+                                # Button without href
+                                tag_name = await link.evaluate("el => el.tagName.toLowerCase()")
+                                role = await link.get_attribute("role")
+
+                                if tag_name == "button" or role in ["button", "menuitem", "tab"]:
+                                    # Use same comprehensive keywords for buttons
+                                    navigation_keywords = [
+                                        "virtual", "machine", "instance", "compute", "server",
+                                        "network", "storage", "volume", "image", "snapshot",
+                                        "database", "container", "cluster", "node", "pod",
+                                        "dashboard", "overview", "monitor", "admin", "settings",
+                                        "users", "groups", "roles", "permissions", "access",
+                                        "list", "view", "manage", "create", "edit"
+                                    ]
+                                    is_resource = any(word in text.lower() for word in navigation_keywords)
+
+                                    nav_items.append({
+                                        "text": text[:100],
+                                        "href": None,
+                                        "full_url": page.url,
+                                        "nav_path": text,
+                                        "submenu_items": [],
+                                        "is_resource": is_resource,
+                                        "clickable_element": True
+                                    })
+                                    logger.debug(f"[{run_id}] Fallback: Added clickable button '{text}'")
+
+                        except Exception as e:
+                            logger.debug(f"[{run_id}] Error collecting fallback link {i}: {e}")
+                            continue
+
+                    logger.info(f"[{run_id}] Strategy C (Aggressive): Collected {len(nav_items)} navigation items")
+
+            except Exception as e:
+                logger.error(f"[{run_id}] Error in fallback link collection: {e}")
+
+        logger.info(f"[{run_id}] === TOTAL NAVIGATION ITEMS: {len(nav_items)} ===")
         return nav_items
-    
+
+    async def _find_navigation_by_text_content(
+        self,
+        page,
+        run_id: str,
+        base_domain: str,
+        discovered_texts: Set[str]
+    ) -> List[Dict[str, Any]]:
+        """
+        Strategy B: Find navigation elements by searching for resource-related text.
+
+        Uses JavaScript to scan entire page for elements containing navigation keywords.
+        """
+        nav_items = []
+
+        # Keywords that suggest navigation/resource items
+        navigation_keywords = [
+            "virtual", "machine", "instance", "compute",
+            "network", "storage", "volume", "image",
+            "database", "container", "server", "cluster",
+            "dashboard", "overview", "monitor", "settings"
+        ]
+
+        logger.info(f"[{run_id}] Strategy B: Searching by text content...")
+
+        # Use JavaScript to find ALL elements containing these keywords
+        js_code = """
+        (keywords) => {
+            const results = [];
+
+            // Get all clickable elements
+            const elements = document.querySelectorAll('a, button, [role="button"], [role="menuitem"], [role="tab"], div[onclick]');
+
+            for (const el of elements) {
+                const text = el.innerText || el.textContent || '';
+                const textLower = text.toLowerCase().trim();
+
+                // Check if element text contains any navigation keyword
+                for (const keyword of keywords) {
+                    if (textLower.includes(keyword) && textLower.length < 100) {
+                        results.push({
+                            text: text.trim(),
+                            href: el.href || null,
+                            tagName: el.tagName.toLowerCase(),
+                            role: el.getAttribute('role'),
+                            visible: el.offsetParent !== null
+                        });
+                        break;  // Don't add same element multiple times
+                    }
+                }
+            }
+
+            return results;
+        }
+        """
+
+        try:
+            # Execute JavaScript to find elements
+            found_elements = await page.evaluate(js_code, navigation_keywords)
+
+            logger.info(f"[{run_id}] Strategy B: Found {len(found_elements)} elements with navigation keywords")
+
+            for elem_data in found_elements:
+                text = elem_data['text']
+                text_key = text.lower()
+
+                # Skip duplicates
+                if text_key in discovered_texts:
+                    continue
+
+                discovered_texts.add(text_key)
+
+                href = elem_data.get('href')
+                if href:
+                    # It's a link
+                    full_url = urljoin(page.url, href)
+                    parsed = urlparse(full_url)
+
+                    if parsed.netloc == base_domain or parsed.netloc == "":
+                        nav_items.append({
+                            "text": text[:100],
+                            "href": href,
+                            "full_url": full_url,
+                            "nav_path": text,
+                            "submenu_items": [],
+                            "is_resource": True,  # Found via resource keywords
+                            "source": "text_content_search"
+                        })
+                        logger.debug(f"[{run_id}] Strategy B: Added '{text}' -> {href}")
+                else:
+                    # It's a button/clickable element
+                    nav_items.append({
+                        "text": text[:100],
+                        "href": None,
+                        "full_url": page.url,
+                        "nav_path": text,
+                        "submenu_items": [],
+                        "is_resource": True,
+                        "clickable_element": True,
+                        "source": "text_content_search"
+                    })
+                    logger.debug(f"[{run_id}] Strategy B: Added button '{text}'")
+
+        except Exception as e:
+            logger.error(f"[{run_id}] Strategy B failed: {e}")
+
+        logger.info(f"[{run_id}] Strategy B: Collected {len(nav_items)} navigation items")
+        return nav_items
+
     async def _expand_collapsible_sections(self, sidebar, page, run_id: str, artifacts_path: str, discovery_dir: Path, debug: bool):
         """Find and expand all collapsible sections (RESOURCES, ADMIN, etc.) in sidebar."""
         try:
@@ -2677,31 +3164,49 @@ class DiscoveryRunner:
                                 if href:
                                     full_url = urljoin(page.url, href)
                                     parsed = urlparse(full_url)
-                                    if (parsed.netloc == base_domain or parsed.netloc == "") and full_url not in visited_urls:
-                                        await link.click(timeout=5000)
-                                        await asyncio.sleep(2)
-                                        await page.wait_for_load_state("networkidle", timeout=10000)
-                                        
-                                        new_url = page.url
-                                        if new_url not in visited_urls:
+
+                                    # Normalize URL before checking
+                                    normalized_url = self._normalize_url(full_url)
+
+                                    if (parsed.netloc == base_domain or parsed.netloc == "") and normalized_url not in visited_urls:
+                                        # Mark as visited BEFORE clicking (optimistic locking)
+                                        visited_urls.add(normalized_url)
+
+                                        try:
+                                            await link.click(timeout=5000)
+                                            await asyncio.sleep(2)
+                                            await page.wait_for_load_state("networkidle", timeout=10000)
+
+                                            new_url = page.url
+                                            normalized_new = self._normalize_url(new_url)
+
+                                            # Mark final URL too (handles redirects)
+                                            visited_urls.add(normalized_new)
+
+                                            # Only analyze if fingerprint is new
                                             page_info = await self._analyze_page_enhanced(
                                                 page, new_url, f"Card {i+1}", run_id, discovery_dir, len(visited_pages), artifacts_path
                                             )
                                             heading = page_info.get("page_signature", {}).get("heading", "")
                                             fingerprint = self._create_fingerprint(nav_path, new_url, heading)
-                                            
+
                                             if fingerprint not in visited_fingerprints:
                                                 visited_pages.append(page_info)
-                                                visited_urls.add(new_url)
                                                 visited_fingerprints.add(fingerprint)
-                                                
-                                                if page_info.get("forms"):
-                                                    forms_found.extend(page_info["forms"])
-                                                
-                                                await self._deep_discover_page_enhanced(
-                                                    page, new_url, visited_urls, visited_fingerprints, visited_pages, forms_found,
-                                                    base_domain, run_id, discovery_dir, max_pages, artifacts_path, nav_path, debug
-                                                )
+                                            
+                                            # Check for forms and do deep discovery
+                                            if page_info.get("forms"):
+                                                forms_found.extend(page_info["forms"])
+                                            
+                                            await self._deep_discover_page_enhanced(
+                                                page, new_url, visited_urls, visited_fingerprints, visited_pages, forms_found,
+                                                base_domain, run_id, discovery_dir, max_pages, artifacts_path, nav_path, debug
+                                            )
+                                        except Exception as e:
+                                            # Rollback on error
+                                            visited_urls.discard(normalized_url)
+                                            logger.warning(f"[{run_id}] Failed to visit card {i+1}: {e}")
+                                            continue
                                         
                                         await page.go_back(timeout=10000)
                                         await asyncio.sleep(1)
@@ -2721,20 +3226,25 @@ class DiscoveryRunner:
                     for i in range(min(count, 5)):
                         try:
                             tab = tabs.nth(i)
+                            current_url_before_click = page.url
                             await tab.click(timeout=2000)
                             await asyncio.sleep(1)
-                            
+
                             new_url = page.url
-                            if new_url not in visited_urls and (urlparse(new_url).netloc == base_domain or urlparse(new_url).netloc == ""):
+                            normalized_new = self._normalize_url(new_url)
+
+                            if normalized_new not in visited_urls and (urlparse(new_url).netloc == base_domain or urlparse(new_url).netloc == ""):
+                                # Mark as visited
+                                visited_urls.add(normalized_new)
+
                                 page_info = await self._analyze_page_enhanced(
                                     page, new_url, f"Tab {i+1}", run_id, discovery_dir, len(visited_pages), artifacts_path
                                 )
                                 heading = page_info.get("page_signature", {}).get("heading", "")
                                 fingerprint = self._create_fingerprint(nav_path, new_url, heading)
-                                
+
                                 if fingerprint not in visited_fingerprints:
                                     visited_pages.append(page_info)
-                                    visited_urls.add(new_url)
                                     visited_fingerprints.add(fingerprint)
                                     
                                     if page_info.get("forms"):
@@ -2909,16 +3419,20 @@ class DiscoveryRunner:
                                     if url_changed or heading_changed:
                                         # Check if this is a new page
                                         parsed = urlparse(after_url)
-                                        if (parsed.netloc == base_domain or parsed.netloc == "") and after_url not in visited_urls:
+                                        normalized_after = self._normalize_url(after_url)
+
+                                        if (parsed.netloc == base_domain or parsed.netloc == "") and normalized_after not in visited_urls:
+                                            # Mark as visited
+                                            visited_urls.add(normalized_after)
+
                                             page_info = await self._analyze_page_enhanced(
                                                 page, after_url, text or f"{tag_name} {i+1}", run_id, discovery_dir, len(visited_pages), artifacts_path
                                             )
                                             heading = page_info.get("page_signature", {}).get("heading", "")
                                             fingerprint = self._create_fingerprint(nav_path, after_url, heading)
-                                            
+
                                             if fingerprint not in visited_fingerprints:
                                                 visited_pages.append(page_info)
-                                                visited_urls.add(after_url)
                                                 visited_fingerprints.add(fingerprint)
                                                 
                                                 if page_info.get("forms"):
@@ -4111,6 +4625,324 @@ class DiscoveryRunner:
             logger.info(f"[{run_id}] Paginated through {pagination_count} pages")
 
         return discovered_pages
+
+    async def _test_page_interactions_complete(
+        self,
+        page,
+        page_url: str,
+        page_info: Dict[str, Any],
+        run_id: str,
+        artifacts_path: str,
+        visited_urls: Set[str],
+        visited_fingerprints: Set[str],
+        visited_pages: List[Dict],
+        forms_found: List[Dict],
+        base_domain: str,
+        discovery_dir: Path,
+        max_pages: int,
+        nav_path: str,
+        debug: bool = False
+    ):
+        """
+        Test ALL interactions on a page in one go before moving to next page.
+        This ensures complete validation: search, filters, sort, pagination, table rows.
+        Generic - works with any URL/app structure.
+        """
+        original_url = page.url
+        normalized_original = self._normalize_url(original_url)
+        
+        try:
+            # Emit progress event
+            self._emit_event(run_id, artifacts_path, "page_testing_started", {
+                "url": page_url,
+                "page_name": page_info.get("page_signature", {}).get("page_name", ""),
+                "actions_to_test": ["search", "filters", "sort", "pagination", "table_rows"]
+            })
+            
+            # 1. Test Search (if present)
+            try:
+                search_selectors = [
+                    "input[type='search']",
+                    "input[placeholder*='search' i]",
+                    "input[placeholder*='find' i]",
+                    "input[aria-label*='search' i]",
+                    ".search-input",
+                    "[role='searchbox']"
+                ]
+                
+                for selector in search_selectors:
+                    try:
+                        search_input = page.locator(selector).first
+                        if await search_input.is_visible(timeout=1000):
+                            self._emit_event(run_id, artifacts_path, "page_action_testing", {
+                                "url": page_url,
+                                "action": "search",
+                                "status": "testing"
+                            })
+                            
+                            # Type test query
+                            await search_input.fill("test", timeout=2000)
+                            await asyncio.sleep(1)
+                            await page.wait_for_load_state("networkidle", timeout=5000)
+                            
+                            # Clear search
+                            await search_input.fill("", timeout=2000)
+                            await asyncio.sleep(1)
+                            await page.wait_for_load_state("networkidle", timeout=5000)
+                            
+                            # Ensure we're still on the same page
+                            current_url = self._normalize_url(page.url)
+                            if current_url != normalized_original:
+                                await page.goto(page_url, timeout=30000, wait_until="networkidle")
+                                await asyncio.sleep(1)
+                            
+                            self._emit_event(run_id, artifacts_path, "page_action_testing", {
+                                "url": page_url,
+                                "action": "search",
+                                "status": "completed"
+                            })
+                            break
+                    except:
+                        continue
+            except Exception as e:
+                logger.debug(f"[{run_id}] Search testing error: {e}")
+            
+            # 2. Test Filters (if present)
+            try:
+                filter_selectors = [
+                    "select[aria-label*='filter' i]",
+                    "button[aria-label*='filter' i]",
+                    ".filter-select",
+                    "[role='combobox'][aria-label*='filter' i]"
+                ]
+                
+                for selector in filter_selectors:
+                    try:
+                        filter_elem = page.locator(selector).first
+                        if await filter_elem.is_visible(timeout=1000):
+                            self._emit_event(run_id, artifacts_path, "page_action_testing", {
+                                "url": page_url,
+                                "action": "filters",
+                                "status": "testing"
+                            })
+                            
+                            # Try to interact with filter
+                            if await filter_elem.evaluate("el => el.tagName.toLowerCase()") == "select":
+                                options = await filter_elem.locator("option").count()
+                                if options > 1:
+                                    await filter_elem.select_option(index=1, timeout=2000)
+                                    await asyncio.sleep(1)
+                                    await page.wait_for_load_state("networkidle", timeout=5000)
+                                    
+                                    # Reset filter
+                                    await filter_elem.select_option(index=0, timeout=2000)
+                                    await asyncio.sleep(1)
+                                    await page.wait_for_load_state("networkidle", timeout=5000)
+                            else:
+                                await filter_elem.click(timeout=2000)
+                                await asyncio.sleep(1)
+                                # Try to select first option if dropdown opens
+                                first_option = page.locator("[role='option']").first
+                                if await first_option.is_visible(timeout=1000):
+                                    await first_option.click(timeout=2000)
+                                    await asyncio.sleep(1)
+                            
+                            # Ensure we're still on the same page
+                            current_url = self._normalize_url(page.url)
+                            if current_url != normalized_original:
+                                await page.goto(page_url, timeout=30000, wait_until="networkidle")
+                                await asyncio.sleep(1)
+                            
+                            self._emit_event(run_id, artifacts_path, "page_action_testing", {
+                                "url": page_url,
+                                "action": "filters",
+                                "status": "completed"
+                            })
+                            break
+                    except:
+                        continue
+            except Exception as e:
+                logger.debug(f"[{run_id}] Filter testing error: {e}")
+            
+            # 3. Test Sort (if present)
+            try:
+                sort_selectors = [
+                    "button[aria-label*='sort' i]",
+                    "th[aria-sort]",
+                    ".sort-button",
+                    "[role='columnheader'][aria-sort]"
+                ]
+                
+                for selector in sort_selectors:
+                    try:
+                        sort_elem = page.locator(selector).first
+                        if await sort_elem.is_visible(timeout=1000):
+                            self._emit_event(run_id, artifacts_path, "page_action_testing", {
+                                "url": page_url,
+                                "action": "sort",
+                                "status": "testing"
+                            })
+                            
+                            await sort_elem.click(timeout=2000)
+                            await asyncio.sleep(1)
+                            await page.wait_for_load_state("networkidle", timeout=5000)
+                            
+                            # Click again to reverse sort
+                            await sort_elem.click(timeout=2000)
+                            await asyncio.sleep(1)
+                            await page.wait_for_load_state("networkidle", timeout=5000)
+                            
+                            # Ensure we're still on the same page
+                            current_url = self._normalize_url(page.url)
+                            if current_url != normalized_original:
+                                await page.goto(page_url, timeout=30000, wait_until="networkidle")
+                                await asyncio.sleep(1)
+                            
+                            self._emit_event(run_id, artifacts_path, "page_action_testing", {
+                                "url": page_url,
+                                "action": "sort",
+                                "status": "completed"
+                            })
+                            break
+                    except:
+                        continue
+            except Exception as e:
+                logger.debug(f"[{run_id}] Sort testing error: {e}")
+            
+            # 4. Test Pagination (if present) - but limit to 2-3 pages to avoid long waits
+            try:
+                pagination_next = page.locator("button:has-text('Next'), a:has-text('Next'), button[aria-label*='Next' i]").first
+                if await pagination_next.is_visible(timeout=1000):
+                    self._emit_event(run_id, artifacts_path, "page_action_testing", {
+                        "url": page_url,
+                        "action": "pagination",
+                        "status": "testing"
+                    })
+                    
+                    # Click next (max 2 times to avoid long waits)
+                    for i in range(2):
+                        try:
+                            is_disabled = await pagination_next.is_disabled(timeout=500)
+                            if is_disabled:
+                                break
+                            
+                            await pagination_next.click(timeout=2000)
+                            await asyncio.sleep(1)
+                            await page.wait_for_load_state("networkidle", timeout=5000)
+                        except:
+                            break
+                    
+                    # Go back to first page
+                    pagination_prev = page.locator("button:has-text('Previous'), a:has-text('Previous'), button[aria-label*='Previous' i]").first
+                    if await pagination_prev.is_visible(timeout=1000):
+                        for i in range(2):
+                            try:
+                                is_disabled = await pagination_prev.is_disabled(timeout=500)
+                                if is_disabled:
+                                    break
+                                await pagination_prev.click(timeout=2000)
+                                await asyncio.sleep(1)
+                                await page.wait_for_load_state("networkidle", timeout=5000)
+                            except:
+                                break
+                    
+                    # Ensure we're back on original page
+                    current_url = self._normalize_url(page.url)
+                    if current_url != normalized_original:
+                        await page.goto(page_url, timeout=30000, wait_until="networkidle")
+                        await asyncio.sleep(1)
+                    
+                    self._emit_event(run_id, artifacts_path, "page_action_testing", {
+                        "url": page_url,
+                        "action": "pagination",
+                        "status": "completed"
+                    })
+            except Exception as e:
+                logger.debug(f"[{run_id}] Pagination testing error: {e}")
+            
+            # 5. Test Table Row Clicks (if present) - but limit to first 3 rows
+            try:
+                tables = page_info.get("tables", [])
+                if tables:
+                    self._emit_event(run_id, artifacts_path, "page_action_testing", {
+                        "url": page_url,
+                        "action": "table_rows",
+                        "status": "testing"
+                    })
+                    
+                    table_rows = page.locator("table tbody tr").first
+                    if await table_rows.count() > 0:
+                        # Click first 3 rows to discover detail pages
+                        for i in range(min(3, await table_rows.count())):
+                            try:
+                                row = table_rows.nth(i)
+                                row_url_before = self._normalize_url(page.url)
+                                
+                                await row.click(timeout=3000)
+                                await asyncio.sleep(1)
+                                await page.wait_for_load_state("networkidle", timeout=5000)
+                                
+                                row_url_after = self._normalize_url(page.url)
+                                
+                                # If we navigated to a new page, analyze it
+                                if row_url_after != row_url_before and row_url_after != normalized_original:
+                                    if row_url_after not in visited_urls:
+                                        page_info_new = await self._analyze_page_enhanced(
+                                            page, row_url_after, f"Row {i+1} Detail", run_id, discovery_dir, len(visited_pages), artifacts_path
+                                        )
+                                        heading = page_info_new.get("page_signature", {}).get("heading", "")
+                                        fingerprint = self._create_fingerprint(nav_path, row_url_after, heading)
+                                        
+                                        if fingerprint not in visited_fingerprints:
+                                            visited_pages.append(page_info_new)
+                                            visited_fingerprints.add(fingerprint)
+                                            visited_urls.add(row_url_after)
+                                            
+                                            if page_info_new.get("forms"):
+                                                forms_found.extend(page_info_new["forms"])
+                                
+                                # Go back to original page
+                                await page.goto(page_url, timeout=30000, wait_until="networkidle")
+                                await asyncio.sleep(1)
+                            except Exception as e:
+                                logger.debug(f"[{run_id}] Error clicking table row {i}: {e}")
+                                # Try to go back to original page
+                                try:
+                                    await page.goto(page_url, timeout=30000, wait_until="networkidle")
+                                except:
+                                    pass
+                                continue
+                    
+                    self._emit_event(run_id, artifacts_path, "page_action_testing", {
+                        "url": page_url,
+                        "action": "table_rows",
+                        "status": "completed"
+                    })
+            except Exception as e:
+                logger.debug(f"[{run_id}] Table row testing error: {e}")
+            
+            # Ensure we're back on the original page before returning
+            current_url = self._normalize_url(page.url)
+            if current_url != normalized_original:
+                await page.goto(page_url, timeout=30000, wait_until="networkidle")
+                await asyncio.sleep(1)
+            
+            # Emit completion event
+            self._emit_event(run_id, artifacts_path, "page_testing_completed", {
+                "url": page_url,
+                "page_name": page_info.get("page_signature", {}).get("page_name", ""),
+                "status": "completed"
+            })
+            
+        except Exception as e:
+            logger.warning(f"[{run_id}] Error in complete page testing: {e}")
+            # Try to restore original page
+            try:
+                current_url = self._normalize_url(page.url)
+                if current_url != normalized_original:
+                    await page.goto(page_url, timeout=30000, wait_until="networkidle")
+            except:
+                pass
 
     def _create_appmap(self, pages: List[Dict], dropdowns: List[Dict], forms: List[Dict]) -> Dict[str, Any]:
         """Create structured app map from discovery results."""

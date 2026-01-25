@@ -95,6 +95,13 @@ class RunContext(BaseModel):
     uploaded_images: Optional[list] = Field(None, description="Pre-uploaded image analysis results")
     uploaded_documents: Optional[list] = Field(None, description="Pre-uploaded document analysis results")
     test_phase: str = Field(default="phase1_get_operations", description="Test phase: phase1_get_operations or phase2_full_testing")
+
+    # Discovery configuration overrides (optional)
+    max_pages: Optional[int] = Field(None, description="Maximum pages to discover (default: 2000)")
+    max_forms_per_page: Optional[int] = Field(None, description="Maximum forms to process per page (default: 50)")
+    max_table_rows_to_click: Optional[int] = Field(None, description="Maximum table rows to click (default: 50)")
+    max_discovery_time_minutes: Optional[int] = Field(None, description="Maximum discovery time in minutes (default: 60)")
+
     timestamps: Dict[str, str] = Field(default_factory=dict, description="State transition timestamps")
     artifacts_path: str = Field(..., description="Path to artifacts directory")
     free_text_commands: List[str] = Field(default_factory=list, description="Free-text commands from user")

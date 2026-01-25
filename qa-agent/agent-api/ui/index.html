@@ -632,6 +632,51 @@
             background-clip: text;
         }
 
+        .app-tabs {
+            display: flex;
+            gap: 4px;
+            padding: 12px 16px;
+            background: var(--bg-primary);
+            border-bottom: 2px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .app-tab {
+            padding: 8px 16px;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            margin-bottom: -2px;
+            border-radius: 6px 6px 0 0;
+        }
+
+        .app-tab:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .app-tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            background: var(--bg-primary);
+            font-weight: 600;
+        }
+
+        .app-view {
+            display: none;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .app-view.active {
+            display: flex;
+            flex-direction: column;
+        }
+
         .app-iframe-container {
             flex: 1;
             position: relative;
@@ -753,28 +798,189 @@
             font-size: 14px;
             line-height: 1.6;
         }
+
+        /* Health Check Dashboard Styles */
+        .health-check-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .health-check-table th {
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            padding: 14px 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+            color: #374151;
+            border-bottom: 2px solid #d1d5db;
+            white-space: nowrap;
+        }
+
+        .health-check-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 13px;
+        }
+
+        .health-check-table tbody tr {
+            transition: background-color 0.2s ease;
+        }
+
+        .health-check-table tbody tr:hover {
+            background-color: #f9fafb;
+        }
+
+        .health-check-status {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            min-width: 60px;
+        }
+
+        .health-check-status.pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .health-check-status.running {
+            background: #dbeafe;
+            color: #1e40af;
+            animation: pulse-health 2s infinite;
+        }
+
+        .health-check-status.passed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .health-check-status.failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .health-check-status.skipped {
+            background: #f3f4f6;
+            color: #6b7280;
+        }
+
+        @keyframes pulse-health {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .health-page-title {
+            font-weight: 500;
+            color: #111827;
+            max-width: 250px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .health-page-url {
+            font-size: 11px;
+            color: #9ca3af;
+            display: block;
+            margin-top: 2px;
+        }
+
+        .health-duration {
+            font-size: 12px;
+            color: #6b7280;
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
     </style>
 </head>
 <body>
     <div class="main-layout">
         <!-- Left Panel: Application UI -->
         <div class="app-panel">
-            <div class="app-iframe-container">
-                <div class="app-iframe-header">
-                    <h3>📱 Application UI</h3>
-                    <button id="open_app_tab_btn" class="btn-sm hidden" style="background: var(--success);">
-                        Open in New Tab
-                    </button>
+            <!-- App Panel Tabs -->
+            <div class="app-tabs">
+                <button class="app-tab active" onclick="switchAppTab('app')">📱 Application</button>
+                <button class="app-tab" onclick="switchAppTab('testcases')">✅ Test Cases</button>
+                <button class="app-tab" onclick="switchAppTab('progress')">📊 Live Progress</button>
+            </div>
+
+            <!-- Application View -->
+            <div id="app-view" class="app-view active">
+                <div class="app-iframe-container">
+                    <div class="app-iframe-header">
+                        <h3>📱 Application UI</h3>
+                        <button id="open_app_tab_btn" class="btn-sm hidden" style="background: var(--success);">
+                            Open in New Tab
+                        </button>
+                    </div>
+                    <iframe id="app_iframe" class="app-iframe" src="about:blank" title="Application"></iframe>
+                    <div id="iframe_blocked" class="hidden" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; background: var(--bg-tertiary);">
+                        <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 16px;">⚠️ Application cannot be embedded (X-Frame-Options blocked)</p>
+                        <p style="color: var(--text-secondary); font-size: 14px; max-width: 400px; margin-bottom: 20px;">
+                            This is a security feature. QA Buddy uses Playwright in the background to interact with your application.
+                        </p>
+                        <button id="open_app_tab_btn2" onclick="window.open(currentAppUrl || document.getElementById('base_url').value, '_blank')">
+                            Open Application in New Tab
+                        </button>
+                    </div>
                 </div>
-                <iframe id="app_iframe" class="app-iframe" src="about:blank" title="Application"></iframe>
-                <div id="iframe_blocked" class="hidden" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; background: var(--bg-tertiary);">
-                    <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 16px;">⚠️ Application cannot be embedded (X-Frame-Options blocked)</p>
-                    <p style="color: var(--text-secondary); font-size: 14px; max-width: 400px; margin-bottom: 20px;">
-                        This is a security feature. QA Buddy uses Playwright in the background to interact with your application.
-                    </p>
-                    <button id="open_app_tab_btn2" onclick="window.open(currentAppUrl || document.getElementById('base_url').value, '_blank')">
-                        Open Application in New Tab
-                    </button>
+            </div>
+
+            <!-- Test Cases View -->
+            <div id="testcases-view" class="app-view">
+                <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
+                    <div style="margin-bottom: 24px;">
+                        <h2 style="font-size: 22px; font-weight: 700; margin-bottom: 16px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+                            <span>✅</span> Test Cases
+                        </h2>
+                        <div id="testcases_summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 24px;">
+                            <!-- Summary stats will be populated here -->
+                        </div>
+                    </div>
+                    <div id="testcases_list" style="display: flex; flex-direction: column; gap: 12px;">
+                        <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px; border: 2px dashed var(--border);">
+                            <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
+                            <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">No test cases available yet</p>
+                            <p style="font-size: 14px;">Start a discovery run to see test cases with their status</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Progress View -->
+            <div id="progress-view" class="app-view">
+                <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
+                    <div style="margin-bottom: 24px;">
+                        <h2 style="font-size: 22px; font-weight: 700; margin-bottom: 16px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+                            <span>📊</span> Live Discovery Progress
+                        </h2>
+                        <div class="discovery-stats" style="margin-bottom: 24px;">
+                            <div class="stat-card">
+                                <div class="stat-value" id="app_progress_pages">0</div>
+                                <div class="stat-label">Pages</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="app_progress_forms">0</div>
+                                <div class="stat-label">Forms</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="app_progress_actions">0</div>
+                                <div class="stat-label">Actions</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="app_progress_feed" class="discovery-feed" style="max-height: calc(100vh - 280px); background: white; border-radius: 12px; padding: 16px;">
+                        <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary);">
+                            <div style="font-size: 48px; margin-bottom: 16px;">⏳</div>
+                            <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">Waiting for discovery to start...</p>
+                            <p style="font-size: 14px;">Progress will appear here in real-time</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -856,6 +1062,33 @@
                             <label for="password" style="margin-top: 12px;">Password</label>
                             <input type="password" id="password" placeholder="Enter password">
                         </div>
+
+                        <!-- Advanced Discovery Settings -->
+                        <details style="margin-top: 16px; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+                            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary);">⚙️ Advanced Discovery Settings (NEW!)</summary>
+                            <div style="margin-top: 12px; display: grid; gap: 12px;">
+                                <div class="form-group">
+                                    <label for="max_pages">Max Pages to Discover</label>
+                                    <input type="number" id="max_pages" placeholder="2000 (default)" value="2000" min="1" max="10000">
+                                    <small style="color: var(--text-secondary);">Default: 2000 pages (was 500)</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="max_forms_per_page">Max Forms Per Page</label>
+                                    <input type="number" id="max_forms_per_page" placeholder="50 (default)" value="50" min="1" max="200">
+                                    <small style="color: var(--text-secondary);">Default: 50 forms (was 20)</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="max_table_rows">Max Table Rows to Click</label>
+                                    <input type="number" id="max_table_rows" placeholder="50 (default)" value="50" min="1" max="200">
+                                    <small style="color: var(--text-secondary);">Default: 50 rows (was 10)</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="max_discovery_time">Max Discovery Time (minutes)</label>
+                                    <input type="number" id="max_discovery_time" placeholder="60 (default)" value="60" min="1" max="120">
+                                    <small style="color: var(--text-secondary);">Default: 60 minutes (was 30)</small>
+                                </div>
+                            </div>
+                        </details>
 
                         <div style="margin-top: 16px; padding: 12px; background: var(--bg-tertiary); border-radius: 8px; font-size: 13px; color: var(--text-secondary);">
                             💡 <strong>Tip:</strong> Upload screenshots in tab 2️⃣ before starting for better discovery results
@@ -942,6 +1175,54 @@
                         </div>
                         <div id="features_summary" style="margin-bottom: 16px;"></div>
                         <div id="features_list"></div>
+                    </div>
+
+                    <!-- Phase 1: Health Check Dashboard -->
+                    <div class="card hidden" id="health_check_dashboard">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">✅</span> Phase 1: Health Check Validation</h2>
+                        </div>
+
+                        <!-- Summary Cards -->
+                        <div class="discovery-stats" style="margin-bottom: 24px;">
+                            <div class="stat-card">
+                                <div class="stat-value" id="health_pages_validated">0 / 0</div>
+                                <div class="stat-label">Pages Validated</div>
+                            </div>
+                            <div class="stat-card" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.1) 100%);">
+                                <div class="stat-value" style="color: #059669;" id="health_checks_passed">0</div>
+                                <div class="stat-label">Checks Passed</div>
+                            </div>
+                            <div class="stat-card" style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.1) 100%);">
+                                <div class="stat-value" style="color: #dc2626;" id="health_checks_failed">0</div>
+                                <div class="stat-label">Checks Failed</div>
+                            </div>
+                            <div class="stat-card" style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.1) 100%);">
+                                <div class="stat-value" style="color: #2563eb;" id="health_concurrent_tests">0</div>
+                                <div class="stat-label">Running Now</div>
+                            </div>
+                        </div>
+
+                        <!-- Health Check Table -->
+                        <div style="overflow-x: auto;">
+                            <table class="health-check-table">
+                                <thead>
+                                    <tr>
+                                        <th style="min-width: 200px;">Page</th>
+                                        <th style="width: 80px; text-align: center;">📄 Listing</th>
+                                        <th style="width: 80px; text-align: center;">📊 Pagination</th>
+                                        <th style="width: 80px; text-align: center;">🔍 Search</th>
+                                        <th style="width: 80px; text-align: center;">🎛️ Filters</th>
+                                        <th style="width: 80px; text-align: center;">↕️ Sort</th>
+                                        <th style="width: 120px; text-align: center;">Overall Status</th>
+                                        <th style="width: 100px; text-align: center;">Duration</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="health_check_table_body">
+                                    <!-- Rows populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
@@ -1046,12 +1327,20 @@
         let uploadedVideos = [];
         let uploadedImageResults = [];  // Store uploaded image metadata for discovery
 
-        // Tab switching
+        // Tab switching (right panel)
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             event.target.classList.add('active');
             document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+
+        // App panel tab switching (left panel)
+        function switchAppTab(viewName) {
+            document.querySelectorAll('.app-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById(`${viewName}-view`).classList.add('active');
         }
 
         // File upload handlers
@@ -1299,6 +1588,17 @@
                 uploaded_images: uploadedImageResults  // Include pre-uploaded images
             };
 
+            // Add advanced discovery configuration
+            const maxPages = parseInt(document.getElementById('max_pages').value);
+            const maxForms = parseInt(document.getElementById('max_forms_per_page').value);
+            const maxTableRows = parseInt(document.getElementById('max_table_rows').value);
+            const maxTime = parseInt(document.getElementById('max_discovery_time').value);
+
+            if (!isNaN(maxPages) && maxPages > 0) payload.max_pages = maxPages;
+            if (!isNaN(maxForms) && maxForms > 0) payload.max_forms_per_page = maxForms;
+            if (!isNaN(maxTableRows) && maxTableRows > 0) payload.max_table_rows_to_click = maxTableRows;
+            if (!isNaN(maxTime) && maxTime > 0) payload.max_discovery_time_minutes = maxTime;
+
             const authType = document.getElementById('auth_type').value;
             if (authType === 'keycloak') {
                 const username = document.getElementById('username').value.trim();
@@ -1311,6 +1611,11 @@
             // Show message if images are being used
             if (uploadedImageResults.length > 0) {
                 showMessage(`🎯 Using ${uploadedImageResults.length} uploaded image(s) to guide discovery...`, 'success');
+            }
+
+            // Show configuration being used
+            if (payload.max_pages || payload.max_forms_per_page || payload.max_table_rows_to_click || payload.max_discovery_time_minutes) {
+                showMessage(`⚙️ Using custom config: ${payload.max_pages || 2000} pages, ${payload.max_forms_per_page || 50} forms, ${payload.max_table_rows_to_click || 50} table rows, ${payload.max_discovery_time_minutes || 60} min`, 'info');
             }
 
             try {
@@ -1364,6 +1669,11 @@
                     if (data.state === 'DISCOVERY_SUMMARY' || data.state === 'WAIT_TEST_INTENT') {
                         // Discovery completed, fetch and display features
                         fetchAndDisplayFeatures();
+                        // Auto-switch to test cases view when available
+                        const testCasesList = document.getElementById('testcases_list');
+                        if (testCasesList && testCasesList.children.length > 0 && !testCasesList.children[0].textContent.includes('No test cases')) {
+                            // Test cases are available, but don't auto-switch (let user choose)
+                        }
                     }
                 } catch (error) {
                     console.error('Polling error:', error);
@@ -1443,6 +1753,9 @@
                 </div>
             `;
 
+            // Also update the app panel test cases view
+            updateAppPanelTestCases(data);
+
             // Display features
             let html = '';
             data.features.forEach((feature, idx) => {
@@ -1484,12 +1797,27 @@
                                     <div style="display: inline-block; padding: 6px 12px; background: ${typeColors[type] || '#6b7280'}; color: white; border-radius: 6px; font-size: 12px; font-weight: 600; margin-bottom: 8px;">
                                         ${type.replace(/_/g, ' ').toUpperCase()} (${testCases.length})
                                     </div>
-                                    ${testCases.map(tc => `
+                                    ${testCases.map(tc => {
+                                        const status = tc.status || 'pending';
+                                        const statusColors = {
+                                            'passed': { bg: '#d1fae5', color: '#065f46', icon: '✅' },
+                                            'failed': { bg: '#fee2e2', color: '#991b1b', icon: '❌' },
+                                            'skipped': { bg: '#f3f4f6', color: '#6b7280', icon: '⏭️' },
+                                            'running': { bg: '#dbeafe', color: '#1e40af', icon: '⏳' },
+                                            'pending': { bg: '#fef3c7', color: '#92400e', icon: '⏸️' }
+                                        };
+                                        const statusStyle = statusColors[status] || statusColors['pending'];
+                                        return `
                                         <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px;">
                                             <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-                                                <div>
-                                                    <span style="font-weight: 600; color: var(--text);">${tc.test_name}</span>
-                                                    <span style="margin-left: 8px; padding: 2px 8px; background: ${tc.priority === 'high' ? '#fef3c7' : '#e0e7ff'}; color: ${tc.priority === 'high' ? '#92400e' : '#3730a3'}; border-radius: 4px; font-size: 11px; font-weight: 600;">${tc.priority.toUpperCase()}</span>
+                                                <div style="flex: 1;">
+                                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                                        <span style="font-weight: 600; color: var(--text);">${tc.test_name}</span>
+                                                        <span style="padding: 2px 8px; background: ${statusStyle.bg}; color: ${statusStyle.color}; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                                            ${statusStyle.icon} ${status.toUpperCase()}
+                                                        </span>
+                                                    </div>
+                                                    <span style="margin-left: 0; padding: 2px 8px; background: ${tc.priority === 'high' ? '#fef3c7' : '#e0e7ff'}; color: ${tc.priority === 'high' ? '#92400e' : '#3730a3'}; border-radius: 4px; font-size: 11px; font-weight: 600;">${tc.priority.toUpperCase()}</span>
                                                 </div>
                                             </div>
                                             <div style="font-size: 13px; color: var(--text-secondary);">
@@ -1499,7 +1827,8 @@
                                                 </ol>
                                             </div>
                                         </div>
-                                    `).join('')}
+                                        `;
+                                    }).join('')}
                                 </div>
                             `).join('')}
                         </div>
@@ -1528,11 +1857,90 @@
                 addEventToLog(event);
                 if (event.type === 'page_discovered') {
                     addPageToList(event.data);
+                } else if (event.type === 'page_visit_started') {
+                    // Show live progress: "Visiting page X of Y"
+                    updateDiscoveryProgress(event.data);
+                } else if (event.type === 'page_testing_started') {
+                    // Show: "Testing all interactions on page..."
+                    updatePageTestingStatus(event.data, 'started');
+                } else if (event.type === 'page_action_testing') {
+                    // Show: "Testing search...", "Testing filters...", etc.
+                    updatePageActionStatus(event.data);
+                } else if (event.type === 'page_testing_completed') {
+                    // Show: "Page testing completed"
+                    updatePageTestingStatus(event.data, 'completed');
                 } else if (event.type === 'discovery_completed') {
                     updateDiscoveryStats(event.data);
                     stopEventsPolling();
+                } else if (event.type === 'health_check_started') {
+                    showHealthCheckDashboard(event.data);
+                } else if (event.type === 'page_validation_started') {
+                    addPageToHealthTable(event.data);
+                } else if (event.type === 'health_check_started_individual') {
+                    updateHealthCheckStatus(event.data.url, event.data.type, 'running');
+                    incrementHealthCounter('concurrent');
+                } else if (event.type === 'health_check_completed_individual') {
+                    updateHealthCheckStatus(event.data.url, event.data.type, event.data.status);
+                    updateHealthCheckDuration(event.data.url, event.data.type, event.data.duration_ms);
+                    decrementHealthCounter('concurrent');
+                    if (event.data.status === 'passed') {
+                        incrementHealthCounter('passed');
+                    } else if (event.data.status === 'failed') {
+                        incrementHealthCounter('failed');
+                    }
+                } else if (event.type === 'page_validation_completed') {
+                    updatePageOverallStatus(event.data.url, event.data.status);
+                    incrementHealthCounter('pages_validated');
+                } else if (event.type === 'health_check_completed') {
+                    showHealthCheckSummary(event.data);
+                } else if (event.type === 'free_text_execution_started') {
+                    showFreeTextExecutionStarted(event.data);
+                } else if (event.type === 'free_text_test_started') {
+                    showFreeTextTestStarted(event.data);
+                } else if (event.type === 'free_text_test_completed') {
+                    showFreeTextTestCompleted(event.data);
+                } else if (event.type === 'free_text_execution_completed') {
+                    showFreeTextExecutionCompleted(event.data);
+                } else if (event.type === 'free_text_execution_error') {
+                    showFreeTextExecutionError(event.data);
                 }
             });
+        }
+
+        function updateDiscoveryProgress(data) {
+            const progressText = `📄 Visiting page ${data.page_number} of ${data.total_pages_limit}${data.nav_path ? ` (${data.nav_path})` : ''}`;
+            const feed = document.getElementById('discovery_feed');
+            const entry = document.createElement('div');
+            entry.style.cssText = 'padding: 10px; margin-bottom: 4px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.1) 100%); border-left: 3px solid #3b82f6; border-radius: 4px; font-size: 13px; font-weight: 500;';
+            entry.textContent = progressText;
+            feed.appendChild(entry);
+            feed.scrollTop = feed.scrollHeight;
+        }
+
+        function updatePageTestingStatus(data, status) {
+            const feed = document.getElementById('discovery_feed');
+            const entry = document.createElement('div');
+            const pageName = data.page_name || data.url.split('/').pop() || 'page';
+            if (status === 'started') {
+                entry.style.cssText = 'padding: 8px; margin-bottom: 4px; background: rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; border-radius: 4px; font-size: 12px;';
+                entry.textContent = `🧪 Testing all interactions on: ${pageName}`;
+            } else {
+                entry.style.cssText = 'padding: 8px; margin-bottom: 4px; background: rgba(16, 185, 129, 0.15); border-left: 3px solid #10b981; border-radius: 4px; font-size: 12px; font-weight: 500;';
+                entry.textContent = `✅ Completed testing: ${pageName}`;
+            }
+            feed.appendChild(entry);
+            feed.scrollTop = feed.scrollHeight;
+        }
+
+        function updatePageActionStatus(data) {
+            const feed = document.getElementById('discovery_feed');
+            const entry = document.createElement('div');
+            const actionName = data.action.charAt(0).toUpperCase() + data.action.slice(1).replace('_', ' ');
+            const icon = data.status === 'testing' ? '⏳' : '✓';
+            entry.style.cssText = `padding: 6px 8px; margin-bottom: 2px; background: ${data.status === 'testing' ? 'rgba(59, 130, 246, 0.05)' : 'rgba(16, 185, 129, 0.05)'}; border-radius: 4px; font-size: 11px; margin-left: 20px;`;
+            entry.textContent = `${icon} ${actionName}...`;
+            feed.appendChild(entry);
+            feed.scrollTop = feed.scrollHeight;
         }
 
         function addEventToLog(event) {
@@ -1548,12 +1956,56 @@
                 message = `🔽 Found ${event.data.count} dropdown(s)`;
             } else if (event.type === 'navigation_discovered') {
                 message = `🧭 Found ${event.data.count} navigation item(s)`;
+            } else if (event.type === 'page_visit_started') {
+                message = `📄 Visiting page ${event.data.page_number}/${event.data.total_pages_limit}${event.data.nav_path ? ` (${event.data.nav_path})` : ''}`;
+            } else if (event.type === 'page_testing_started') {
+                message = `🧪 Testing interactions on: ${event.data.page_name || 'page'}`;
+            } else if (event.type === 'page_action_testing') {
+                const actionName = event.data.action.charAt(0).toUpperCase() + event.data.action.slice(1).replace('_', ' ');
+                message = `${event.data.status === 'testing' ? '⏳' : '✓'} ${actionName}`;
+            } else if (event.type === 'page_testing_completed') {
+                message = `✅ Completed testing: ${event.data.page_name || 'page'}`;
             } else if (event.type === 'discovery_completed') {
                 message = `✅ Discovery completed: ${event.data.pages_count} pages, ${event.data.forms_count} forms`;
+            } else if (event.type === 'health_check_started') {
+                message = `✅ Starting Phase 1 health checks on ${event.data.total_pages} pages`;
+            } else if (event.type === 'page_validation_started') {
+                message = `🔍 Validating: ${event.data.title}`;
+            } else if (event.type === 'health_check_completed_individual') {
+                const icon = event.data.status === 'passed' ? '✓' : event.data.status === 'failed' ? '✗' : '-';
+                message = `${icon} ${event.data.type}: ${event.data.status}`;
+            } else if (event.type === 'health_check_completed') {
+                message = `🎉 Health checks completed: ${event.data.passed} passed, ${event.data.failed} failed`;
+            } else if (event.type === 'free_text_execution_started') {
+                message = `🤖 QA Buddy executing: ${event.data.instruction}`;
+            } else if (event.type === 'free_text_test_started') {
+                message = `▶️ Testing: ${event.data.test}`;
+            } else if (event.type === 'free_text_test_completed') {
+                const icon = event.data.status === 'passed' ? '✅' : '❌';
+                message = `${icon} ${event.data.test}: ${event.data.status}`;
+            } else if (event.type === 'free_text_execution_completed') {
+                message = `✨ QA Buddy completed: ${event.data.passed} passed, ${event.data.failed} failed`;
+            } else if (event.type === 'free_text_execution_error') {
+                message = `❌ QA Buddy error: ${event.data.error}`;
             }
             entry.innerHTML = `<span style="color: #999; margin-right: 8px;">${timestamp}</span>${message}`;
-            feed.appendChild(entry);
-            feed.scrollTop = feed.scrollHeight;
+            
+            // Add to both feeds (right panel and app panel)
+            if (feed) {
+                feed.appendChild(entry.cloneNode(true));
+                feed.scrollTop = feed.scrollHeight;
+            }
+            
+            // Also add to app panel progress feed
+            const appFeed = document.getElementById('app_progress_feed');
+            if (appFeed) {
+                // Clear "waiting" message if present
+                if (appFeed.children.length === 1 && appFeed.children[0].textContent.includes('Waiting')) {
+                    appFeed.innerHTML = '';
+                }
+                appFeed.appendChild(entry.cloneNode(true));
+                appFeed.scrollTop = appFeed.scrollHeight;
+            }
         }
 
         function addPageToList(pageData) {
@@ -1626,6 +2078,269 @@
             document.getElementById('discovery_pages_count').textContent = data.pages_count || 0;
             document.getElementById('discovery_forms_count').textContent = data.forms_count || 0;
             document.getElementById('discovery_actions_count').textContent = data.actions_count || 0;
+            
+            // Also update app panel progress stats
+            const appPages = document.getElementById('app_progress_pages');
+            const appForms = document.getElementById('app_progress_forms');
+            const appActions = document.getElementById('app_progress_actions');
+            if (appPages) appPages.textContent = data.pages_count || 0;
+            if (appForms) appForms.textContent = data.forms_count || 0;
+            if (appActions) appActions.textContent = data.actions_count || 0;
+        }
+
+        function updateAppPanelTestCases(data) {
+            const testCasesList = document.getElementById('testcases_list');
+            const testCasesSummary = document.getElementById('testcases_summary');
+            
+            if (!testCasesList || !data || !data.features) return;
+            
+            // Calculate summary stats
+            let totalTestCases = 0;
+            let passedCount = 0;
+            let failedCount = 0;
+            let pendingCount = 0;
+            
+            data.features.forEach(feature => {
+                feature.test_cases.forEach(tc => {
+                    totalTestCases++;
+                    const status = tc.status || 'pending';
+                    if (status === 'passed') passedCount++;
+                    else if (status === 'failed') failedCount++;
+                    else pendingCount++;
+                });
+            });
+            
+            // Update summary
+            testCasesSummary.innerHTML = `
+                <div class="stat-card" style="flex: 1;">
+                    <div class="stat-value">${totalTestCases}</div>
+                    <div class="stat-label">Total</div>
+                </div>
+                <div class="stat-card success" style="flex: 1;">
+                    <div class="stat-value">${passedCount}</div>
+                    <div class="stat-label">Passed</div>
+                </div>
+                <div class="stat-card" style="flex: 1; background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.1) 100%);">
+                    <div class="stat-value" style="color: #dc2626;">${failedCount}</div>
+                    <div class="stat-label">Failed</div>
+                </div>
+                <div class="stat-card" style="flex: 1; background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(217, 119, 6, 0.1) 100%);">
+                    <div class="stat-value" style="color: #d97706;">${pendingCount}</div>
+                    <div class="stat-label">Pending</div>
+                </div>
+            `;
+            
+            // Display test cases in a clean table format
+            let html = '';
+            data.features.forEach((feature, featureIdx) => {
+                feature.test_cases.forEach((tc, tcIdx) => {
+                    const status = tc.status || 'pending';
+                    const statusColors = {
+                        'passed': { bg: '#d1fae5', color: '#065f46', icon: '✅' },
+                        'failed': { bg: '#fee2e2', color: '#991b1b', icon: '❌' },
+                        'skipped': { bg: '#f3f4f6', color: '#6b7280', icon: '⏭️' },
+                        'running': { bg: '#dbeafe', color: '#1e40af', icon: '⏳' },
+                        'pending': { bg: '#fef3c7', color: '#92400e', icon: '⏸️' }
+                    };
+                    const statusStyle = statusColors[status] || statusColors['pending'];
+                    const priorityColor = tc.priority === 'high' ? '#fef3c7' : '#e0e7ff';
+                    const priorityTextColor = tc.priority === 'high' ? '#92400e' : '#3730a3';
+                    
+                    html += `
+                        <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 16px; transition: all 0.2s;">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                                <div style="flex: 1;">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                        <span style="font-weight: 600; color: var(--text-primary); font-size: 15px;">${tc.test_name}</span>
+                                        <span style="padding: 4px 10px; background: ${statusStyle.bg}; color: ${statusStyle.color}; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                            ${statusStyle.icon} ${status.toUpperCase()}
+                                        </span>
+                                        <span style="padding: 4px 10px; background: ${priorityColor}; color: ${priorityTextColor}; border-radius: 12px; font-size: 11px; font-weight: 600;">
+                                            ${tc.priority.toUpperCase()}
+                                        </span>
+                                    </div>
+                                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                                        <strong>Feature:</strong> ${feature.feature_name} | <strong>Type:</strong> ${tc.test_type.replace(/_/g, ' ')}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="font-size: 13px; color: var(--text-secondary);">
+                                <strong style="color: var(--text-primary);">Steps:</strong>
+                                <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.6;">
+                                    ${tc.steps.map(step => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
+                                </ol>
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+            
+            testCasesList.innerHTML = html || '<div style="text-align: center; padding: 40px; color: var(--text-secondary);"><p>No test cases available yet.</p></div>';
+        }
+
+        // Health Check Dashboard Functions
+        let healthCheckTotalPages = 0;
+
+        function showHealthCheckDashboard(data) {
+            const dashboard = document.getElementById('health_check_dashboard');
+            dashboard.classList.remove('hidden');
+            healthCheckTotalPages = data.total_pages || 0;
+
+            // Initialize counters
+            document.getElementById('health_pages_validated').textContent = `0 / ${healthCheckTotalPages}`;
+            document.getElementById('health_checks_passed').textContent = '0';
+            document.getElementById('health_checks_failed').textContent = '0';
+            document.getElementById('health_concurrent_tests').textContent = '0';
+        }
+
+        function addPageToHealthTable(data) {
+            const tbody = document.getElementById('health_check_table_body');
+            const row = document.createElement('tr');
+            const urlKey = encodeURIComponent(data.url);
+            row.id = `health_page_${urlKey}`;
+            row.dataset.url = data.url;
+
+            row.innerHTML = `
+                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="${data.url}">
+                    <div style="font-weight: 500;">${data.title || 'Untitled'}</div>
+                    <div style="font-size: 11px; color: #666;">${data.url}</div>
+                </td>
+                <td><span class="health-check-status pending" data-check="table_listing">⏳</span></td>
+                <td><span class="health-check-status pending" data-check="pagination">⏳</span></td>
+                <td><span class="health-check-status pending" data-check="search">⏳</span></td>
+                <td><span class="health-check-status pending" data-check="filters">⏳</span></td>
+                <td><span class="health-check-status pending" data-check="sort">⏳</span></td>
+                <td><span class="health-check-status pending">Pending</span></td>
+                <td>-</td>
+            `;
+
+            tbody.appendChild(row);
+        }
+
+        function updateHealthCheckStatus(url, checkType, status) {
+            const rows = document.querySelectorAll('#health_check_table_body tr');
+            let targetRow = null;
+
+            for (const row of rows) {
+                if (row.dataset.url === url) {
+                    targetRow = row;
+                    break;
+                }
+            }
+
+            if (!targetRow) return;
+
+            const checkCell = targetRow.querySelector(`[data-check="${checkType}"]`);
+            if (checkCell) {
+                checkCell.className = 'health-check-status ' + status;
+                checkCell.textContent = getHealthStatusIcon(status);
+            }
+        }
+
+        function updateHealthCheckDuration(url, checkType, durationMs) {
+            const rows = document.querySelectorAll('#health_check_table_body tr');
+            let targetRow = null;
+
+            for (const row of rows) {
+                if (row.dataset.url === url) {
+                    targetRow = row;
+                    break;
+                }
+            }
+
+            if (!targetRow) return;
+
+            const durationCell = targetRow.cells[7];
+            const currentDuration = durationCell.textContent;
+            if (currentDuration === '-') {
+                durationCell.textContent = `${durationMs}ms`;
+            } else {
+                const total = parseInt(currentDuration) + durationMs;
+                durationCell.textContent = `${total}ms`;
+            }
+        }
+
+        function updatePageOverallStatus(url, status) {
+            const rows = document.querySelectorAll('#health_check_table_body tr');
+            let targetRow = null;
+
+            for (const row of rows) {
+                if (row.dataset.url === url) {
+                    targetRow = row;
+                    break;
+                }
+            }
+
+            if (!targetRow) return;
+
+            const statusCell = targetRow.cells[6];
+            statusCell.innerHTML = `<span class="health-check-status ${status}">${status.toUpperCase()}</span>`;
+        }
+
+        function incrementHealthCounter(type) {
+            if (type === 'pages_validated') {
+                const elem = document.getElementById('health_pages_validated');
+                const parts = elem.textContent.split(' / ');
+                const current = parseInt(parts[0]) + 1;
+                elem.textContent = `${current} / ${healthCheckTotalPages}`;
+            } else if (type === 'passed') {
+                const elem = document.getElementById('health_checks_passed');
+                elem.textContent = parseInt(elem.textContent) + 1;
+            } else if (type === 'failed') {
+                const elem = document.getElementById('health_checks_failed');
+                elem.textContent = parseInt(elem.textContent) + 1;
+            } else if (type === 'concurrent') {
+                const elem = document.getElementById('health_concurrent_tests');
+                elem.textContent = parseInt(elem.textContent) + 1;
+            }
+        }
+
+        function decrementHealthCounter(type) {
+            if (type === 'concurrent') {
+                const elem = document.getElementById('health_concurrent_tests');
+                const current = parseInt(elem.textContent);
+                elem.textContent = Math.max(0, current - 1);
+            }
+        }
+
+        function getHealthStatusIcon(status) {
+            switch(status) {
+                case 'pending': return '⏳';
+                case 'running': return '⏳';
+                case 'passed': return '✓';
+                case 'failed': return '✗';
+                case 'skipped': return '-';
+                default: return '?';
+            }
+        }
+
+        function showHealthCheckSummary(data) {
+            // Final summary could show a notification or update the UI
+            console.log('Health Check Summary:', data);
+        }
+
+        // Ask QA Buddy Event Handlers
+        function showFreeTextExecutionStarted(data) {
+            console.log('QA Buddy started:', data.instruction);
+            // Could show a banner or notification
+        }
+
+        function showFreeTextTestStarted(data) {
+            console.log('QA Buddy test started:', data.test);
+        }
+
+        function showFreeTextTestCompleted(data) {
+            console.log('QA Buddy test completed:', data.test, data.status);
+        }
+
+        function showFreeTextExecutionCompleted(data) {
+            console.log('QA Buddy execution completed:', data);
+            // Could show a summary notification
+        }
+
+        function showFreeTextExecutionError(data) {
+            console.error('QA Buddy error:', data.error);
+            // Could show an error notification
         }
 
         function updateStatus(data) {

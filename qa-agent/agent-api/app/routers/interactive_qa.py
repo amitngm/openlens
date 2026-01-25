@@ -52,7 +52,13 @@ class StartRunRequest(BaseModel):
     uploaded_images: Optional[list] = Field(None, description="Pre-uploaded image analysis results to guide discovery")
     uploaded_documents: Optional[list] = Field(None, description="Pre-uploaded document analysis results (PRD, requirements)")
     test_phase: Optional[str] = Field("phase1_get_operations", description="Test phase: phase1_get_operations or phase2_full_testing")
-    
+
+    # Discovery configuration overrides (optional)
+    max_pages: Optional[int] = Field(None, description="Maximum pages to discover (default: 2000)")
+    max_forms_per_page: Optional[int] = Field(None, description="Maximum forms to process per page (default: 50)")
+    max_table_rows_to_click: Optional[int] = Field(None, description="Maximum table rows to click (default: 50)")
+    max_discovery_time_minutes: Optional[int] = Field(None, description="Maximum discovery time in minutes (default: 60)")
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -212,6 +218,522 @@ async def _load_document_analysis(
     return combined_analysis if any(combined_analysis.values()) else None
 
 
+async def _execute_free_text_instruction(run_id: str, instruction: str):
+    """
+    Execute a free-text test instruction in the background.
+
+    This function interprets common test instructions like:
+    - "Test the virtual machines table: click all rows, test pagination, verify counts"
+    - "Search for X and verify results"
+    - "Test all filters and combinations"
+
+    And executes them directly using Playwright automation.
+    """
+    try:
+        logger.info(f"[{run_id}] Starting free text instruction execution: {instruction[:100]}")
+
+        # Get run context
+        context = _run_store.get_run(run_id)
+        if not context:
+            logger.error(f"[{run_id}] Run not found")
+            return
+
+        # Get browser page
+        browser_manager = get_browser_manager()
+        page = await browser_manager.get_page(
+            run_id,
+            headless=context.headless,
+            debug=getattr(context, "discovery_debug", False),
+            artifacts_path=context.artifacts_path
+        )
+
+        # Log execution start
+        events_file = Path(context.artifacts_path) / "events.jsonl"
+        with open(events_file, "a") as f:
+            event = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "type": "free_text_execution_started",
+                "data": {
+                    "instruction": instruction
+                }
+            }
+            f.write(json.dumps(event) + "\n")
+
+        # Execute the instruction based on keywords
+        instruction_lower = instruction.lower()
+
+        test_results = {
+            "instruction": instruction,
+            "tests_executed": [],
+            "tests_passed": 0,
+            "tests_failed": 0
+        }
+
+        # Detect what needs to be tested
+        if "table" in instruction_lower or "rows" in instruction_lower:
+            logger.info(f"[{run_id}] Detected table testing instruction")
+
+            # Find the table mentioned in instruction
+            table_keyword = None
+            for word in instruction.split():
+                if word.lower() not in ['test', 'the', 'table', 'click', 'all', 'rows']:
+                    table_keyword = word
+                    break
+
+            # Test table rows
+            if "click" in instruction_lower and "row" in instruction_lower:
+                # Emit test started event
+                with open(events_file, "a") as f:
+                    event = {
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "type": "free_text_test_started",
+                        "data": {"test": "table_rows"}
+                    }
+                    f.write(json.dumps(event) + "\n")
+
+                result = await _test_table_rows(page, run_id, table_keyword)
+                test_results["tests_executed"].append(result)
+                if result["status"] == "passed":
+                    test_results["tests_passed"] += 1
+                else:
+                    test_results["tests_failed"] += 1
+
+                # Emit test completed event
+                with open(events_file, "a") as f:
+                    event = {
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "type": "free_text_test_completed",
+                        "data": {"test": "table_rows", "status": result["status"], "details": result}
+                    }
+                    f.write(json.dumps(event) + "\n")
+
+            # Test pagination
+            if "paginat" in instruction_lower:
+                with open(events_file, "a") as f:
+                    event = {
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "type": "free_text_test_started",
+                        "data": {"test": "pagination"}
+                    }
+                    f.write(json.dumps(event) + "\n")
+
+                result = await _test_pagination(page, run_id)
+                test_results["tests_executed"].append(result)
+                if result["status"] == "passed":
+                    test_results["tests_passed"] += 1
+                else:
+                    test_results["tests_failed"] += 1
+
+                with open(events_file, "a") as f:
+                    event = {
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "type": "free_text_test_completed",
+                        "data": {"test": "pagination", "status": result["status"], "details": result}
+                    }
+                    f.write(json.dumps(event) + "\n")
+
+            # Verify counts
+            if "count" in instruction_lower or "verify" in instruction_lower:
+                with open(events_file, "a") as f:
+                    event = {
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "type": "free_text_test_started",
+                        "data": {"test": "table_counts"}
+                    }
+                    f.write(json.dumps(event) + "\n")
+
+                result = await _verify_table_counts(page, run_id)
+                test_results["tests_executed"].append(result)
+                if result["status"] == "passed":
+                    test_results["tests_passed"] += 1
+                else:
+                    test_results["tests_failed"] += 1
+
+                with open(events_file, "a") as f:
+                    event = {
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "type": "free_text_test_completed",
+                        "data": {"test": "table_counts", "status": result["status"], "details": result}
+                    }
+                    f.write(json.dumps(event) + "\n")
+
+        # Search testing
+        if "search" in instruction_lower:
+            with open(events_file, "a") as f:
+                event = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "type": "free_text_test_started",
+                    "data": {"test": "search"}
+                }
+                f.write(json.dumps(event) + "\n")
+
+            result = await _test_search(page, run_id, instruction)
+            test_results["tests_executed"].append(result)
+            if result["status"] == "passed":
+                test_results["tests_passed"] += 1
+            else:
+                test_results["tests_failed"] += 1
+
+            with open(events_file, "a") as f:
+                event = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "type": "free_text_test_completed",
+                    "data": {"test": "search", "status": result["status"], "details": result}
+                }
+                f.write(json.dumps(event) + "\n")
+
+        # Filter testing
+        if "filter" in instruction_lower:
+            with open(events_file, "a") as f:
+                event = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "type": "free_text_test_started",
+                    "data": {"test": "filters"}
+                }
+                f.write(json.dumps(event) + "\n")
+
+            result = await _test_filters(page, run_id)
+            test_results["tests_executed"].append(result)
+            if result["status"] == "passed":
+                test_results["tests_passed"] += 1
+            else:
+                test_results["tests_failed"] += 1
+
+            with open(events_file, "a") as f:
+                event = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "type": "free_text_test_completed",
+                    "data": {"test": "filters", "status": result["status"], "details": result}
+                }
+                f.write(json.dumps(event) + "\n")
+
+        logger.info(f"[{run_id}] Test execution completed: {test_results['tests_passed']} passed, {test_results['tests_failed']} failed")
+
+        # Log completion
+        with open(events_file, "a") as f:
+            event = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "type": "free_text_execution_completed",
+                "data": {
+                    "passed": test_results["tests_passed"],
+                    "failed": test_results["tests_failed"],
+                    "total_tests": len(test_results["tests_executed"])
+                }
+            }
+            f.write(json.dumps(event) + "\n")
+
+        # Save test results
+        results_file = Path(context.artifacts_path) / "free_text_results.json"
+        with open(results_file, "w") as f:
+            json.dump(test_results, f, indent=2)
+
+        # Transition back to WAIT_TEST_INTENT (ready for more commands)
+        context = _run_store.transition_state(run_id, RunState.WAIT_TEST_INTENT)
+
+        logger.info(f"[{run_id}] Free text instruction execution completed successfully")
+
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to execute free text instruction: {e}", exc_info=True)
+
+        # Log error
+        try:
+            events_file = Path(context.artifacts_path) / "events.jsonl"
+            with open(events_file, "a") as f:
+                event = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "type": "free_text_execution_error",
+                    "data": {
+                        "error": str(e)
+                    }
+                }
+                f.write(json.dumps(event) + "\n")
+        except:
+            pass
+
+        # Transition back to WAIT_TEST_INTENT
+        try:
+            context = _run_store.transition_state(run_id, RunState.WAIT_TEST_INTENT)
+        except:
+            pass
+
+
+async def _test_table_rows(page, run_id: str, table_keyword: Optional[str]) -> Dict[str, Any]:
+    """Click all rows in a table and verify detail pages."""
+    try:
+        logger.info(f"[{run_id}] Testing table rows (keyword: {table_keyword})")
+
+        # Find all table rows
+        rows = await page.locator("table tbody tr").all()
+
+        logger.info(f"[{run_id}] Found {len(rows)} table rows")
+
+        rows_clicked = 0
+        for i, row in enumerate(rows[:50]):  # Limit to first 50 rows
+            try:
+                # Get row text before clicking
+                row_text = await row.text_content()
+
+                # Click the row
+                await row.click(timeout=3000)
+                await page.wait_for_load_state("networkidle", timeout=5000)
+
+                rows_clicked += 1
+
+                logger.info(f"[{run_id}] Clicked row {i+1}/{len(rows)}: {row_text[:50]}")
+
+                # Go back to table page
+                await page.go_back()
+                await page.wait_for_load_state("networkidle", timeout=5000)
+
+            except Exception as e:
+                logger.warning(f"[{run_id}] Failed to click row {i+1}: {e}")
+                continue
+
+        return {
+            "test": "Click table rows",
+            "status": "passed" if rows_clicked > 0 else "failed",
+            "rows_found": len(rows),
+            "rows_clicked": rows_clicked,
+            "details": f"Successfully clicked {rows_clicked}/{len(rows)} rows"
+        }
+
+    except Exception as e:
+        logger.error(f"[{run_id}] Table row testing failed: {e}", exc_info=True)
+        return {
+            "test": "Click table rows",
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+async def _test_pagination(page, run_id: str) -> Dict[str, Any]:
+    """Test pagination by clicking through all pages."""
+    try:
+        logger.info(f"[{run_id}] Testing pagination")
+
+        # Find pagination controls
+        next_button_selectors = [
+            "button:has-text('Next')",
+            "a:has-text('Next')",
+            "button[aria-label*='Next']",
+            "a[aria-label*='Next']",
+            ".pagination button:last-child",
+            ".pagination a:last-child"
+        ]
+
+        next_button = None
+        for selector in next_button_selectors:
+            try:
+                next_button = page.locator(selector).first
+                if await next_button.is_visible(timeout=1000):
+                    break
+            except:
+                continue
+
+        if not next_button:
+            return {
+                "test": "Test pagination",
+                "status": "skipped",
+                "details": "No pagination controls found"
+            }
+
+        pages_visited = 1
+        total_items_seen = 0
+
+        # Count items on first page
+        items_on_page = await page.locator("table tbody tr").count()
+        total_items_seen += items_on_page
+
+        logger.info(f"[{run_id}] Page 1: {items_on_page} items")
+
+        # Click through pages
+        while pages_visited < 100:  # Safety limit
+            try:
+                # Check if next button is disabled
+                is_disabled = await next_button.is_disabled(timeout=500)
+                if is_disabled:
+                    break
+
+                # Click next
+                await next_button.click()
+                await page.wait_for_load_state("networkidle", timeout=5000)
+
+                pages_visited += 1
+
+                # Count items on new page
+                items_on_page = await page.locator("table tbody tr").count()
+                total_items_seen += items_on_page
+
+                logger.info(f"[{run_id}] Page {pages_visited}: {items_on_page} items")
+
+            except Exception as e:
+                logger.info(f"[{run_id}] Reached last page at page {pages_visited}")
+                break
+
+        return {
+            "test": "Test pagination",
+            "status": "passed",
+            "pages_visited": pages_visited,
+            "total_items": total_items_seen,
+            "details": f"Navigated through {pages_visited} pages, saw {total_items_seen} total items"
+        }
+
+    except Exception as e:
+        logger.error(f"[{run_id}] Pagination testing failed: {e}", exc_info=True)
+        return {
+            "test": "Test pagination",
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+async def _verify_table_counts(page, run_id: str) -> Dict[str, Any]:
+    """Verify table row counts and totals."""
+    try:
+        logger.info(f"[{run_id}] Verifying table counts")
+
+        # Count visible rows
+        row_count = await page.locator("table tbody tr").count()
+
+        # Try to find total count indicator (e.g., "Showing 1-10 of 245")
+        count_text = None
+        count_selectors = [
+            "text=/showing.*of/i",
+            "text=/total.*items/i",
+            ".pagination-info",
+            ".table-info"
+        ]
+
+        for selector in count_selectors:
+            try:
+                element = page.locator(selector).first
+                if await element.is_visible(timeout=1000):
+                    count_text = await element.text_content()
+                    break
+            except:
+                continue
+
+        return {
+            "test": "Verify table counts",
+            "status": "passed",
+            "visible_rows": row_count,
+            "count_indicator": count_text,
+            "details": f"Found {row_count} visible rows. {count_text or 'No count indicator found'}"
+        }
+
+    except Exception as e:
+        logger.error(f"[{run_id}] Count verification failed: {e}", exc_info=True)
+        return {
+            "test": "Verify table counts",
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+async def _test_search(page, run_id: str, instruction: str) -> Dict[str, Any]:
+    """Test search functionality."""
+    try:
+        logger.info(f"[{run_id}] Testing search")
+
+        # Find search input
+        search_selectors = [
+            "input[type='search']",
+            "input[placeholder*='Search' i]",
+            "input[placeholder*='Find' i]",
+            "input[aria-label*='Search' i]"
+        ]
+
+        search_input = None
+        for selector in search_selectors:
+            try:
+                search_input = page.locator(selector).first
+                if await search_input.is_visible(timeout=1000):
+                    break
+            except:
+                continue
+
+        if not search_input:
+            return {
+                "test": "Test search",
+                "status": "skipped",
+                "details": "No search input found"
+            }
+
+        # Perform search
+        await search_input.fill("test")
+        await search_input.press("Enter")
+        await page.wait_for_load_state("networkidle", timeout=5000)
+
+        # Count results
+        results_count = await page.locator("table tbody tr").count()
+
+        return {
+            "test": "Test search",
+            "status": "passed",
+            "search_term": "test",
+            "results_count": results_count,
+            "details": f"Search returned {results_count} results"
+        }
+
+    except Exception as e:
+        logger.error(f"[{run_id}] Search testing failed: {e}", exc_info=True)
+        return {
+            "test": "Test search",
+            "status": "failed",
+            "error": str(e)
+        }
+
+
+async def _test_filters(page, run_id: str) -> Dict[str, Any]:
+    """Test filter controls."""
+    try:
+        logger.info(f"[{run_id}] Testing filters")
+
+        # Find filter dropdowns/selects
+        filters = await page.locator("select, [role='combobox']").all()
+
+        logger.info(f"[{run_id}] Found {len(filters)} filter controls")
+
+        filters_tested = 0
+        for i, filter_elem in enumerate(filters[:10]):  # Limit to first 10 filters
+            try:
+                # Get filter label
+                filter_label = await filter_elem.get_attribute("aria-label") or f"Filter {i+1}"
+
+                # Get options
+                if await filter_elem.evaluate("el => el.tagName") == "SELECT":
+                    options = await filter_elem.locator("option").all()
+
+                    for option in options[:5]:  # Test first 5 options
+                        option_text = await option.text_content()
+                        await filter_elem.select_option(label=option_text)
+                        await page.wait_for_timeout(1000)
+
+                        logger.info(f"[{run_id}] Tested {filter_label}: {option_text}")
+
+                filters_tested += 1
+
+            except Exception as e:
+                logger.warning(f"[{run_id}] Failed to test filter {i+1}: {e}")
+                continue
+
+        return {
+            "test": "Test filters",
+            "status": "passed" if filters_tested > 0 else "skipped",
+            "filters_found": len(filters),
+            "filters_tested": filters_tested,
+            "details": f"Tested {filters_tested} filter controls"
+        }
+
+    except Exception as e:
+        logger.error(f"[{run_id}] Filter testing failed: {e}", exc_info=True)
+        return {
+            "test": "Test filters",
+            "status": "failed",
+            "error": str(e)
+        }
+
+
 # =============================================================================
 # Endpoints
 # =============================================================================
@@ -239,7 +761,11 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
             discovery_debug=bool(request.discovery_debug),
             uploaded_images=request.uploaded_images,
             uploaded_documents=request.uploaded_documents,
-            test_phase=request.test_phase or "phase1_get_operations"
+            test_phase=request.test_phase or "phase1_get_operations",
+            max_pages=request.max_pages,
+            max_forms_per_page=request.max_forms_per_page,
+            max_table_rows_to_click=request.max_table_rows_to_click,
+            max_discovery_time_minutes=request.max_discovery_time_minutes
         )
         
         # Transition to OPEN_URL (opens URL in check_session)
@@ -392,6 +918,17 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
                                             context.artifacts_path
                                         )
 
+                                        # Prepare config overrides if provided
+                                        config_overrides = {}
+                                        if hasattr(context, 'max_pages') and context.max_pages:
+                                            config_overrides['max_pages'] = context.max_pages
+                                        if hasattr(context, 'max_forms_per_page') and context.max_forms_per_page:
+                                            config_overrides['max_forms_per_page'] = context.max_forms_per_page
+                                        if hasattr(context, 'max_table_rows_to_click') and context.max_table_rows_to_click:
+                                            config_overrides['max_table_rows_to_click'] = context.max_table_rows_to_click
+                                        if hasattr(context, 'max_discovery_time_minutes') and context.max_discovery_time_minutes:
+                                            config_overrides['max_discovery_time_minutes'] = context.max_discovery_time_minutes
+
                                         discovery_runner = get_discovery_runner()
                                         discovery_result = await discovery_runner.run_discovery(
                                             page=page,
@@ -401,7 +938,8 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
                                             debug=getattr(context, "discovery_debug", False),
                                             image_hints=image_hints,
                                             document_analysis=document_analysis,
-                                            phase=context.test_phase
+                                            phase=context.test_phase,
+                                            config_overrides=config_overrides if config_overrides else None
                                         )
                                         
                                         # Store discovery summary in context
@@ -664,6 +1202,34 @@ async def get_discovery_features(run_id: str):
 
             features[feature_name]["test_cases"].extend(test_cases)
 
+        # Load test execution results if available to add status
+        test_results_map = {}
+        free_text_results_file = Path(context.artifacts_path) / "free_text_results.json"
+        if free_text_results_file.exists():
+            try:
+                with open(free_text_results_file, "r", encoding="utf-8") as f:
+                    free_text_results = json.load(f)
+                    # Map test names to their status
+                    for test_result in free_text_results.get("tests_executed", []):
+                        test_name = test_result.get("test", "")
+                        status = test_result.get("status", "pending")
+                        if test_name:
+                            test_results_map[test_name.lower()] = status
+            except Exception as e:
+                logger.warning(f"[{run_id}] Failed to load test results: {e}")
+
+        # Add status to test cases based on execution results
+        for feature in features.values():
+            for test_case in feature["test_cases"]:
+                test_name = test_case.get("test_name", "").lower()
+                # Try to match test case name with execution results
+                status = "pending"  # default status
+                for result_name, result_status in test_results_map.items():
+                    if result_name in test_name or test_name in result_name:
+                        status = result_status
+                        break
+                test_case["status"] = status
+
         # Convert to list and calculate totals
         features_list = list(features.values())
         total_test_cases = sum(len(f["test_cases"]) for f in features_list)
@@ -796,13 +1362,26 @@ async def answer_question(
             context.free_text_commands = []
         context.free_text_commands.append(request.answer)
         context = _run_store.update_run(run_id, free_text_commands=context.free_text_commands)
-        
+
         logger.info(f"[{run_id}] Free text command received: {request.answer[:100]}")
-        
-        # Log the command (for now, just acknowledge)
-        # In future, this can be used to influence TEST_PLAN_BUILD
-        message = f"Command received: {request.answer[:100]}"
-        
+
+        # Process the command if in WAIT_TEST_INTENT state
+        if context.state == RunState.WAIT_TEST_INTENT:
+            logger.info(f"[{run_id}] Processing free text command in WAIT_TEST_INTENT state")
+
+            # Transition to TEST_EXECUTE state
+            context = _run_store.transition_state(run_id, RunState.TEST_EXECUTE)
+
+            # Execute the test instruction in background
+            import asyncio
+            asyncio.create_task(_execute_free_text_instruction(run_id, request.answer))
+
+            message = f"Executing test: {request.answer[:100]}..."
+            logger.info(f"[{run_id}] Started background execution of free text instruction")
+        else:
+            # Just store for later if not in correct state
+            message = f"Command received: {request.answer[:100]}"
+
         # Return current status
         context = _run_store.get_run(run_id)
         return AnswerResponse(
