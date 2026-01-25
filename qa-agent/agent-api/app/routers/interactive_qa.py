@@ -52,6 +52,7 @@ class StartRunRequest(BaseModel):
     uploaded_images: Optional[list] = Field(None, description="Pre-uploaded image analysis results to guide discovery")
     uploaded_documents: Optional[list] = Field(None, description="Pre-uploaded document analysis results (PRD, requirements)")
     test_phase: Optional[str] = Field("phase1_get_operations", description="Test phase: phase1_get_operations or phase2_full_testing")
+    close_browser_on_complete: Optional[bool] = Field(False, description="Close browser automatically when tests complete")
 
     # Discovery configuration overrides (optional)
     max_pages: Optional[int] = Field(None, description="Maximum pages to discover (default: 2000)")
@@ -765,7 +766,8 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
             max_pages=request.max_pages,
             max_forms_per_page=request.max_forms_per_page,
             max_table_rows_to_click=request.max_table_rows_to_click,
-            max_discovery_time_minutes=request.max_discovery_time_minutes
+            max_discovery_time_minutes=request.max_discovery_time_minutes,
+            close_browser_on_complete=bool(request.close_browser_on_complete) if request.close_browser_on_complete is not None else False
         )
         
         # Transition to OPEN_URL (opens URL in check_session)
@@ -1801,6 +1803,15 @@ async def answer_question(
                         next_state = execution_result["next_state"]
                         context = _run_store.transition_state(run_id, next_state)
                         message = f"Test execution completed: {execution_result['report']['passed']} passed, {execution_result['report']['failed']} failed"
+                        
+                        # Close browser if requested and state is DONE
+                        if next_state == RunState.DONE and context.close_browser_on_complete:
+                            try:
+                                browser_manager = get_browser_manager()
+                                await browser_manager.close_context(run_id)
+                                logger.info(f"[{run_id}] Browser closed after test completion")
+                            except Exception as e:
+                                logger.warning(f"[{run_id}] Failed to close browser: {e}")
             except Exception as e:
                 logger.error(f"[{run_id}] Test plan build failed: {e}", exc_info=True)
                 message = f"Test plan build failed: {str(e)[:200]}"
@@ -1874,6 +1885,15 @@ async def answer_question(
                     next_state = execution_result["next_state"]
                     context = _run_store.transition_state(run_id, next_state)
                     message = f"Test execution completed: {execution_result['report']['passed']} passed, {execution_result['report']['failed']} failed"
+                    
+                    # Close browser if requested and state is DONE
+                    if next_state == RunState.DONE and context.close_browser_on_complete:
+                        try:
+                            browser_manager = get_browser_manager()
+                            await browser_manager.close_context(run_id)
+                            logger.info(f"[{run_id}] Browser closed after test completion")
+                        except Exception as e:
+                            logger.warning(f"[{run_id}] Failed to close browser: {e}")
             except Exception as e:
                 logger.error(f"[{run_id}] Module test plan build failed: {e}", exc_info=True)
                 message = f"Module test plan build failed: {str(e)[:200]}"
@@ -1967,6 +1987,15 @@ async def answer_question(
                 else:
                     context = _run_store.transition_state(run_id, RunState.DONE)
                     message = "HTML report already exists, skipping generation"
+                
+                # Close browser if requested
+                if context.close_browser_on_complete:
+                    try:
+                        browser_manager = get_browser_manager()
+                        await browser_manager.close_context(run_id)
+                        logger.info(f"[{run_id}] Browser closed after test completion")
+                    except Exception as e:
+                        logger.warning(f"[{run_id}] Failed to close browser: {e}")
             except Exception as e:
                 logger.error(f"[{run_id}] Report generation failed: {e}", exc_info=True)
                 message = f"Report generation failed: {str(e)[:200]}"
@@ -2573,6 +2602,38 @@ async def get_run_history(
     except Exception as e:
         logger.error(f"Failed to get history for {base_url}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get run history: {str(e)}")
+
+
+@router.get("/{run_id}/test-cases", summary="Get test cases for a run")
+async def get_test_cases(run_id: str):
+    """Get all generated test cases for a run."""
+    try:
+        # Get run context to find artifacts path
+        context = _run_store.get_run(run_id)
+        if not context:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+        # Load test cases from file
+        test_cases_file = Path(context.artifacts_path) / "test_cases.json"
+
+        if not test_cases_file.exists():
+            # Return empty if not generated yet
+            return {
+                "run_id": run_id,
+                "total_test_cases": 0,
+                "scenarios": []
+            }
+
+        with open(test_cases_file, "r") as f:
+            test_cases_data = json.load(f)
+
+        return test_cases_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to get test cases: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get test cases: {str(e)}")
 
 
 @router.get("/stats", summary="Get database statistics")

@@ -1126,7 +1126,19 @@ class DiscoveryRunner:
                     "actions_count": len(page_info.get("primary_actions", [])),
                     "resources": []
                 })
-                
+
+                # Generate test cases for this page
+                try:
+                    from app.services.test_case_generator import get_test_case_generator
+                    test_gen = get_test_case_generator()
+                    page_test_cases = test_gen.generate_test_cases_for_page(page_info, run_id)
+
+                    # Emit events for each test case
+                    for tc in page_test_cases:
+                        test_gen.emit_test_case_event(run_id, artifacts_path, tc)
+                except Exception as tc_error:
+                    logger.warning(f"[{run_id}] Failed to generate test cases: {tc_error}")
+
                 # Test all interactions on home page before moving on
                 await self._test_page_interactions_complete(
                     page, base_url, page_info, run_id, artifacts_path, visited_urls, visited_fingerprints, visited_pages, forms_found, base_domain, discovery_dir, max_pages, "", debug
@@ -1138,6 +1150,18 @@ class DiscoveryRunner:
             for idx, nav in enumerate(nav_items):
                 # Intelligent stopping conditions
                 elapsed_time = asyncio.get_event_loop().time() - discovery_start_time
+                
+                # Emit periodic progress event every 30 seconds to show discovery is still running
+                if idx % 10 == 0 or elapsed_time % 30 < 1:  # Every 10 pages or every 30 seconds
+                    self._emit_event(run_id, artifacts_path, "discovery_progress", {
+                        "status": "in_progress",
+                        "pages_discovered": len(visited_pages),
+                        "forms_found": len(forms_found),
+                        "current_nav_index": idx,
+                        "total_nav_items": len(nav_items),
+                        "elapsed_minutes": round(elapsed_time / 60, 1),
+                        "max_time_minutes": self.config.max_discovery_time_minutes
+                    })
 
                 if len(visited_pages) >= max_pages:
                     logger.info(f"[{run_id}] Reached max pages limit ({max_pages})")
@@ -1228,10 +1252,25 @@ class DiscoveryRunner:
                     if page_info.get("forms"):
                         forms_found.extend(page_info["forms"])
 
+                    # Check timeout before long-running operations
+                    elapsed_time = asyncio.get_event_loop().time() - discovery_start_time
+                    if elapsed_time > max_discovery_time:
+                        logger.info(f"[{run_id}] Reached max discovery time ({max_discovery_time/60:.1f} minutes) before page interactions")
+                        break
+                    
                     # CRITICAL: Test ALL page interactions BEFORE moving to next page
                     # This ensures we fully validate each page (search, filters, sort, pagination) in one go
                     try:
                         logger.info(f"[{run_id}] Testing all interactions on page: {final_url}")
+                        # Emit progress event to show we're still working
+                        self._emit_event(run_id, artifacts_path, "discovery_progress", {
+                            "status": "in_progress",
+                            "pages_discovered": len(visited_pages),
+                            "forms_found": len(forms_found),
+                            "current_page": final_url,
+                            "elapsed_minutes": round(elapsed_time / 60, 1),
+                            "max_time_minutes": self.config.max_discovery_time_minutes
+                        })
                         await self._test_page_interactions_complete(
                             page, final_url, page_info, run_id, artifacts_path, visited_urls, visited_fingerprints, visited_pages, forms_found, base_domain, discovery_dir, max_pages, nav_path, debug
                         )
@@ -1319,7 +1358,19 @@ class DiscoveryRunner:
                         "forms": page_info.get("forms", [])[:3],  # first 3 forms with fields
                         "tables": page_info.get("tables", [])[:3],
                     })
-                    
+
+                    # Generate test cases for this page
+                    try:
+                        from app.services.test_case_generator import get_test_case_generator
+                        test_gen = get_test_case_generator()
+                        page_test_cases = test_gen.generate_test_cases_for_page(page_info, run_id)
+
+                        # Emit events for each test case
+                        for tc in page_test_cases:
+                            test_gen.emit_test_case_event(run_id, artifacts_path, tc)
+                    except Exception as tc_error:
+                        logger.warning(f"[{run_id}] Failed to generate test cases: {tc_error}")
+
                     # NOTE: We no longer call _deep_discover_page_enhanced here because:
                     # 1. _test_page_interactions_complete already tests all interactions
                     # 2. _deep_discover_page_enhanced would navigate away and might not return
@@ -1384,6 +1435,33 @@ class DiscoveryRunner:
             with open(appmap_file, "w") as f:
                 json.dump(appmap, f, indent=2, default=str)
             
+            # Collect and save all generated test cases
+            try:
+                from app.services.test_case_generator import get_test_case_generator
+                test_gen = get_test_case_generator()
+
+                # Collect all test cases from all pages
+                all_test_cases = []
+                for page in visited_pages:
+                    page_test_cases = test_gen.generate_test_cases_for_page(page, run_id)
+                    all_test_cases.extend(page_test_cases)
+
+                # Save consolidated test cases
+                test_gen.save_test_cases(run_id, artifacts_path, all_test_cases)
+
+                logger.info(f"[{run_id}] Generated and saved {len(all_test_cases)} test cases")
+
+                # Emit test cases summary event
+                scenarios = test_gen.group_test_cases_by_scenario(all_test_cases)
+                self._emit_event(run_id, artifacts_path, "test_cases_generated", {
+                    "total_test_cases": len(all_test_cases),
+                    "scenarios_count": len(scenarios),
+                    "scenarios": scenarios
+                })
+
+            except Exception as tc_error:
+                logger.error(f"[{run_id}] Failed to save test cases: {tc_error}", exc_info=True)
+
             self._emit_event(run_id, artifacts_path, "discovery_completed", {
                 "pages_count": len(visited_pages),
                 "forms_count": len(forms_found),
@@ -1404,14 +1482,14 @@ class DiscoveryRunner:
                 health_report = await health_checker.execute_health_checks(
                     run_id=run_id,
                     pages=visited_pages,
-                    browser_context=context,
+                    browser_context=page.context,
                     debug=debug
                 )
 
                 # Save health check report
                 health_report_path = discovery_dir / "health_check_report.json"
                 with open(health_report_path, "w") as f:
-                    f.write(health_report.json(indent=2))
+                    f.write(json.dumps(health_report.model_dump(), indent=2, default=str))
 
                 logger.info(f"[{run_id}] Health checks completed: {health_report.checks_passed} passed, "
                            f"{health_report.checks_failed} failed, {health_report.checks_skipped} skipped")

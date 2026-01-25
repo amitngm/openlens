@@ -41,7 +41,8 @@ class RunStore:
         max_pages: Optional[int] = None,
         max_forms_per_page: Optional[int] = None,
         max_table_rows_to_click: Optional[int] = None,
-        max_discovery_time_minutes: Optional[int] = None
+        max_discovery_time_minutes: Optional[int] = None,
+        close_browser_on_complete: bool = False
     ) -> RunContext:
         """
         Create a new run context.
@@ -74,6 +75,7 @@ class RunStore:
             max_forms_per_page=max_forms_per_page,
             max_table_rows_to_click=max_table_rows_to_click,
             max_discovery_time_minutes=max_discovery_time_minutes,
+            close_browser_on_complete=close_browser_on_complete,
             timestamps={RunState.START.value: datetime.utcnow().isoformat() + "Z"}
         )
         

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Cases Viewer - Run 044ec3a4-51e</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f7fa;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            color: #1a202c;
+        }
+        .summary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            display: flex;
+            gap: 40px;
+        }
+        .summary-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .summary-value {
+            font-size: 32px;
+            font-weight: bold;
+        }
+        .summary-label {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        .scenario-card {
+            background: white;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .scenario-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .scenario-title { font-size: 18px; font-weight: 600; }
+        .scenario-stats {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background: #f7fafc;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+            color: #4a5568;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 14px;
+        }
+        tr:hover { background: #f7fafc; }
+        .test-id {
+            font-family: monospace;
+            font-size: 11px;
+            background: #edf2f7;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .test-name { font-weight: 500; margin-bottom: 4px; }
+        .test-desc { font-size: 12px; color: #718096; }
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge-type {
+            background: #e0e7ff;
+            color: #5a67d8;
+        }
+        .badge-high {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+        .badge-medium {
+            background: #fef3c7;
+            color: #d97706;
+        }
+        .badge-low {
+            background: #dbeafe;
+            color: #2563eb;
+        }
+        .badge-pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .steps {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f7fafc;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .steps-title {
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #4a5568;
+        }
+        .steps ol {
+            margin-left: 20px;
+        }
+        .steps li {
+            margin-bottom: 4px;
+            color: #718096;
+        }
+        .expected {
+            margin-top: 8px;
+            padding: 8px;
+            background: #d1fae5;
+            border-left: 3px solid #10b981;
+            font-size: 12px;
+            color: #065f46;
+        }
+        .collapsible {
+            cursor: pointer;
+            user-select: none;
+        }
+        .collapsible:hover {
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📋 Test Cases - Run 044ec3a4-51e</h1>
+        <p style="color: #718096; margin-bottom: 30px;">Generated from discovery results</p>
+
+        <div class="summary">
+            <div class="summary-item">
+                <div class="summary-value" id="total-tests">-</div>
+                <div class="summary-label">Total Test Cases</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value" id="total-scenarios">-</div>
+                <div class="summary-label">Scenarios</div>
+            </div>
+            <div class="summary-item">
+                <div class="summary-value" id="total-pages">-</div>
+                <div class="summary-label">Pages Covered</div>
+            </div>
+        </div>
+
+        <div id="scenarios-container"></div>
+    </div>
+
+    <script>
+        // Load test cases data
+        fetch('agent-api/data/044ec3a4-51e/test_cases.json')
+            .then(response => response.json())
+            .then(data => {
+                displayTestCases(data);
+            })
+            .catch(error => {
+                document.getElementById('scenarios-container').innerHTML =
+                    '<div style="background: white; padding: 40px; text-align: center; border-radius: 12px;">' +
+                    '<h2>❌ Error Loading Test Cases</h2>' +
+                    '<p style="color: #718096; margin-top: 10px;">' + error.message + '</p>' +
+                    '<p style="color: #718096; margin-top: 10px;">Make sure you\'re opening this file from the qa-agent directory</p>' +
+                    '</div>';
+            });
+
+        function displayTestCases(data) {
+            // Update summary
+            document.getElementById('total-tests').textContent = data.total_test_cases || 0;
+            document.getElementById('total-scenarios').textContent = data.scenarios.length || 0;
+
+            const uniquePages = new Set(data.all_test_cases.map(tc => tc.page_name));
+            document.getElementById('total-pages').textContent = uniquePages.size;
+
+            // Display scenarios
+            const container = document.getElementById('scenarios-container');
+            let html = '';
+
+            data.scenarios.forEach((scenario, idx) => {
+                html += `
+                    <div class="scenario-card">
+                        <div class="scenario-header">
+                            <div class="scenario-title">${scenario.scenario_name}</div>
+                            <div class="scenario-stats">
+                                <span>Total: ${scenario.total}</span>
+                                ${scenario.passed > 0 ? `<span style="color: #d1fae5;">✓ ${scenario.passed}</span>` : ''}
+                                ${scenario.failed > 0 ? `<span style="color: #fee2e2;">✗ ${scenario.failed}</span>` : ''}
+                                ${scenario.pending > 0 ? `<span style="color: #fef3c7;">⏳ ${scenario.pending}</span>` : ''}
+                            </div>
+                        </div>
+                        <div style="padding: 20px;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th style="width: 200px;">Test ID</th>
+                                        <th>Test Case</th>
+                                        <th style="width: 120px;">Type</th>
+                                        <th style="width: 100px;">Priority</th>
+                                        <th style="width: 100px;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                `;
+
+                scenario.test_cases.forEach(tc => {
+                    const priorityClass = tc.priority === 'high' ? 'badge-high' :
+                                        tc.priority === 'medium' ? 'badge-medium' : 'badge-low';
+
+                    html += `
+                        <tr>
+                            <td><span class="test-id">${tc.id}</span></td>
+                            <td>
+                                <div class="test-name collapsible" onclick="toggleDetails('${tc.id}')">${tc.name} ▼</div>
+                                <div class="test-desc">${tc.description}</div>
+                                <div id="details-${tc.id}" style="display: none;">
+                                    <div class="steps">
+                                        <div class="steps-title">Test Steps:</div>
+                                        <ol>
+                                            ${tc.steps.map(step => `<li>${step}</li>`).join('')}
+                                        </ol>
+                                    </div>
+                                    <div class="expected">
+                                        <strong>Expected Result:</strong> ${tc.expected_result}
+                                    </div>
+                                </div>
+                            </td>
+                            <td><span class="badge badge-type">${tc.type}</span></td>
+                            <td><span class="badge ${priorityClass}">${tc.priority}</span></td>
+                            <td><span class="badge badge-${tc.status}">${tc.status}</span></td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function toggleDetails(testId) {
+            const details = document.getElementById('details-' + testId);
+            if (details.style.display === 'none') {
+                details.style.display = 'block';
+            } else {
+                details.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,1 +1,14 @@
-/opt/homebrew/opt/python@3.14/bin/python3.14: No module named uvicorn
+{"time":"2026-01-25 20:01:44,503","level":"INFO","msg":"UI served from: /Users/amitkumarnigam/Downloads/openlens/qa-agent/agent-api/ui"}
+{"time":"2026-01-25 20:01:44,508","level":"INFO","msg":"QA Agent API initialized"}
+INFO:     Started server process [10387]
+INFO:     Waiting for application startup.
+{"time":"2026-01-25 20:01:44,509","level":"INFO","msg":"Initializing database..."}
+{"time":"2026-01-25 20:01:44,513","level":"INFO","msg":"Database initialized successfully"}
+{"time":"2026-01-25 20:01:44,513","level":"INFO","msg":"Database initialized successfully"}
+INFO:     Application startup complete.
+ERROR:    [Errno 1] error while attempting to bind on address ('0.0.0.0', 8080): [errno 1] operation not permitted
+INFO:     Waiting for application shutdown.
+{"time":"2026-01-25 20:01:44,514","level":"INFO","msg":"Closing database connections..."}
+{"time":"2026-01-25 20:01:44,514","level":"INFO","msg":"Database connections closed"}
+{"time":"2026-01-25 20:01:44,514","level":"INFO","msg":"Application shutdown complete"}
+INFO:     Application shutdown complete.

@@ -897,6 +897,15 @@
             }
         }
 
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
         .health-page-title {
             font-weight: 500;
             color: #111827;
@@ -933,22 +942,40 @@
 
             <!-- Application View -->
             <div id="app-view" class="app-view active">
-                <div class="app-iframe-container">
-                    <div class="app-iframe-header">
-                        <h3>📱 Application UI</h3>
-                        <button id="open_app_tab_btn" class="btn-sm hidden" style="background: var(--success);">
-                            Open in New Tab
-                        </button>
+                <div style="display: flex; flex-direction: column; height: 100%;">
+                    <!-- Discovered Features Cards Section -->
+                    <div id="app_discovered_features" style="padding: 20px; background: var(--bg-secondary); border-bottom: 2px solid var(--border); display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h3 style="font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 8px;">
+                                <span>🔍</span> Discovered Features
+                            </h3>
+                            <button onclick="viewReport()" class="btn-secondary btn-sm" id="app_view_report_btn" style="display: none;">
+                                📊 View Full Report
+                            </button>
+                        </div>
+                        <div id="app_features_cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+                            <!-- Feature cards will be populated here -->
+                        </div>
                     </div>
-                    <iframe id="app_iframe" class="app-iframe" src="about:blank" title="Application"></iframe>
-                    <div id="iframe_blocked" class="hidden" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; background: var(--bg-tertiary);">
-                        <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 16px;">⚠️ Application cannot be embedded (X-Frame-Options blocked)</p>
-                        <p style="color: var(--text-secondary); font-size: 14px; max-width: 400px; margin-bottom: 20px;">
-                            This is a security feature. QA Buddy uses Playwright in the background to interact with your application.
-                        </p>
-                        <button id="open_app_tab_btn2" onclick="window.open(currentAppUrl || document.getElementById('base_url').value, '_blank')">
-                            Open Application in New Tab
-                        </button>
+                    
+                    <!-- Application Iframe Section -->
+                    <div class="app-iframe-container" style="flex: 1; overflow: hidden;">
+                        <div class="app-iframe-header">
+                            <h3>📱 Application UI</h3>
+                            <button id="open_app_tab_btn" class="btn-sm hidden" style="background: var(--success);">
+                                Open in New Tab
+                            </button>
+                        </div>
+                        <iframe id="app_iframe" class="app-iframe" src="about:blank" title="Application"></iframe>
+                        <div id="iframe_blocked" class="hidden" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; text-align: center; background: var(--bg-tertiary);">
+                            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 16px;">⚠️ Application cannot be embedded (X-Frame-Options blocked)</p>
+                            <p style="color: var(--text-secondary); font-size: 14px; max-width: 400px; margin-bottom: 20px;">
+                                This is a security feature. QA Buddy uses Playwright in the background to interact with your application.
+                            </p>
+                            <button id="open_app_tab_btn2" onclick="window.open(currentAppUrl || document.getElementById('base_url').value, '_blank')">
+                                Open Application in New Tab
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -994,9 +1021,16 @@
             <div id="progress-view" class="app-view">
                 <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
                     <div style="margin-bottom: 24px;">
-                        <h2 style="font-size: 22px; font-weight: 700; margin-bottom: 16px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-                            <span>📊</span> Live Discovery Progress
-                        </h2>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h2 style="font-size: 22px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin: 0;">
+                                <span>📊</span> Live Discovery Progress
+                                <span style="font-size: 12px; font-weight: 400; color: var(--text-secondary); margin-left: 8px;">(Works in headless mode)</span>
+                            </h2>
+                            <div id="discovery_status_badge" style="padding: 8px 16px; background: var(--bg-tertiary); border-radius: 20px; font-size: 13px; font-weight: 600; color: var(--text-secondary); display: flex; align-items: center; gap: 8px;">
+                                <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--text-secondary);"></span>
+                                <span>Not Started</span>
+                            </div>
+                        </div>
                         <div class="discovery-stats" style="margin-bottom: 24px;">
                             <div class="stat-card">
                                 <div class="stat-value" id="app_progress_pages">0</div>
@@ -1016,7 +1050,10 @@
                         <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary);">
                             <div style="font-size: 48px; margin-bottom: 16px;">⏳</div>
                             <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">Waiting for discovery to start...</p>
-                            <p style="font-size: 14px;">Progress will appear here in real-time</p>
+                            <p style="font-size: 14px; margin-bottom: 12px;">Progress will appear here in real-time</p>
+                            <p style="font-size: 12px; color: var(--primary); font-weight: 500;">
+                                ⚡ Auto-updates every second - no refresh needed!
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -1083,6 +1120,10 @@
                             <div class="checkbox-group">
                                 <input type="checkbox" id="discovery_debug">
                                 <label for="discovery_debug">Enable discovery debug mode (headed, slowMo, video)</label>
+                            </div>
+                            <div class="form-group">
+                                <input type="checkbox" id="close_browser_on_complete">
+                                <label for="close_browser_on_complete">Close browser automatically when tests complete</label>
                             </div>
                         </div>
 
@@ -1351,15 +1392,15 @@
     <script>
         // Configuration
         const API_BASE = window.location.origin;
-        
+
         // State
-        let currentRunId = null;
+        let currentRunId = localStorage.getItem('currentRunId') || null;
         let pollingInterval = null;
         let eventsPollingInterval = null;
         let testCasesPollingInterval = null;
         let currentQuestion = null;
         let currentAppUrl = null;
-        let eventsCursor = 0;
+        let eventsCursor = parseInt(localStorage.getItem('eventsCursor_' + currentRunId) || '0');
         let discoveredPages = [];
         let selectedPageIndex = null;
         let uploadedImages = [];
@@ -1625,6 +1666,7 @@
                 env: document.getElementById('env').value,
                 headless: document.getElementById('headless').checked,
                 discovery_debug: document.getElementById('discovery_debug').checked,
+                close_browser_on_complete: document.getElementById('close_browser_on_complete').checked,
                 uploaded_images: uploadedImageResults  // Include pre-uploaded images
             };
 
@@ -1672,21 +1714,16 @@
 
                 const data = await response.json();
                 currentRunId = data.run_id;
+                localStorage.setItem('currentRunId', currentRunId);
 
                 showMessage(`Run started: ${currentRunId}`, 'success');
                 document.getElementById('status_card').classList.remove('hidden');
                 document.getElementById('free_text_card').classList.remove('hidden');
                 document.getElementById('stop_btn').classList.remove('hidden');
                 
-                // Load app in iframe immediately with base URL
+                // Load app in iframe immediately with base URL (but don't switch to app tab yet)
                 if (baseUrl) {
                     loadAppInIframe(baseUrl, data.current_url || baseUrl);
-                    // Switch to Application tab to show the app
-                    const appTab = document.querySelector('.app-tab[onclick*="app"]');
-                    if (appTab) {
-                        switchAppTab('app');
-                        appTab.classList.add('active');
-                    }
                 }
                 
                 // Reset progress stats
@@ -1694,16 +1731,46 @@
                 document.getElementById('app_progress_forms').textContent = '0';
                 document.getElementById('app_progress_actions').textContent = '0';
                 
+                // Reset events cursor for new run
+                eventsCursor = 0;
+                localStorage.setItem('eventsCursor_' + currentRunId, '0');
+                
+                // Reset discovery status
+                updateDiscoveryStatus('not_started', null);
+                
+                // Auto-switch to Live Progress tab FIRST to show headless progress
+                // This ensures users see progress updates immediately, especially in headless mode
+                const progressTab = document.querySelector('.app-tab[onclick*="progress"]');
+                if (progressTab) {
+                    // Remove active from all tabs
+                    document.querySelectorAll('.app-tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
+                    // Activate progress tab
+                    switchAppTab('progress');
+                    progressTab.classList.add('active');
+                }
+                
                 // Clear progress feed and show starting message
                 const appFeed = document.getElementById('app_progress_feed');
                 if (appFeed) {
-                    appFeed.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--success); font-weight: 500;">🚀 Discovery starting...</div>';
+                    appFeed.innerHTML = `
+                        <div style="text-align: center; padding: 20px; color: var(--success); font-weight: 500;">
+                            <div style="font-size: 32px; margin-bottom: 12px;">🚀</div>
+                            <div style="font-size: 16px; margin-bottom: 8px; font-weight: 600;">Discovery starting...</div>
+                            <div style="font-size: 13px; color: var(--text-secondary);">
+                                ⚡ Updates appear automatically - no refresh needed!<br>
+                                Watch this tab for real-time progress.
+                            </div>
+                        </div>
+                    `;
                 }
                 
                 updateStatus(data);
                 startPolling();
-                startEventsPolling();
+                startEventsPolling(); // This will poll every 1 second and show updates
                 startTestCasesPolling(); // Start polling for test cases during discovery
+                
+                console.log('✅ Run started:', currentRunId, '- Events polling active, watching for updates...');
 
             } catch (error) {
                 showMessage(`Failed to start run: ${error.message}`, 'error');
@@ -1748,11 +1815,13 @@
                     }
                     if (data.state === 'DISCOVERY_RUN' || data.state === 'DISCOVERY_SUMMARY') {
                         switchTab('discovery');
-                        // Auto-switch to progress view during discovery
+                        // Auto-switch to progress view during discovery (for headless mode visibility)
                         const progressTab = document.querySelector('.app-tab[onclick*="progress"]');
-                        if (progressTab && !progressTab.classList.contains('active')) {
+                        if (progressTab) {
                             switchAppTab('progress');
                             progressTab.classList.add('active');
+                            document.querySelector('.app-tab[onclick*="app"]')?.classList.remove('active');
+                            document.querySelector('.app-tab[onclick*="testcases"]')?.classList.remove('active');
                         }
                     }
                     if (data.state === 'DISCOVERY_SUMMARY' || data.state === 'WAIT_TEST_INTENT') {
@@ -1788,29 +1857,35 @@
 
         function startEventsPolling() {
             if (eventsPollingInterval) clearInterval(eventsPollingInterval);
+            console.log('🔄 Starting events polling for run:', currentRunId);
             eventsPollingInterval = setInterval(async () => {
-                if (!currentRunId) return;
+                if (!currentRunId) {
+                    console.log('⚠️ No current run ID, stopping events polling');
+                    return;
+                }
                 try {
                     const response = await fetch(`${API_BASE}/runs/${currentRunId}/events?after=${eventsCursor}`);
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
                     const data = await response.json();
                     if (data.events && data.events.length > 0) {
+                        console.log(`📥 Received ${data.events.length} events, cursor: ${eventsCursor} -> ${data.next_cursor}`);
                         processEvents(data.events);
                         eventsCursor = data.next_cursor;
+                        if (currentRunId) {
+                            localStorage.setItem('eventsCursor_' + currentRunId, eventsCursor.toString());
+                        }
                         
-                        // Update progress stats in real-time from events
+                        // Update progress stats in real-time from events (works in headless mode too)
                         data.events.forEach(event => {
-                            if (event.type === 'discovery_completed') {
-                                updateDiscoveryStats(event.data);
-                                showCompletionNotification('Discovery completed successfully!', 'success');
-                            } else if (event.type === 'page_discovered') {
-                                // Update stats incrementally
+                            if (event.type === 'page_discovered') {
+                                // Update stats incrementally - this works even in headless mode
                                 const pagesCount = document.getElementById('app_progress_pages');
                                 const formsCount = document.getElementById('app_progress_forms');
                                 const actionsCount = document.getElementById('app_progress_actions');
                                 if (pagesCount) {
                                     const current = parseInt(pagesCount.textContent) || 0;
-                                    pagesCount.textContent = current + 1;
+                                    // Increment page count for each page_discovered event
+                                    pagesCount.textContent = (current + 1);
                                 }
                                 if (formsCount && event.data.forms_count) {
                                     const current = parseInt(formsCount.textContent) || 0;
@@ -1826,7 +1901,7 @@
                 } catch (error) {
                     console.error('Events polling error:', error);
                 }
-            }, 1000); // Poll every 1 second for faster updates
+            }, 1000); // Poll every 1 second for faster updates - works in headless mode
         }
 
         function startTestCasesPolling() {
@@ -1914,6 +1989,9 @@
 
             // Also update the app panel test cases view
             updateAppPanelTestCases(data);
+            
+            // Update discovered features cards in Application tab
+            updateAppDiscoveredFeatures(data);
 
             // Display features
             let html = '';
@@ -2028,9 +2106,55 @@
                 } else if (event.type === 'page_testing_completed') {
                     // Show: "Page testing completed"
                     updatePageTestingStatus(event.data, 'completed');
+                } else if (event.type === 'discovery_started') {
+                    updateDiscoveryStatus('started', event.data);
+                } else if (event.type === 'discovery_progress') {
+                    // Periodic progress update - shows discovery is still running
+                    updateDiscoveryStatus('in_progress', event.data);
+                    // Update elapsed time if available
+                    if (event.data.elapsed_minutes) {
+                        const badge = document.getElementById('discovery_status_badge');
+                        if (badge) {
+                            const timeText = `${event.data.elapsed_minutes}min / ${event.data.max_time_minutes}min`;
+                            badge.setAttribute('title', `Elapsed: ${timeText}`);
+                        }
+                    }
+                } else if (event.type === 'test_case_generated') {
+                    handleTestCaseGenerated(event.data);
+                } else if (event.type === 'test_cases_generated') {
+                    handleTestCasesGenerated(event.data);
+                    // Fetch and display all test cases
+                    fetchTestCases();
                 } else if (event.type === 'discovery_completed') {
+                    updateDiscoveryStatus('completed', event.data);
                     updateDiscoveryStats(event.data);
-                    stopEventsPolling();
+                    // Fetch test cases immediately when discovery completes
+                    // This will also update discovered features in Application tab via displayFeatures()
+                    fetchAndDisplayFeatures();
+                    fetchTestCases(); // Fetch generated test cases
+                    checkReportAvailable();
+                    // Don't stop polling immediately - let it continue to show health checks
+                    // stopEventsPolling();
+                    // Show completion in a prominent way
+                    showCompletionNotification('🎉 Discovery completed! View test cases and report.', 'success');
+                    // Auto-switch to test cases tab after a delay
+                    setTimeout(() => {
+                        const testCasesTab = document.querySelector('.app-tab[onclick*="testcases"]');
+                        if (testCasesTab) {
+                            switchAppTab('testcases');
+                            testCasesTab.classList.add('active');
+                        }
+                    }, 2000);
+                } else if (event.type === 'discovery_failed') {
+                    updateDiscoveryStatus('failed', event.data);
+                    showMessage(`Discovery failed: ${event.data.error || 'Unknown error'}`, 'error');
+                    showCompletionNotification('❌ Discovery failed. Check logs for details.', 'error');
+                } else if (event.type === 'page_discovered' || event.type === 'page_visit_started' || event.type === 'page_testing_started') {
+                    // Update status to "in progress" when any page activity happens
+                    const statusBadge = document.getElementById('discovery_status_badge');
+                    if (statusBadge && !statusBadge.textContent.includes('Completed') && !statusBadge.textContent.includes('Failed')) {
+                        updateDiscoveryStatus('in_progress', null);
+                    }
                 } else if (event.type === 'health_check_started') {
                     showHealthCheckDashboard(event.data);
                 } else if (event.type === 'page_validation_started') {
@@ -2124,8 +2248,14 @@
                 message = `${event.data.status === 'testing' ? '⏳' : '✓'} ${actionName}`;
             } else if (event.type === 'page_testing_completed') {
                 message = `✅ Completed testing: ${event.data.page_name || 'page'}`;
+            } else if (event.type === 'discovery_started') {
+                message = `🚀 Discovery started`;
+            } else if (event.type === 'discovery_progress') {
+                message = `⏳ Discovery in progress: ${event.data.pages_discovered} pages, ${event.data.elapsed_minutes}min elapsed`;
             } else if (event.type === 'discovery_completed') {
-                message = `✅ Discovery completed: ${event.data.pages_count} pages, ${event.data.forms_count} forms`;
+                message = `✅ Discovery completed: ${event.data.pages_count || 0} pages, ${event.data.forms_count || 0} forms, ${event.data.api_endpoints_count || 0} APIs`;
+            } else if (event.type === 'discovery_failed') {
+                message = `❌ Discovery failed: ${event.data.error || 'Unknown error'}`;
             } else if (event.type === 'health_check_started') {
                 message = `✅ Starting Phase 1 health checks on ${event.data.total_pages} pages`;
             } else if (event.type === 'page_validation_started') {
@@ -2238,17 +2368,108 @@
         }
 
         function updateDiscoveryStats(data) {
-            document.getElementById('discovery_pages_count').textContent = data.pages_count || 0;
-            document.getElementById('discovery_forms_count').textContent = data.forms_count || 0;
-            document.getElementById('discovery_actions_count').textContent = data.actions_count || 0;
+            // Update right panel stats (if they exist)
+            const discoveryPages = document.getElementById('discovery_pages_count');
+            const discoveryForms = document.getElementById('discovery_forms_count');
+            const discoveryActions = document.getElementById('discovery_actions_count');
             
-            // Also update app panel progress stats
-            const appPages = document.getElementById('app_progress_pages');
-            const appForms = document.getElementById('app_progress_forms');
-            const appActions = document.getElementById('app_progress_actions');
-            if (appPages) appPages.textContent = data.pages_count || 0;
-            if (appForms) appForms.textContent = data.forms_count || 0;
-            if (appActions) appActions.textContent = data.actions_count || 0;
+            if (discoveryPages && data.pages_count !== undefined) {
+                discoveryPages.textContent = data.pages_count || 0;
+            }
+            if (discoveryForms && data.forms_count !== undefined) {
+                discoveryForms.textContent = data.forms_count || 0;
+            }
+            if (discoveryActions && data.actions_count !== undefined) {
+                discoveryActions.textContent = data.actions_count || 0;
+            }
+            
+            // Update app panel progress stats (Live Progress tab) - this is the main one
+            const pagesCount = document.getElementById('app_progress_pages');
+            const formsCount = document.getElementById('app_progress_forms');
+            const actionsCount = document.getElementById('app_progress_actions');
+            
+            if (pagesCount && data.pages_count !== undefined) {
+                pagesCount.textContent = data.pages_count;
+            }
+            if (formsCount && data.forms_count !== undefined) {
+                formsCount.textContent = data.forms_count;
+            }
+            if (actionsCount) {
+                if (data.actions_count !== undefined) {
+                    actionsCount.textContent = data.actions_count;
+                } else if (data.api_endpoints_count !== undefined) {
+                    // Use API endpoints as actions if actions_count not available
+                    actionsCount.textContent = data.api_endpoints_count;
+                }
+            }
+            
+            console.log('Discovery stats updated:', {
+                pages: data.pages_count,
+                forms: data.forms_count,
+                actions: data.actions_count || data.api_endpoints_count
+            });
+        }
+
+        function updateAppDiscoveredFeatures(data) {
+            const featuresSection = document.getElementById('app_discovered_features');
+            const featuresCards = document.getElementById('app_features_cards');
+            const reportBtn = document.getElementById('app_view_report_btn');
+            
+            if (!featuresSection || !featuresCards || !data || !data.features) return;
+            
+            // Show the section if we have features
+            if (data.features && data.features.length > 0) {
+                featuresSection.style.display = 'block';
+                
+                // Show report button if available
+                if (reportBtn) {
+                    checkReportAvailable(); // This will show the button if report exists
+                }
+                
+                // Generate feature cards
+                let html = '';
+                data.features.forEach((feature, idx) => {
+                    const totalPages = feature.pages ? feature.pages.length : 0;
+                    const totalTests = feature.test_cases ? feature.test_cases.length : 0;
+                    const passedTests = feature.test_cases ? feature.test_cases.filter(tc => tc.status === 'passed').length : 0;
+                    const failedTests = feature.test_cases ? feature.test_cases.filter(tc => tc.status === 'failed').length : 0;
+                    
+                    html += `
+                        <div style="background: white; border: 1px solid var(--border); border-radius: 12px; padding: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: all 0.2s;">
+                            <div style="display: flex; align-items: start; justify-content: space-between; margin-bottom: 12px;">
+                                <div style="flex: 1;">
+                                    <h4 style="font-size: 16px; font-weight: 700; color: var(--text-primary); margin: 0 0 8px 0; display: flex; align-items: center; gap: 8px;">
+                                        <span style="font-size: 20px;">${feature.feature_name === 'Dashboard' ? '📊' : '🔧'}</span>
+                                        ${feature.feature_name}
+                                    </h4>
+                                    <div style="display: flex; gap: 12px; font-size: 12px; color: var(--text-secondary);">
+                                        <span>📄 ${totalPages} pages</span>
+                                        <span>✅ ${totalTests} tests</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+                                <div style="flex: 1; text-align: center; padding: 8px; background: rgba(16, 185, 129, 0.1); border-radius: 6px;">
+                                    <div style="font-size: 18px; font-weight: 700; color: #10b981;">${passedTests}</div>
+                                    <div style="font-size: 11px; color: var(--text-secondary);">Passed</div>
+                                </div>
+                                <div style="flex: 1; text-align: center; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 6px;">
+                                    <div style="font-size: 18px; font-weight: 700; color: #ef4444;">${failedTests}</div>
+                                    <div style="font-size: 11px; color: var(--text-secondary);">Failed</div>
+                                </div>
+                                <div style="flex: 1; text-align: center; padding: 8px; background: rgba(245, 158, 11, 0.1); border-radius: 6px;">
+                                    <div style="font-size: 18px; font-weight: 700; color: #f59e0b;">${totalTests - passedTests - failedTests}</div>
+                                    <div style="font-size: 11px; color: var(--text-secondary);">Pending</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                featuresCards.innerHTML = html;
+            } else {
+                featuresSection.style.display = 'none';
+            }
         }
 
         function updateAppPanelTestCases(data) {
@@ -2479,6 +2700,60 @@
             window.open(`${API_BASE}/runs/${currentRunId}/report`, '_blank');
         }
 
+        function updateDiscoveryStatus(status, data) {
+            const badge = document.getElementById('discovery_status_badge');
+            if (!badge) return;
+
+            const statusConfig = {
+                'not_started': {
+                    text: 'Not Started',
+                    color: '#6b7280',
+                    bg: 'var(--bg-tertiary)',
+                    icon: '⚪'
+                },
+                'started': {
+                    text: 'Started',
+                    color: '#3b82f6',
+                    bg: '#dbeafe',
+                    icon: '🚀'
+                },
+                'in_progress': {
+                    text: 'In Progress',
+                    color: '#f59e0b',
+                    bg: '#fef3c7',
+                    icon: '⏳'
+                },
+                'completed': {
+                    text: 'Completed',
+                    color: '#10b981',
+                    bg: '#d1fae5',
+                    icon: '✅'
+                },
+                'failed': {
+                    text: 'Failed',
+                    color: '#ef4444',
+                    bg: '#fee2e2',
+                    icon: '❌'
+                }
+            };
+
+            const config = statusConfig[status] || statusConfig['not_started'];
+            badge.innerHTML = `
+                <span style="width: 10px; height: 10px; border-radius: 50%; background: ${config.color}; ${status === 'in_progress' ? 'animation: pulse 2s infinite;' : ''}"></span>
+                <span>${config.icon} ${config.text}</span>
+            `;
+            badge.style.background = config.bg;
+            badge.style.color = config.color;
+
+            // Also update in the right panel if it exists
+            const rightPanelBadge = document.querySelector('#discovery_status_badge_right');
+            if (rightPanelBadge) {
+                rightPanelBadge.innerHTML = badge.innerHTML;
+                rightPanelBadge.style.background = config.bg;
+                rightPanelBadge.style.color = config.color;
+            }
+        }
+
         // Health Check Dashboard Functions
         let healthCheckTotalPages = 0;
 
@@ -2644,6 +2919,191 @@
             // Could show an error notification
         }
 
+        // Test Case Event Handlers
+        let testCaseCount = 0;
+
+        function handleTestCaseGenerated(data) {
+            testCaseCount++;
+            console.log(`Test case generated (#${testCaseCount}):`, data.test_case_name);
+
+            // Update test case counter in UI if visible
+            const counter = document.getElementById('test_cases_counter');
+            if (counter) {
+                counter.textContent = testCaseCount;
+            }
+        }
+
+        function handleTestCasesGenerated(data) {
+            console.log(`All test cases generated: ${data.total_test_cases} test cases in ${data.scenarios_count} scenarios`);
+            testCaseCount = data.total_test_cases;
+
+            // Show notification
+            showMessage(`✨ Generated ${data.total_test_cases} test cases in ${data.scenarios_count} scenarios`, 'success');
+        }
+
+        async function fetchTestCases() {
+            if (!currentRunId) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/test-cases`);
+                if (!response.ok) {
+                    console.warn('Test cases not available yet');
+                    return;
+                }
+
+                const testCasesData = await response.json();
+                displayTestCases(testCasesData);
+            } catch (error) {
+                console.warn('Failed to fetch test cases:', error.message);
+            }
+        }
+
+        function displayTestCases(testCasesData) {
+            const scenarios = testCasesData.scenarios || [];
+            const totalTests = testCasesData.total_test_cases || 0;
+
+            console.log(`Displaying ${totalTests} test cases in ${scenarios.length} scenarios`);
+
+            // Update test cases list
+            const testCasesContainer = document.getElementById('testcases_list');
+            if (!testCasesContainer) {
+                console.error('testcases_list container not found');
+                return;
+            }
+
+            let html = `
+                <div style="padding: 20px;">
+                    <div style="margin-bottom: 20px;">
+                        <h2 style="margin: 0 0 10px 0;">📋 Generated Test Cases</h2>
+                        <p style="color: var(--text-secondary);">
+                            ${totalTests} test cases organized into ${scenarios.length} scenarios
+                        </p>
+                    </div>
+            `;
+
+            scenarios.forEach((scenario, idx) => {
+                const totalScenarioTests = scenario.total || 0;
+                const passedTests = scenario.passed || 0;
+                const failedTests = scenario.failed || 0;
+                const pendingTests = scenario.pending || 0;
+
+                html += `
+                    <div class="card" style="margin-bottom: 20px;">
+                        <div class="card-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <h3 style="margin: 0; color: white;">${scenario.scenario_name}</h3>
+                                <div style="display: flex; gap: 15px; font-size: 14px;">
+                                    <span>Total: ${totalScenarioTests}</span>
+                                    ${passedTests > 0 ? `<span style="color: #d1fae5;">✓ ${passedTests}</span>` : ''}
+                                    ${failedTests > 0 ? `<span style="color: #fee2e2;">✗ ${failedTests}</span>` : ''}
+                                    ${pendingTests > 0 ? `<span style="color: #fef3c7;">⏳ ${pendingTests}</span>` : ''}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div style="padding: 20px;">
+                            <table class="health-check-table" style="width: 100%;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 50px;">
+                                            <input type="checkbox" onchange="toggleScenarioTests(this, ${idx})" />
+                                        </th>
+                                        <th>Test Case ID</th>
+                                        <th>Test Name</th>
+                                        <th>Type</th>
+                                        <th>Priority</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="scenario_${idx}_tests">
+                `;
+
+                scenario.test_cases.forEach((tc, tcIdx) => {
+                    const statusClass = tc.status || 'pending';
+                    const statusIcon = statusClass === 'passed' ? '✓' : statusClass === 'failed' ? '✗' : '⏳';
+                    const priorityColor = tc.priority === 'high' ? '#ef4444' : tc.priority === 'medium' ? '#f59e0b' : '#3b82f6';
+
+                    html += `
+                        <tr data-test-id="${tc.id}">
+                            <td>
+                                <input type="checkbox" class="test-case-checkbox" data-scenario="${idx}" data-test-id="${tc.id}" />
+                            </td>
+                            <td><code style="font-size: 11px;">${tc.id}</code></td>
+                            <td>
+                                <div style="font-weight: 500;">${tc.name}</div>
+                                <div style="font-size: 12px; color: var(--text-secondary);">${tc.description}</div>
+                            </td>
+                            <td><span style="font-size: 11px; padding: 3px 8px; background: #e0e7ff; border-radius: 4px;">${tc.type}</span></td>
+                            <td><span style="font-size: 11px; padding: 3px 8px; background: ${priorityColor}22; color: ${priorityColor}; border-radius: 4px;">${tc.priority}</span></td>
+                            <td><span class="health-check-status ${statusClass}">${statusIcon} ${statusClass}</span></td>
+                            <td>
+                                <button onclick="showTestCaseDetails('${tc.id}')" style="padding: 4px 8px; font-size: 12px;">View Details</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `
+                    <div style="margin-top: 20px; display: flex; gap: 10px;">
+                        <button onclick="executeSelectedTests()" style="padding: 10px 20px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            Execute Selected Tests
+                        </button>
+                        <button onclick="selectAllTests()" style="padding: 10px 20px; background: var(--secondary); color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            Select All
+                        </button>
+                        <button onclick="deselectAllTests()" style="padding: 10px 20px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                            Deselect All
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            testCasesContainer.innerHTML = html;
+        }
+
+        function toggleScenarioTests(checkbox, scenarioIdx) {
+            const checkboxes = document.querySelectorAll(`.test-case-checkbox[data-scenario="${scenarioIdx}"]`);
+            checkboxes.forEach(cb => cb.checked = checkbox.checked);
+        }
+
+        function selectAllTests() {
+            document.querySelectorAll('.test-case-checkbox').forEach(cb => cb.checked = true);
+        }
+
+        function deselectAllTests() {
+            document.querySelectorAll('.test-case-checkbox').forEach(cb => cb.checked = false);
+        }
+
+        function executeSelectedTests() {
+            const selectedTests = Array.from(document.querySelectorAll('.test-case-checkbox:checked'))
+                .map(cb => cb.dataset.testId);
+
+            if (selectedTests.length === 0) {
+                showMessage('Please select at least one test to execute', 'error');
+                return;
+            }
+
+            showMessage(`Executing ${selectedTests.length} test(s)...`, 'success');
+            console.log('Executing tests:', selectedTests);
+
+            // TODO: Implement test execution
+        }
+
+        function showTestCaseDetails(testCaseId) {
+            console.log('Showing details for test:', testCaseId);
+            // TODO: Show test case details in a modal
+            showMessage(`Details for ${testCaseId} - Coming soon!`, 'info');
+        }
+
         function updateStatus(data) {
             document.getElementById('run_id_display')?.textContent || (document.getElementById('status_content').innerHTML = `
                 <div style="margin-bottom: 8px;"><strong>Run ID:</strong> ${data.run_id || '-'}</div>
@@ -2802,6 +3262,9 @@
                         document.getElementById('report_card').classList.remove('hidden');
                         const viewReportBtn = document.getElementById('view_report_btn');
                         if (viewReportBtn) viewReportBtn.style.display = 'inline-flex';
+                        // Also show report button in Application tab
+                        const appReportBtn = document.getElementById('app_view_report_btn');
+                        if (appReportBtn) appReportBtn.style.display = 'inline-flex';
                     }
                 })
                 .catch(() => {});
@@ -2847,6 +3310,75 @@
             
             html += '</div>';
             analysisCard.innerHTML = html;
+        }
+
+        // Initialize on page load
+        async function initializePage() {
+            console.log('🔄 Initializing page...');
+
+            // Check URL parameters for run_id (e.g., ?run_id=1ef5f62c-c1d)
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlRunId = urlParams.get('run_id');
+
+            if (urlRunId) {
+                console.log('📌 Found run ID in URL:', urlRunId);
+                currentRunId = urlRunId;
+                localStorage.setItem('currentRunId', currentRunId);
+            }
+
+            // Check if we have a saved run ID
+            if (currentRunId) {
+                console.log('📌 Using run ID:', currentRunId);
+
+                // Reset cursor to 0 to replay all events from beginning (ensures we don't miss anything on refresh)
+                eventsCursor = 0;
+
+                // Fetch current run status
+                try {
+                    const response = await fetch(`${API_BASE}/runs/${currentRunId}/status`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log('✅ Run status:', data.state);
+
+                        // Update UI with current status
+                        updateStatus(data);
+
+                        // If run is active, start polling
+                        if (data.state !== 'DONE' && data.state !== 'FAILED') {
+                            console.log('🔄 Resuming polling for active run...');
+                            startPolling();
+                            startEventsPolling();
+                            startTestCasesPolling();
+
+                            // Show status card
+                            document.getElementById('status_card').classList.remove('hidden');
+                            document.getElementById('free_text_card').classList.remove('hidden');
+                            document.getElementById('stop_btn').classList.remove('hidden');
+                        } else {
+                            // Run is complete, just fetch the final data
+                            console.log('✅ Run is complete, fetching final data...');
+                            fetchAndDisplayFeatures();
+                            fetchTestCases();
+                            checkReportAvailable();
+                        }
+                    } else {
+                        console.warn('⚠️ Saved run ID not found on server, clearing...');
+                        localStorage.removeItem('currentRunId');
+                        currentRunId = null;
+                    }
+                } catch (error) {
+                    console.error('❌ Failed to fetch run status:', error);
+                }
+            } else {
+                console.log('ℹ️ No saved run ID, waiting for user to start discovery');
+            }
+        }
+
+        // Call initialization when page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializePage);
+        } else {
+            initializePage();
         }
     </script>
 </body>
