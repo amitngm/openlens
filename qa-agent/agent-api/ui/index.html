@@ -2628,21 +2628,20 @@
         }
 
         function selectAllTestCases() {
-            document.querySelectorAll('input[type="checkbox"][test-case-id]').forEach(cb => {
+            document.querySelectorAll('.test-case-checkbox[data-test-id]').forEach(cb => {
                 cb.checked = true;
-                const testCaseId = cb.getAttribute('test-case-id');
+                const testCaseId = cb.getAttribute('data-test-id');
                 selectedTestCases.add(testCaseId);
-                toggleTestCase(testCaseId);
             });
+            updateExecuteButtonState();
         }
 
         function deselectAllTestCases() {
-            document.querySelectorAll('input[type="checkbox"][test-case-id]').forEach(cb => {
+            document.querySelectorAll('.test-case-checkbox[data-test-id]').forEach(cb => {
                 cb.checked = false;
-                const testCaseId = cb.getAttribute('test-case-id');
-                selectedTestCases.delete(testCaseId);
-                toggleTestCase(testCaseId);
             });
+            selectedTestCases.clear();
+            updateExecuteButtonState();
         }
 
         function updateExecuteButtonState() {
