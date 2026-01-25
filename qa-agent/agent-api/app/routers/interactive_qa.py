@@ -739,6 +739,78 @@ async def _test_filters(page, run_id: str) -> Dict[str, Any]:
 # Endpoints
 # =============================================================================
 
+@router.get("/list", summary="List all discovery runs")
+async def list_runs():
+    """
+    List all discovery runs with their metadata.
+
+    Returns:
+        List of runs with basic metadata
+    """
+    try:
+        data_dir = Path("agent-api/data")
+        if not data_dir.exists():
+            return {"runs": []}
+
+        runs = []
+        for run_dir in sorted(data_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            if not run_dir.is_dir():
+                continue
+
+            run_id = run_dir.name
+
+            # Skip temp_uploads and other non-run directories
+            if run_id in ['temp_uploads', '.DS_Store']:
+                continue
+
+            # Try to load discovery.json for metadata
+            discovery_file = run_dir / "discovery.json"
+            test_cases_file = run_dir / "test_cases.json"
+
+            run_info = {
+                "run_id": run_id,
+                "started_at": None,
+                "base_url": None,
+                "pages_count": 0,
+                "forms_count": 0,
+                "test_cases_count": 0,
+                "has_discovery": discovery_file.exists(),
+                "has_test_cases": test_cases_file.exists()
+            }
+
+            if discovery_file.exists():
+                try:
+                    with open(discovery_file, "r") as f:
+                        discovery_data = json.load(f)
+                        run_info["started_at"] = discovery_data.get("started_at")
+                        run_info["base_url"] = discovery_data.get("base_url")
+                        run_info["pages_count"] = len(discovery_data.get("pages", []))
+
+                        # Count forms
+                        forms_count = 0
+                        for page in discovery_data.get("pages", []):
+                            forms_count += len(page.get("forms", []))
+                        run_info["forms_count"] = forms_count
+                except Exception as e:
+                    logger.warning(f"Failed to load discovery for {run_id}: {e}")
+
+            if test_cases_file.exists():
+                try:
+                    with open(test_cases_file, "r") as f:
+                        test_cases_data = json.load(f)
+                        run_info["test_cases_count"] = test_cases_data.get("total_test_cases", 0)
+                except Exception as e:
+                    logger.warning(f"Failed to load test cases for {run_id}: {e}")
+
+            runs.append(run_info)
+
+        return {"runs": runs}
+
+    except Exception as e:
+        logger.error(f"Failed to list runs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list runs: {str(e)}")
+
+
 @router.post("/start", response_model=StartRunResponse, summary="Start a new interactive QA run")
 async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
     """
