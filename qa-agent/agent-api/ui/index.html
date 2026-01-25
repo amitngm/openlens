@@ -933,6 +933,14 @@
     <div class="main-layout">
         <!-- Left Panel: Application UI -->
         <div class="app-panel">
+            <!-- Current Run Indicator -->
+            <div id="current_run_indicator" style="display: none; padding: 8px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+                <span>🔵 Current Run: <span id="current_run_id_display" style="font-family: monospace; font-size: 13px;">-</span></span>
+                <button onclick="copyRunId()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600;">
+                    📋 Copy ID
+                </button>
+            </div>
+
             <!-- App Panel Tabs -->
             <div class="app-tabs">
                 <button class="app-tab active" onclick="switchAppTab('testcases')">✅ Test Cases</button>
@@ -1738,6 +1746,7 @@
                 const data = await response.json();
                 currentRunId = data.run_id;
                 localStorage.setItem('currentRunId', currentRunId);
+                updateCurrentRunIndicator();
 
                 showMessage(`Run started: ${currentRunId}`, 'success');
                 document.getElementById('status_card').classList.remove('hidden');
@@ -1753,13 +1762,22 @@
                 document.getElementById('app_progress_pages').textContent = '0';
                 document.getElementById('app_progress_forms').textContent = '0';
                 document.getElementById('app_progress_actions').textContent = '0';
-                
+
                 // Reset events cursor for new run
                 eventsCursor = 0;
                 localStorage.setItem('eventsCursor_' + currentRunId, '0');
-                
+
                 // Reset discovery status
                 updateDiscoveryStatus('not_started', null);
+
+                // Reset Test Cases tab for new run
+                resetTestCasesView();
+
+                // Reset Live Progress feed for new run
+                resetLiveProgressView();
+
+                // Clear any selected test cases from previous run
+                selectedTestCases.clear();
                 
                 // Auto-switch to Live Progress tab FIRST to show headless progress
                 // This ensures users see progress updates immediately, especially in headless mode
@@ -2156,6 +2174,8 @@
                     fetchAndDisplayFeatures();
                     fetchTestCases(); // Fetch generated test cases
                     checkReportAvailable();
+                    // Refresh run history to show the completed run
+                    loadRunHistory();
                     // Don't stop polling immediately - let it continue to show health checks
                     // stopEventsPolling();
                     // Show completion in a prominent way
@@ -3080,8 +3100,21 @@
         }
 
         function loadRun(runId) {
+            console.log(`🔄 Loading run: ${runId}`);
+
+            // Clear old data first
+            resetTestCasesView();
+            resetLiveProgressView();
+            selectedTestCases.clear();
+
+            // Update run ID
             currentRunId = runId;
             localStorage.setItem('currentRunId', runId);
+            updateCurrentRunIndicator();
+
+            // Reset event cursor for new run
+            eventsCursor = 0;
+            localStorage.setItem('eventsCursor_' + runId, '0');
 
             // Update URL without reload
             const url = new URL(window.location);
@@ -3103,6 +3136,81 @@
             setTimeout(() => {
                 switchAppTab('testcases');
             }, 500);
+        }
+
+        function updateCurrentRunIndicator() {
+            const indicator = document.getElementById('current_run_indicator');
+            const display = document.getElementById('current_run_id_display');
+
+            if (currentRunId) {
+                indicator.style.display = 'flex';
+                display.textContent = currentRunId;
+            } else {
+                indicator.style.display = 'none';
+            }
+        }
+
+        function copyRunId() {
+            if (!currentRunId) {
+                showMessage('No active run', 'error');
+                return;
+            }
+
+            navigator.clipboard.writeText(currentRunId).then(() => {
+                showMessage('Run ID copied to clipboard!', 'success');
+            }).catch(err => {
+                showMessage('Failed to copy: ' + err.message, 'error');
+            });
+        }
+
+        function resetTestCasesView() {
+            const testCasesContainer = document.getElementById('testcases_list');
+            if (!testCasesContainer) return;
+
+            testCasesContainer.innerHTML = `
+                <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px; border: 2px dashed var(--border);">
+                    <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
+                    <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">No test cases available yet</p>
+                    <p style="font-size: 14px;">Test cases will appear here as discovery progresses</p>
+                </div>
+            `;
+
+            // Reset summary
+            const summaryContainer = document.getElementById('testcases_summary');
+            if (summaryContainer) {
+                summaryContainer.innerHTML = '';
+            }
+
+            // Hide action buttons
+            const selectAllBtn = document.getElementById('select_all_btn');
+            const deselectAllBtn = document.getElementById('deselect_all_btn');
+            const executeBtn = document.getElementById('execute_tests_btn');
+            const viewReportBtn = document.getElementById('view_report_btn');
+
+            if (selectAllBtn) selectAllBtn.style.display = 'none';
+            if (deselectAllBtn) deselectAllBtn.style.display = 'none';
+            if (executeBtn) executeBtn.style.display = 'none';
+            if (viewReportBtn) viewReportBtn.style.display = 'none';
+
+            console.log('✅ Test Cases view reset for new run');
+        }
+
+        function resetLiveProgressView() {
+            const feedContainer = document.getElementById('app_progress_feed');
+            if (!feedContainer) return;
+
+            feedContainer.innerHTML = `
+                <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary);">
+                    <div style="font-size: 48px; margin-bottom: 16px;">⏳</div>
+                    <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">Waiting for discovery to start...</p>
+                    <p style="font-size: 14px; margin-bottom: 12px;">Progress will appear here in real-time</p>
+                    <p style="font-size: 12px; color: var(--primary); font-weight: 500;">
+                        ⚡ Auto-updates every second - no refresh needed!
+                    </p>
+                </div>
+            `;
+
+            console.log('✅ Live Progress view reset for new run');
         }
 
         function displayTestCases(testCasesData) {
@@ -3471,11 +3579,13 @@
                 console.log('📌 Found run ID in URL:', urlRunId);
                 currentRunId = urlRunId;
                 localStorage.setItem('currentRunId', currentRunId);
+                updateCurrentRunIndicator();
             }
 
             // Check if we have a saved run ID
             if (currentRunId) {
                 console.log('📌 Using run ID:', currentRunId);
+                updateCurrentRunIndicator();
 
                 // Reset cursor to 0 to replay all events from beginning (ensures we don't miss anything on refresh)
                 eventsCursor = 0;

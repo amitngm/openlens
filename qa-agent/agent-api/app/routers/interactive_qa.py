@@ -748,7 +748,10 @@ async def list_runs():
         List of runs with basic metadata
     """
     try:
-        data_dir = Path("agent-api/data")
+        # Try relative path first (when running from agent-api/), then absolute path
+        data_dir = Path("data")
+        if not data_dir.exists():
+            data_dir = Path("agent-api/data")
         if not data_dir.exists():
             return {"runs": []}
 
