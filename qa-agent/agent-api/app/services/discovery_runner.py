@@ -1136,6 +1136,9 @@ class DiscoveryRunner:
                     # Emit events for each test case
                     for tc in page_test_cases:
                         test_gen.emit_test_case_event(run_id, artifacts_path, tc)
+
+                    # Save test cases incrementally so UI can display them in real-time
+                    test_gen.append_test_cases(run_id, artifacts_path, page_test_cases)
                 except Exception as tc_error:
                     logger.warning(f"[{run_id}] Failed to generate test cases: {tc_error}")
 
@@ -1368,6 +1371,9 @@ class DiscoveryRunner:
                         # Emit events for each test case
                         for tc in page_test_cases:
                             test_gen.emit_test_case_event(run_id, artifacts_path, tc)
+
+                        # Save test cases incrementally so UI can display them in real-time
+                        test_gen.append_test_cases(run_id, artifacts_path, page_test_cases)
                     except Exception as tc_error:
                         logger.warning(f"[{run_id}] Failed to generate test cases: {tc_error}")
 

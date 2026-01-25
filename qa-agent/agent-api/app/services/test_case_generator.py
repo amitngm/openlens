@@ -344,6 +344,34 @@ class TestCaseGenerator:
 
         logger.info(f"[{run_id}] Saved {len(test_cases)} test cases to {test_cases_file}")
 
+    def append_test_cases(
+        self,
+        run_id: str,
+        artifacts_path: str,
+        new_test_cases: List[Dict[str, Any]]
+    ):
+        """
+        Append new test cases to existing file (for incremental updates during discovery).
+        This allows UI to see test cases appearing in real-time.
+        """
+        test_cases_file = Path(artifacts_path) / "test_cases.json"
+
+        # Load existing test cases if file exists
+        all_test_cases = []
+        if test_cases_file.exists():
+            try:
+                with open(test_cases_file, "r") as f:
+                    existing_data = json.load(f)
+                    all_test_cases = existing_data.get("all_test_cases", [])
+            except Exception as e:
+                logger.warning(f"[{run_id}] Failed to load existing test cases: {e}")
+
+        # Add new test cases
+        all_test_cases.extend(new_test_cases)
+
+        # Save updated list
+        self.save_test_cases(run_id, artifacts_path, all_test_cases)
+
     def emit_test_case_event(
         self,
         run_id: str,
