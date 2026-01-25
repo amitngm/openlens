@@ -122,8 +122,8 @@ class DiscoverySummarizer:
             
             return {
                 "summary": summary,
-                "next_state": RunState.WAIT_TEST_INTENT,
-                "question": question,
+                "next_state": RunState.DONE,  # Go directly to DONE, no interactive prompts
+                "question": None,  # No question needed
                 "screenshot_path": screenshot_path
             }
         
@@ -161,8 +161,8 @@ class DiscoverySummarizer:
             
             return {
                 "summary": summary,
-                "next_state": RunState.WAIT_TEST_INTENT,
-                "question": question,
+                "next_state": RunState.DONE,  # Go directly to DONE on error too
+                "question": None,  # No question needed
                 "screenshot_path": None
             }
 
