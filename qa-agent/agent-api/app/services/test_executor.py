@@ -31,6 +31,20 @@ SECRET_PATTERNS = [
 class TestExecutor:
     """Service for executing test plans."""
     
+    def _emit_event(self, run_id: str, artifacts_path: str, event_type: str, data: Dict[str, Any]):
+        """Emit a test execution event to the events.jsonl file."""
+        try:
+            event = {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "type": event_type,
+                "data": data
+            }
+            events_file = Path(artifacts_path) / "events.jsonl"
+            with open(events_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps(event, default=str) + "\n")
+        except Exception as e:
+            logger.warning(f"[{run_id}] Failed to emit event: {e}")
+    
     async def execute_tests(
         self,
         page,
@@ -118,6 +132,11 @@ class TestExecutor:
             
             # Execute each test
             logger.info(f"[{run_id}] Starting execution of {total_tests} tests...")
+            self._emit_event(run_id, artifacts_path, "test_execution_started", {
+                "total_tests": total_tests,
+                "test_ids": [t.get('id', 'N/A') for t in tests]
+            })
+            
             for idx, test in enumerate(tests):
                 test_id = test.get('id', f'TEST-{idx}')
                 test_name = test.get('name', 'Unknown')
@@ -126,17 +145,39 @@ class TestExecutor:
                 logger.info(f"[{run_id}] Test name: {test_name}")
                 logger.info(f"[{run_id}] Steps count: {steps_count}")
                 
+                # Emit test started event
+                self._emit_event(run_id, artifacts_path, "test_started", {
+                    "test_index": idx + 1,
+                    "total_tests": total_tests,
+                    "test_id": test_id,
+                    "test_name": test_name,
+                    "steps_count": steps_count
+                })
+                
                 try:
                     test_result = await self._execute_single_test(
                         test=test,
                         page=page,
                         run_id=run_id,
                         artifacts_dir=artifacts_dir,
-                        test_index=idx
+                        test_index=idx,
+                        artifacts_path=artifacts_path
                     )
                     
                     logger.info(f"[{run_id}] Test {idx+1} completed: status={test_result.get('status')}, duration={test_result.get('duration_ms', 0)}ms")
                     report["tests"].append(test_result)
+                    
+                    # Emit test completed event
+                    self._emit_event(run_id, artifacts_path, "test_completed", {
+                        "test_index": idx + 1,
+                        "test_id": test_id,
+                        "test_name": test_name,
+                        "status": test_result.get('status'),
+                        "duration_ms": test_result.get('duration_ms', 0),
+                        "steps_passed": len([s for s in test_result.get('steps', []) if s.get('status') == 'passed']),
+                        "steps_failed": len([s for s in test_result.get('steps', []) if s.get('status') == 'failed']),
+                        "error": test_result.get('error')
+                    })
                     
                     # Update counters
                     if test_result["status"] == "passed":
@@ -241,7 +282,14 @@ class TestExecutor:
             is_safe = False
             
             for step in steps:
-                action = step.get("action", "").lower()
+                # Handle both string and dict step formats
+                if isinstance(step, str):
+                    action = step.lower()
+                elif isinstance(step, dict):
+                    action = step.get("action", "").lower()
+                else:
+                    continue
+                    
                 if "delete" in action:
                     has_delete = True
                     # Check if tagged SAFE_DELETE
@@ -268,7 +316,8 @@ class TestExecutor:
         page,
         run_id: str,
         artifacts_dir: Path,
-        test_index: int
+        test_index: int,
+        artifacts_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute a single test case."""
         result = {
@@ -301,6 +350,16 @@ class TestExecutor:
                 step_desc = step if isinstance(step, str) else step.get('action', step.get('description', 'unknown'))
                 logger.info(f"[{run_id}] Step {step_idx + 1}/{len(steps)}: {step_desc}")
                 
+                # Emit step started event
+                if artifacts_path:
+                    self._emit_event(run_id, artifacts_path, "step_started", {
+                        "test_id": test.get('id'),
+                        "test_name": test.get('name'),
+                        "step_index": step_idx + 1,
+                        "total_steps": len(steps),
+                        "step_description": step_desc[:200]  # Truncate long descriptions
+                    })
+                
                 step_result = await self._execute_step(
                     step=step,
                     page=page,
@@ -311,13 +370,40 @@ class TestExecutor:
                 )
                 result["steps"].append(step_result)
                 
-                logger.info(f"[{run_id}] Step {step_idx + 1} completed with status: {step_result.get('status')}")
+                step_status = step_result.get('status')
+                step_error = step_result.get('error')
+                logger.info(f"[{run_id}] Step {step_idx + 1} completed with status: {step_status}")
+                
+                # Emit step completed event with validation details
+                if artifacts_path:
+                    step_details = {
+                        "test_id": test.get('id'),
+                        "test_name": test.get('name'),
+                        "step_index": step_idx + 1,
+                        "total_steps": len(steps),
+                        "step_description": step_desc[:200],
+                        "status": step_status,
+                        "duration_ms": step_result.get('duration_ms', 0),
+                        "action": step_result.get('action', 'unknown')
+                    }
+                    
+                    # Add validation details if step failed or has issues
+                    if step_status == "failed":
+                        step_details["error"] = step_error
+                        step_details["validation_issue"] = True
+                        step_details["issue_description"] = step_error or "Step execution failed"
+                    elif step_result.get('details'):
+                        # Include any validation details even for passed steps
+                        step_details["validation_details"] = step_result.get('details')
+                    
+                    self._emit_event(run_id, artifacts_path, "step_completed", step_details)
                 
                 # If step failed, mark test as failed
-                if step_result.get("status") == "failed":
+                if step_status == "failed":
                     result["status"] = "failed"
-                    result["error"] = step_result.get("error", "Step failed")
+                    result["error"] = step_error or "Step failed"
                     logger.error(f"[{run_id}] Test {test.get('id')} failed at step {step_idx + 1}: {result['error']}")
+                    # Don't break - continue to collect all step results for better reporting
                     
                     # Capture screenshot on failure
                     screenshot_path = await self._capture_screenshot(
@@ -405,11 +491,13 @@ class TestExecutor:
         # Use step_dict for dict operations, step for string operations
         step = step_dict if isinstance(step_dict, dict) else step
         
+        # Define step_text for string steps (used in multiple places)
+        step_text = step.lower() if isinstance(step, str) else ""
+        
         try:
             # Handle both dict format (from test plans) and string format (from discovery steps)
             if isinstance(step, str):
                 # String format: "Navigate to X", "Click on Y", etc.
-                step_text = step.lower()
                 logger.info(f"[{run_id}] Executing step (string): {step}")
                 
                 if "navigate" in step_text or "go to" in step_text:
@@ -545,12 +633,13 @@ class TestExecutor:
                     selector = step.get("selector", "")
                     if selector:
                         selectors = [s.strip() for s in selector.split(',')]
-                    if isinstance(step.get("data"), dict):
-                        store_as = step.get("data", {}).get("store_as")
+                    data = step.get("data")
+                    if isinstance(data, dict):
+                        store_as = data.get("store_as")
                 elif isinstance(step, str):
                     # String format: "count_elements tbody tr, .list-item, [role='row']"
                     import re
-                    selectors_match = re.search(r'count_elements\s+(.+)', step_text, re.IGNORECASE)
+                    selectors_match = re.search(r'count_elements\s+(.+)', step.lower(), re.IGNORECASE)
                     if selectors_match:
                         selectors_str = selectors_match.group(1).strip()
                         selectors = [s.strip() for s in selectors_str.split(',')]
@@ -558,22 +647,34 @@ class TestExecutor:
                 if selectors:
                     total_count = 0
                     counts = {}
+                    validation_issues = []
                     for selector in selectors:
                         try:
                             count = await page.locator(selector).count()
                             counts[selector] = count
                             total_count += count
                             logger.info(f"[{run_id}] Counted {count} elements for selector: {selector}")
+                            if count == 0:
+                                validation_issues.append(f"No elements found for selector: {selector}")
                         except Exception as e:
                             logger.warning(f"[{run_id}] Failed to count {selector}: {e}")
                             counts[selector] = 0
+                            validation_issues.append(f"Error counting {selector}: {str(e)}")
                     
-                    step_result["status"] = "passed"
-                    step_result["details"] = {"counts": counts, "total": total_count, "store_as": store_as}
-                    logger.info(f"[{run_id}] Count elements completed: {total_count} total")
+                    step_result["status"] = "passed" if not validation_issues else "failed"
+                    step_result["details"] = {
+                        "counts": counts, 
+                        "total": total_count, 
+                        "store_as": store_as,
+                        "validation_issues": validation_issues if validation_issues else None
+                    }
+                    if validation_issues:
+                        step_result["error"] = f"Validation issues: {', '.join(validation_issues)}"
+                    logger.info(f"[{run_id}] Count elements completed: {total_count} total" + (f" (issues: {len(validation_issues)})" if validation_issues else ""))
                 else:
                     step_result["status"] = "failed"
                     step_result["error"] = "No selector provided for count_elements"
+                    step_result["details"] = {"validation_issue": "Missing selector configuration"}
                     logger.warning(f"[{run_id}] Count step failed: no selector")
                 
             elif action == "clear":
@@ -621,7 +722,11 @@ class TestExecutor:
                 target = None
                 if isinstance(step, dict):
                     # Try multiple possible fields
-                    target = step.get("target") or step.get("url") or (step.get("data", {}).get("url") if isinstance(step.get("data"), dict) else None)
+                    data = step.get("data", {})
+                    if isinstance(data, dict):
+                        target = step.get("target") or step.get("url") or data.get("url")
+                    else:
+                        target = step.get("target") or step.get("url")
                 elif isinstance(step, str):
                     # Extract URL from string
                     import re
@@ -659,8 +764,9 @@ class TestExecutor:
                 duration = 1
                 if isinstance(step, dict):
                     # Try data.duration_ms first (from TestStep format)
-                    if isinstance(step.get("data"), dict):
-                        duration_ms = step.get("data", {}).get("duration_ms", 1500)
+                    data = step.get("data")
+                    if isinstance(data, dict):
+                        duration_ms = data.get("duration_ms", 1500)
                         duration = duration_ms / 1000.0
                     else:
                         duration = step.get("duration", 1)
@@ -685,8 +791,9 @@ class TestExecutor:
                     # TestStep format: fill action with selector and data.value
                     selector = step.get("selector", "")
                     value = None
-                    if isinstance(step.get("data"), dict):
-                        value = step.get("data", {}).get("value", "")
+                    data = step.get("data")
+                    if isinstance(data, dict):
+                        value = data.get("value", "")
                     else:
                         value = step.get("value", "")
                     

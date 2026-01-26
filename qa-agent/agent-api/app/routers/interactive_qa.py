@@ -3498,6 +3498,65 @@ async def get_execution_status(execution_id: str, db: AsyncSession = Depends(get
         if not exec_run:
             raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found")
         
+        # Get the discovery run context to access artifacts path
+        discovery_run_id = exec_run.discovery_run_id
+        context = _run_store.get_run(discovery_run_id)
+        if not context:
+            # Fallback: try to get from execution artifacts path
+            artifacts_path = exec_run.artifacts_path
+        else:
+            artifacts_path = context.artifacts_path
+        
+        # Load recent events for step-by-step progress
+        events_file = Path(artifacts_path) / "executions" / execution_id / "events.jsonl"
+        recent_events = []
+        current_step = None
+        current_test = None
+        
+        if events_file.exists():
+            try:
+                with open(events_file, "r") as f:
+                    lines = f.readlines()
+                    # Get last 20 events
+                    for line in lines[-20:]:
+                        try:
+                            event = json.loads(line.strip())
+                            event_type = event.get("type", "")
+                            if event_type in ["step_started", "step_completed", "test_started", "test_completed"]:
+                                recent_events.append(event)
+                                if event_type == "step_started":
+                                    current_step = event.get("data", {})
+                                elif event_type == "test_started":
+                                    current_test = event.get("data", {})
+                        except:
+                            continue
+            except Exception as e:
+                logger.debug(f"Failed to read events: {e}")
+        
+        # Calculate detailed progress
+        total_steps = 0
+        completed_steps = 0
+        failed_steps = 0
+        
+        # Try to get step counts from report.json if available
+        report_file = Path(artifacts_path) / "executions" / execution_id / "report.json"
+        if report_file.exists():
+            try:
+                with open(report_file, "r") as f:
+                    report_data = json.load(f)
+                    tests = report_data.get("tests", [])
+                    for test in tests:
+                        steps = test.get("steps", [])
+                        total_steps += len(steps)
+                        for step in steps:
+                            if step.get("status") == "passed":
+                                completed_steps += 1
+                            elif step.get("status") == "failed":
+                                failed_steps += 1
+                                completed_steps += 1  # Count as completed even if failed
+            except:
+                pass
+        
         return {
             "execution_id": execution_id,
             "status": exec_run.status,
@@ -3508,7 +3567,16 @@ async def get_execution_status(execution_id: str, db: AsyncSession = Depends(get
             "failed": exec_run.failed,
             "skipped": exec_run.skipped,
             "duration_seconds": exec_run.duration_seconds,
-            "progress": (exec_run.passed + exec_run.failed + exec_run.skipped) / exec_run.total_tests * 100 if exec_run.total_tests > 0 else 0
+            "progress": (exec_run.passed + exec_run.failed + exec_run.skipped) / exec_run.total_tests * 100 if exec_run.total_tests > 0 else 0,
+            "current_test": current_test,
+            "current_step": current_step,
+            "recent_events": recent_events[-10:],  # Last 10 events
+            "steps_progress": {
+                "total_steps": total_steps,
+                "completed_steps": completed_steps,
+                "failed_steps": failed_steps,
+                "progress_percent": (completed_steps / total_steps * 100) if total_steps > 0 else 0
+            }
         }
     except HTTPException:
         raise
