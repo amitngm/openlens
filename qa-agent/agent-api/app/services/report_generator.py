@@ -422,14 +422,21 @@ class ReportGenerator:
                     "running": '<span class="status-badge running">⏳ RUNNING</span>'
                 }.get(test_status, f'<span class="status-badge unknown">{test_status.upper()}</span>')
                 
-                # Steps HTML
+                # Steps HTML with evidence
                 steps_html = ""
                 for step_idx, step in enumerate(test_steps):
                     step_status = step.get("status", "unknown")
                     step_action = step.get("action", step if isinstance(step, str) else "execute")
+                    step_description = step.get("description", step_action)
+                    if isinstance(step, str):
+                        step_description = step
                     step_duration = step.get("duration_ms", 0) / 1000.0
                     step_error = step.get("error")
                     step_details = step.get("details", {})
+                    step_evidence = step.get("evidence", [])
+                    step_ui_observations = step.get("ui_observations", [])
+                    step_network_errors = step.get("network_errors", [])
+                    step_network_info = step.get("network_info", {})
                     
                     step_status_icon = {
                         "passed": "✓",
@@ -444,33 +451,102 @@ class ReportGenerator:
                         "skipped": "step-skipped"
                     }.get(step_status, "step-unknown")
                     
-                    step_error_html = f'<div class="step-error">{step_error}</div>' if step_error else ""
-                    step_details_html = f'<div class="step-details">{json.dumps(step_details, indent=2)}</div>' if step_details else ""
+                    # Step error with UI and network observations
+                    step_error_html = ""
+                    if step_error:
+                        step_error_html = f'<div class="step-error"><strong>Error:</strong> {step_error}</div>'
+                    
+                    # UI Observations
+                    ui_obs_html = ""
+                    if step_ui_observations:
+                        ui_obs_html = '<div class="step-ui-observations"><strong>UI Observations:</strong><ul>'
+                        for obs in step_ui_observations:
+                            obs_msg = obs.get("message", str(obs))
+                            ui_obs_html += f'<li>{obs_msg}</li>'
+                        ui_obs_html += '</ul></div>'
+                    
+                    # Network Errors
+                    network_errors_html = ""
+                    if step_network_errors:
+                        network_errors_html = '<div class="step-network-errors"><strong>Network API Errors:</strong><ul>'
+                        for err in step_network_errors:
+                            network_errors_html += f'<li>{err}</li>'
+                        network_errors_html += '</ul></div>'
+                    
+                    # Step details
+                    step_details_html = ""
+                    if step_details:
+                        step_details_html = f'<div class="step-details"><strong>Details:</strong><pre>{json.dumps(step_details, indent=2)}</pre></div>'
+                    
+                    # Step evidence (screenshots)
+                    step_evidence_html = ""
+                    if step_evidence:
+                        step_evidence_html = '<div class="step-evidence"><strong>📷 Evidence (Screenshots):</strong><div class="evidence-grid">'
+                        for ev in step_evidence:
+                            ev_path = ev if isinstance(ev, str) else ev.get("path", "")
+                            if ev_path:
+                                # Get relative path for HTML
+                                ev_name = Path(ev_path).name
+                                # Try to find the actual file path
+                                artifacts_dir = Path(artifacts_path)
+                                # Handle both relative and absolute paths
+                                if Path(ev_path).is_absolute():
+                                    ev_full_path = Path(ev_path)
+                                else:
+                                    ev_full_path = artifacts_dir / ev_path
+                                
+                                # Also try screenshots subdirectory
+                                if not ev_full_path.exists():
+                                    ev_full_path = artifacts_dir / "screenshots" / ev_name
+                                
+                                if ev_full_path.exists():
+                                    # Use the artifact endpoint URL for HTML
+                                    rel_path = str(ev_full_path.relative_to(artifacts_dir))
+                                    # Use the execution artifact endpoint (execution_id is available in scope)
+                                    artifact_url = f"/runs/executions/{execution_id}/artifacts/{rel_path}"
+                                    step_evidence_html += f'<div class="evidence-item"><img src="{artifact_url}" alt="Step Screenshot {step_idx + 1}" onclick="window.open(this.src, \'_blank\')" title="Click to view full size"><br><small>{ev_name}</small></div>'
+                                else:
+                                    # Still show the path even if file not found (for debugging)
+                                    step_evidence_html += f'<div class="evidence-item"><small style="color: #999;">Screenshot: {ev_name} (not found)</small></div>'
+                        step_evidence_html += '</div></div>'
                     
                     steps_html += f"""
                     <div class="test-step {step_status_class}">
                         <div class="step-header">
+                            <span class="step-number">Step {step_idx + 1}</span>
                             <span class="step-icon">{step_status_icon}</span>
-                            <span class="step-action">{step_action}</span>
+                            <span class="step-action">{step_description[:100]}</span>
                             <span class="step-duration">{step_duration:.2f}s</span>
                         </div>
                         {step_error_html}
+                        {ui_obs_html}
+                        {network_errors_html}
                         {step_details_html}
+                        {step_evidence_html}
                     </div>
                     """
                 
-                # Evidence HTML
+                # Evidence HTML (test-level evidence)
                 evidence_html = ""
                 if test_evidence:
-                    evidence_html = '<div class="test-evidence"><h4>Evidence:</h4><div class="evidence-grid">'
+                    evidence_html = '<div class="test-evidence"><h4>📷 Test Evidence:</h4><div class="evidence-grid">'
                     for ev in test_evidence:
                         ev_path = ev.get("path", "") if isinstance(ev, dict) else str(ev)
                         if ev_path:
-                            rel_path = Path(ev_path).name
-                            if ev_path.endswith(('.png', '.jpg', '.jpeg')):
-                                evidence_html += f'<div class="evidence-item"><img src="{rel_path}" alt="Screenshot" onclick="window.open(this.src)"></div>'
-                            elif ev_path.endswith(('.mp4', '.webm')):
-                                evidence_html += f'<div class="evidence-item"><video controls><source src="{rel_path}"></video></div>'
+                            ev_name = Path(ev_path).name
+                            artifacts_dir = Path(artifacts_path)
+                            # Try to find the file
+                            ev_full_path = artifacts_dir / ev_path
+                            if not ev_full_path.exists():
+                                ev_full_path = artifacts_dir / "screenshots" / ev_name
+                            
+                            if ev_full_path.exists():
+                                rel_path = str(ev_full_path.relative_to(artifacts_dir))
+                                artifact_url = f"/runs/executions/{execution_id}/artifacts/{rel_path}"
+                                if ev_path.endswith(('.png', '.jpg', '.jpeg')):
+                                    evidence_html += f'<div class="evidence-item"><img src="{artifact_url}" alt="Screenshot" onclick="window.open(this.src, \'_blank\')"></div>'
+                                elif ev_path.endswith(('.mp4', '.webm')):
+                                    evidence_html += f'<div class="evidence-item"><video controls><source src="{artifact_url}"></video></div>'
                     evidence_html += '</div></div>'
                 
                 error_html = f'<div class="test-error"><strong>Error:</strong> {test_error}</div>' if test_error else ""
@@ -688,15 +764,27 @@ class ReportGenerator:
             display: flex;
             align-items: center;
             gap: 10px;
+            margin-bottom: 10px;
+        }}
+        
+        .step-number {{
+            background: #667eea;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
         }}
         
         .step-icon {{
             font-weight: bold;
+            font-size: 18px;
         }}
         
         .step-action {{
             flex: 1;
             font-weight: 500;
+            font-size: 14px;
         }}
         
         .step-duration {{
@@ -705,17 +793,112 @@ class ReportGenerator:
         }}
         
         .step-error {{
-            margin-top: 8px;
-            padding: 8px;
+            margin-top: 10px;
+            padding: 10px;
             background: #fee2e2;
             color: #991b1b;
             border-radius: 4px;
-            font-size: 12px;
+            border-left: 3px solid #ef4444;
+            font-size: 13px;
+        }}
+        
+        .step-ui-observations {{
+            margin-top: 10px;
+            padding: 10px;
+            background: #fef3c7;
+            border-radius: 4px;
+            border-left: 3px solid #f59e0b;
+        }}
+        
+        .step-ui-observations strong {{
+            display: block;
+            margin-bottom: 5px;
+            color: #92400e;
+        }}
+        
+        .step-ui-observations ul {{
+            margin: 5px 0 0 20px;
+            padding: 0;
+        }}
+        
+        .step-ui-observations li {{
+            margin: 5px 0;
+            font-size: 13px;
+            color: #78350f;
+        }}
+        
+        .step-network-errors {{
+            margin-top: 10px;
+            padding: 10px;
+            background: #fee2e2;
+            border-radius: 4px;
+            border-left: 3px solid #ef4444;
+        }}
+        
+        .step-network-errors strong {{
+            display: block;
+            margin-bottom: 5px;
+            color: #991b1b;
+        }}
+        
+        .step-network-errors ul {{
+            margin: 5px 0 0 20px;
+            padding: 0;
+        }}
+        
+        .step-network-errors li {{
+            margin: 5px 0;
+            font-size: 13px;
+            color: #7f1d1d;
+        }}
+        
+        .step-evidence {{
+            margin-top: 10px;
+            padding: 10px;
+            background: #f0f9ff;
+            border-radius: 4px;
+        }}
+        
+        .step-evidence strong {{
+            display: block;
+            margin-bottom: 10px;
+            color: #0c4a6e;
+        }}
+        
+        .step-evidence .evidence-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }}
+        
+        .step-evidence .evidence-item {{
+            text-align: center;
+        }}
+        
+        .step-evidence .evidence-item img {{
+            max-width: 100%;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            cursor: pointer;
+            border: 1px solid #ddd;
+        }}
+        
+        .step-evidence .evidence-item img:hover {{
+            transform: scale(1.05);
+            transition: transform 0.2s;
+        }}
+        
+        .step-evidence .evidence-item small {{
+            display: block;
+            margin-top: 5px;
+            color: #666;
+            font-size: 11px;
         }}
         
         .step-details {{
-            margin-top: 8px;
-            padding: 8px;
+            margin-top: 10px;
+            padding: 10px;
             background: #f9fafb;
             border-radius: 4px;
             font-size: 11px;
@@ -723,6 +906,18 @@ class ReportGenerator:
             white-space: pre-wrap;
             max-height: 200px;
             overflow-y: auto;
+        }}
+        
+        .step-details strong {{
+            display: block;
+            margin-bottom: 5px;
+            color: #374151;
+        }}
+        
+        .step-details pre {{
+            margin: 5px 0 0 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
         }}
         
         .test-evidence {{

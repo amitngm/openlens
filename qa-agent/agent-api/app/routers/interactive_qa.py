@@ -3314,15 +3314,36 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
                     exec_run = result.scalar_one_or_none()
                     
                     if exec_run:
-                        # Update existing record
+                        # Update existing record with accurate counts from report
+                        report = execution_result.get("report", {})
+                        
+                        # Calculate accurate counts from test results
+                        passed_count = report.get("passed", 0)
+                        failed_count = report.get("failed", 0)
+                        skipped_count = report.get("skipped", 0)
+                        total_tests_count = report.get("total_tests", len(report.get("tests", [])))
+                        
+                        # Ensure counts match actual test results
+                        if total_tests_count > 0:
+                            # Recalculate from actual test results if needed
+                            tests = report.get("tests", [])
+                            if tests:
+                                passed_count = len([t for t in tests if t.get("status") == "passed"])
+                                failed_count = len([t for t in tests if t.get("status") == "failed"])
+                                skipped_count = len([t for t in tests if t.get("status") == "skipped"])
+                                total_tests_count = len(tests)
+                        
                         exec_run.completed_at = test_execution_end_time
-                        exec_run.passed = execution_result.get("report", {}).get("passed", 0)
-                        exec_run.failed = execution_result.get("report", {}).get("failed", 0)
-                        exec_run.skipped = execution_result.get("report", {}).get("skipped", 0)
+                        exec_run.passed = passed_count
+                        exec_run.failed = failed_count
+                        exec_run.skipped = skipped_count
+                        exec_run.total_tests = total_tests_count
                         exec_run.duration_seconds = total_duration  # Use total duration including setup
-                        exec_run.status = "completed" if execution_result.get("report", {}).get("failed", 0) == 0 else "failed"
-                        exec_run.execution_results = execution_result.get("report")
-                        logger.info(f"[{execution_id}] Updated execution record in database: duration={total_duration:.2f}s, passed={exec_run.passed}, failed={exec_run.failed}, skipped={exec_run.skipped}")
+                        exec_run.status = "completed" if failed_count == 0 else "failed"
+                        exec_run.execution_results = report
+                        
+                        await db.commit()
+                        logger.info(f"[{execution_id}] Updated execution record in database: status={exec_run.status}, duration={total_duration:.2f}s, total={total_tests_count}, passed={passed_count}, failed={failed_count}, skipped={skipped_count}")
                     else:
                         # Create new record if it doesn't exist
                         exec_run = TestExecutionRun(
@@ -3754,6 +3775,56 @@ async def get_allure_report(execution_id: str, db: AsyncSession = Depends(get_db
     except Exception as e:
         logger.error(f"Failed to get Allure report: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get Allure report: {str(e)}")
+
+
+@router.get("/executions/{execution_id}/artifacts/{file_path:path}", summary="Get execution artifact file (screenshots, network logs, etc.)")
+async def get_execution_artifact(execution_id: str, file_path: str, db: AsyncSession = Depends(get_db)):
+    """Serve static files (screenshots, network logs) from execution artifacts."""
+    try:
+        from app.models.database import TestExecutionRun
+        from sqlalchemy import select
+        from fastapi.responses import FileResponse
+        
+        result = await db.execute(
+            select(TestExecutionRun).where(TestExecutionRun.execution_id == execution_id)
+        )
+        exec_run = result.scalar_one_or_none()
+        
+        if not exec_run or not exec_run.artifacts_path:
+            raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found")
+        
+        artifacts_dir = Path(exec_run.artifacts_path)
+        requested_file = artifacts_dir / file_path
+        
+        # Security: Ensure the file is within the artifacts directory
+        try:
+            requested_file.resolve().relative_to(artifacts_dir.resolve())
+        except ValueError:
+            raise HTTPException(status_code=403, detail="Access denied: File outside artifacts directory")
+        
+        if not requested_file.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+        
+        # Determine content type
+        content_type = "application/octet-stream"
+        if file_path.endswith(('.png', '.jpg', '.jpeg')):
+            content_type = "image/png" if file_path.endswith('.png') else "image/jpeg"
+        elif file_path.endswith('.json'):
+            content_type = "application/json"
+        elif file_path.endswith('.html'):
+            content_type = "text/html"
+        
+        return FileResponse(
+            path=str(requested_file),
+            media_type=content_type,
+            filename=requested_file.name
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get artifact: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get artifact: {str(e)}")
 
 
 @router.get("/stats", summary="Get database statistics")
