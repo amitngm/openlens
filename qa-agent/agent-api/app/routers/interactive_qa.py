@@ -6,7 +6,7 @@ import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Body, UploadFile, File, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -2759,6 +2759,30 @@ async def get_run_history(
         raise HTTPException(status_code=500, detail=f"Failed to get run history: {str(e)}")
 
 
+@router.get("/{run_id}/test-results", summary="Get test execution results for a run")
+async def get_test_results(run_id: str):
+    """Get test execution results from report.json."""
+    try:
+        context = _run_store.get_run(run_id)
+        if not context:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+        
+        report_file = Path(context.artifacts_path) / "report.json"
+        if not report_file.exists():
+            raise HTTPException(status_code=404, detail="Test results not found. Execute tests first.")
+        
+        with open(report_file, "r") as f:
+            report_data = json.load(f)
+        
+        return report_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to get test results: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get test results: {str(e)}")
+
+
 @router.get("/{run_id}/test-cases", summary="Get test cases for a run")
 async def get_test_cases(run_id: str):
     """Get all generated test cases for a run."""
@@ -2797,6 +2821,292 @@ async def get_test_cases(run_id: str):
     except Exception as e:
         logger.error(f"[{run_id}] Failed to get test cases: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get test cases: {str(e)}")
+
+
+class ExecuteTestCasesRequest(BaseModel):
+    """Request to execute selected test cases."""
+    test_case_ids: List[str] = Field(..., description="List of test case IDs to execute")
+    execution_name: str = Field(..., description="Name for this test execution run")
+    description: Optional[str] = Field(None, description="Description of the test execution")
+    environment: str = Field(default="staging", description="Environment name")
+    username: str = Field(..., description="Username for authentication")
+    password: str = Field(..., description="Password for authentication")
+
+
+@router.post("/{run_id}/execute-tests", summary="Execute selected test cases")
+async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Body(...)):
+    """
+    Execute selected test cases by their IDs.
+    
+    This endpoint allows executing specific test cases that were generated during discovery.
+    Creates a new test execution run and stores results in database.
+    """
+    execution_id = str(uuid.uuid4())[:12]
+    
+    try:
+        context = _run_store.get_run(run_id)
+        if not context:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+        
+        # Load test cases
+        test_cases_file = Path(context.artifacts_path) / "test_cases.json"
+        if not test_cases_file.exists():
+            raise HTTPException(status_code=404, detail="Test cases not found. Please run discovery first.")
+        
+        with open(test_cases_file, "r") as f:
+            test_cases_data = json.load(f)
+        
+        # Find selected test cases
+        all_test_cases = []
+        for scenario in test_cases_data.get("scenarios", []):
+            all_test_cases.extend(scenario.get("test_cases", []))
+        
+        # Filter by selected IDs
+        selected_tests = []
+        for test_id in request.test_case_ids:
+            # Test ID format: feature_name_test_id
+            parts = test_id.split("_", 1)
+            if len(parts) == 2:
+                feature_name, test_id_part = parts
+            else:
+                test_id_part = test_id
+            
+            # Find matching test case
+            for tc in all_test_cases:
+                if tc.get("test_id") == test_id_part or tc.get("id") == test_id_part:
+                    selected_tests.append(tc)
+                    break
+        
+        if not selected_tests:
+            raise HTTPException(status_code=400, detail="No matching test cases found for the provided IDs")
+        
+        # Create execution artifacts directory
+        execution_artifacts_path = Path(context.artifacts_path) / "executions" / execution_id
+        execution_artifacts_path.mkdir(parents=True, exist_ok=True)
+        
+        # Create a test plan from selected tests
+        test_plan = {
+            "test_intent": "selected_tests",
+            "total_tests": len(selected_tests),
+            "tests": selected_tests
+        }
+        
+        # Get browser page (create new context for test execution)
+        browser_manager = get_browser_manager()
+        page = await browser_manager.create_context(
+            execution_id,  # Use execution_id for test execution
+            headless=context.headless,
+            debug=getattr(context, "discovery_debug", False),
+            artifacts_path=str(execution_artifacts_path)
+        )
+        
+        # Login with provided credentials
+        if request.username and request.password:
+            try:
+                from app.services.login_executor import get_login_executor
+                login_executor = get_login_executor()
+                login_result = await login_executor.execute_login(
+                    page=page,
+                    run_id=execution_id,
+                    username=request.username,
+                    password=request.password,
+                    auth_type=context.auth.type if context.auth else "basic"
+                )
+                if not login_result.get("success"):
+                    logger.warning(f"[{execution_id}] Login failed: {login_result.get('error')}")
+            except Exception as e:
+                logger.warning(f"[{execution_id}] Login attempt failed: {e}")
+        
+        # Execute tests
+        test_executor = get_test_executor()
+        start_time = datetime.utcnow()
+        execution_result = await test_executor.execute_tests(
+            page=page,
+            run_id=execution_id,
+            artifacts_path=str(execution_artifacts_path),
+            test_plan=test_plan
+        )
+        end_time = datetime.utcnow()
+        duration = (end_time - start_time).total_seconds()
+        
+        # Store execution in database
+        try:
+            from app.database import get_db
+            from app.models.database import TestExecutionRun, TestExecutionResult
+            
+            async for db in get_db():
+                try:
+                    # Create execution run record
+                    exec_run = TestExecutionRun(
+                        execution_id=execution_id,
+                        discovery_run_id=run_id,
+                        execution_name=request.execution_name,
+                        description=request.description,
+                        environment=request.environment,
+                        auth_type=context.auth.type if context.auth else "basic",
+                        username=request.username,  # In production, encrypt this
+                        started_at=start_time,
+                        completed_at=end_time,
+                        total_tests=len(selected_tests),
+                        passed=execution_result.get("report", {}).get("passed", 0),
+                        failed=execution_result.get("report", {}).get("failed", 0),
+                        skipped=execution_result.get("report", {}).get("skipped", 0),
+                        duration_seconds=duration,
+                        status="completed" if execution_result.get("report", {}).get("failed", 0) == 0 else "failed",
+                        execution_results=execution_result.get("report"),
+                        artifacts_path=str(execution_artifacts_path),
+                        headless=context.headless
+                    )
+                    db.add(exec_run)
+                    
+                    # Store individual test results
+                    for test_result in execution_result.get("report", {}).get("tests", []):
+                        exec_result = TestExecutionResult(
+                            execution_id=execution_id,
+                            test_id=test_result.get("test_id", ""),
+                            test_name=test_result.get("name", ""),
+                            test_type=test_result.get("test_type", ""),
+                            status=test_result.get("status", "failed"),
+                            duration_ms=test_result.get("duration_ms", 0),
+                            executed_at=start_time,
+                            steps=test_result.get("steps", []),
+                            error_message=test_result.get("error"),
+                            screenshot_path=test_result.get("evidence", [{}])[0].get("path") if test_result.get("evidence") else None,
+                            evidence=test_result.get("evidence")
+                        )
+                        db.add(exec_result)
+                    
+                    await db.commit()
+                    logger.info(f"[{execution_id}] Test execution stored in database")
+                except Exception as db_error:
+                    await db.rollback()
+                    logger.error(f"[{execution_id}] Failed to store execution in database: {db_error}", exc_info=True)
+                break
+        except Exception as db_error:
+            logger.warning(f"[{execution_id}] Database storage failed (continuing anyway): {db_error}")
+        
+        # Close browser context
+        try:
+            await browser_manager.close_context(execution_id)
+        except:
+            pass
+        
+        return {
+            "execution_id": execution_id,
+            "run_id": run_id,
+            "status": "completed",
+            "execution_result": execution_result,
+            "tests_executed": len(selected_tests),
+            "passed": execution_result.get("report", {}).get("passed", 0),
+            "failed": execution_result.get("report", {}).get("failed", 0),
+            "skipped": execution_result.get("report", {}).get("skipped", 0)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to execute test cases: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to execute test cases: {str(e)}")
+
+
+@router.get("/executions/list", summary="List all test execution runs")
+async def list_test_executions(db: AsyncSession = Depends(get_db)):
+    """List all test execution runs from database."""
+    try:
+        from app.models.database import TestExecutionRun
+        from sqlalchemy import select, desc
+        
+        result = await db.execute(
+            select(TestExecutionRun).order_by(desc(TestExecutionRun.started_at)).limit(100)
+        )
+        executions = result.scalars().all()
+        
+        executions_list = []
+        for exec_run in executions:
+            executions_list.append({
+                "execution_id": exec_run.execution_id,
+                "discovery_run_id": exec_run.discovery_run_id,
+                "execution_name": exec_run.execution_name,
+                "description": exec_run.description,
+                "environment": exec_run.environment,
+                "started_at": exec_run.started_at.isoformat() if exec_run.started_at else None,
+                "completed_at": exec_run.completed_at.isoformat() if exec_run.completed_at else None,
+                "total_tests": exec_run.total_tests,
+                "passed": exec_run.passed,
+                "failed": exec_run.failed,
+                "skipped": exec_run.skipped,
+                "duration_seconds": exec_run.duration_seconds,
+                "status": exec_run.status
+            })
+        
+        return {"executions": executions_list}
+        
+    except Exception as e:
+        logger.error(f"Failed to list test executions: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list test executions: {str(e)}")
+
+
+@router.get("/executions/{execution_id}", summary="Get test execution details")
+async def get_test_execution(execution_id: str, db: AsyncSession = Depends(get_db)):
+    """Get detailed test execution results."""
+    try:
+        from app.models.database import TestExecutionRun, TestExecutionResult
+        from sqlalchemy import select
+        
+        # Get execution run
+        result = await db.execute(
+            select(TestExecutionRun).where(TestExecutionRun.execution_id == execution_id)
+        )
+        exec_run = result.scalar_one_or_none()
+        
+        if not exec_run:
+            raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found")
+        
+        # Get test results
+        results_query = await db.execute(
+            select(TestExecutionResult).where(TestExecutionResult.execution_id == execution_id)
+        )
+        test_results = results_query.scalars().all()
+        
+        return {
+            "execution": {
+                "execution_id": exec_run.execution_id,
+                "discovery_run_id": exec_run.discovery_run_id,
+                "execution_name": exec_run.execution_name,
+                "description": exec_run.description,
+                "environment": exec_run.environment,
+                "started_at": exec_run.started_at.isoformat() if exec_run.started_at else None,
+                "completed_at": exec_run.completed_at.isoformat() if exec_run.completed_at else None,
+                "total_tests": exec_run.total_tests,
+                "passed": exec_run.passed,
+                "failed": exec_run.failed,
+                "skipped": exec_run.skipped,
+                "duration_seconds": exec_run.duration_seconds,
+                "status": exec_run.status,
+                "execution_results": exec_run.execution_results
+            },
+            "test_results": [
+                {
+                    "test_id": tr.test_id,
+                    "test_name": tr.test_name,
+                    "test_type": tr.test_type,
+                    "status": tr.status,
+                    "duration_ms": tr.duration_ms,
+                    "executed_at": tr.executed_at.isoformat() if tr.executed_at else None,
+                    "steps": tr.steps,
+                    "error_message": tr.error_message,
+                    "screenshot_path": tr.screenshot_path,
+                    "evidence": tr.evidence
+                }
+                for tr in test_results
+            ]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get test execution: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get test execution: {str(e)}")
 
 
 @router.get("/stats", summary="Get database statistics")

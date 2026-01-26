@@ -956,10 +956,9 @@
             <!-- App Panel Tabs -->
             <div class="app-tabs">
                 <button class="app-tab active" onclick="switchAppTab('testcases')">✅ Test Cases</button>
-                <button class="app-tab" onclick="switchAppTab('results')">📊 Test Results</button>
                 <button class="app-tab" onclick="switchAppTab('progress')">⏱️ Live Progress</button>
-                <button class="app-tab" onclick="switchAppTab('validation')">🧪 Live Validation</button>
-                <button class="app-tab" onclick="switchAppTab('history')">📜 Run History</button>
+                <button class="app-tab" onclick="switchAppTab('history')">📜 Discovery History</button>
+                <button class="app-tab" onclick="switchAppTab('execution-history')">🧪 Test Execution History</button>
             </div>
 
             <!-- Application View (Hidden - Not Needed) -->
@@ -1039,80 +1038,6 @@
                 </div>
             </div>
 
-            <!-- Test Results View (Azure DevOps Style) -->
-            <div id="results-view" class="app-view">
-                <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
-                    <div style="margin-bottom: 24px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                            <h2 style="font-size: 22px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin: 0;">
-                                <span>📊</span> Test Execution Results
-                                <span style="font-size: 12px; font-weight: 400; color: var(--text-secondary); margin-left: 8px;">(Azure DevOps Style)</span>
-                            </h2>
-                            <button onclick="clearTestResults()" class="btn-secondary btn-sm" id="clear_results_btn" style="display: none;">
-                                🗑️ Clear Results
-                            </button>
-                        </div>
-
-                        <!-- Execution Summary Cards (Azure Style) -->
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px;">
-                            <div class="stat-card" style="background: white; border-left: 4px solid #0078d4;">
-                                <div class="stat-value" id="test_results_total" style="color: #0078d4;">0</div>
-                                <div class="stat-label">Total Tests</div>
-                            </div>
-                            <div class="stat-card" style="background: white; border-left: 4px solid #107c10;">
-                                <div class="stat-value" id="test_results_passed" style="color: #107c10;">0</div>
-                                <div class="stat-label">✓ Passed</div>
-                            </div>
-                            <div class="stat-card" style="background: white; border-left: 4px solid #d13438;">
-                                <div class="stat-value" id="test_results_failed" style="color: #d13438;">0</div>
-                                <div class="stat-label">✗ Failed</div>
-                            </div>
-                            <div class="stat-card" style="background: white; border-left: 4px solid #ffb900;">
-                                <div class="stat-value" id="test_results_running" style="color: #ffb900;">0</div>
-                                <div class="stat-label">⏳ Running</div>
-                            </div>
-                            <div class="stat-card" style="background: white; border-left: 4px solid #797979;">
-                                <div class="stat-value" id="test_results_skipped" style="color: #797979;">0</div>
-                                <div class="stat-label">⊘ Skipped</div>
-                            </div>
-                            <div class="stat-card" style="background: white; border-left: 4px solid #0078d4;">
-                                <div class="stat-value" id="test_results_duration" style="color: #0078d4;">0s</div>
-                                <div class="stat-label">⏱️ Duration</div>
-                            </div>
-                        </div>
-
-                        <!-- Execution Timeline -->
-                        <div id="execution_timeline" style="background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px; display: none;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                                <div style="font-weight: 600; color: var(--text-primary); font-size: 14px;">⏱️ Execution Timeline</div>
-                                <div id="execution_status" style="padding: 6px 12px; background: #fff4ce; color: #ca5010; border-radius: 12px; font-size: 12px; font-weight: 600;">
-                                    ⏳ IN PROGRESS
-                                </div>
-                            </div>
-                            <div id="timeline_progress" style="height: 6px; background: #f3f4f6; border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
-                                <div id="timeline_progress_bar" style="height: 100%; background: linear-gradient(90deg, #0078d4, #00bcf2); width: 0%; transition: width 0.3s;"></div>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary);">
-                                <span id="timeline_start">Started: --</span>
-                                <span id="timeline_elapsed">Elapsed: 0s</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Test Results Feed (Azure Style) -->
-                    <div id="test_results_feed" style="display: flex; flex-direction: column; gap: 8px;">
-                        <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px;">
-                            <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
-                            <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">No test results yet</p>
-                            <p style="font-size: 14px; margin-bottom: 12px;">Select and execute test cases to see results here</p>
-                            <p style="font-size: 12px; color: var(--primary); font-weight: 500;">
-                                ⚡ Results update in real-time as tests execute!
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- Live Progress View -->
             <div id="progress-view" class="app-view">
                 <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
@@ -1155,57 +1080,13 @@
                 </div>
             </div>
 
-            <!-- Live Validation View -->
-            <div id="validation-view" class="app-view">
-                <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
-                    <div style="margin-bottom: 24px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-                            <h2 style="font-size: 22px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin: 0;">
-                                <span>🧪</span> Live Validation Results
-                                <span style="font-size: 12px; font-weight: 400; color: var(--text-secondary); margin-left: 8px;">(Real-time feature testing)</span>
-                            </h2>
-                        </div>
-                        <!-- Summary Cards -->
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px;">
-                            <div class="stat-card" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
-                                <div class="stat-value" id="validation_passed" style="color: white;">0</div>
-                                <div class="stat-label" style="color: rgba(255, 255, 255, 0.9);">✅ Passed</div>
-                            </div>
-                            <div class="stat-card" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white;">
-                                <div class="stat-value" id="validation_failed" style="color: white;">0</div>
-                                <div class="stat-label" style="color: rgba(255, 255, 255, 0.9);">❌ Failed</div>
-                            </div>
-                            <div class="stat-card" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white;">
-                                <div class="stat-value" id="validation_skipped" style="color: white;">0</div>
-                                <div class="stat-label" style="color: rgba(255, 255, 255, 0.9);">⏭️ Skipped</div>
-                            </div>
-                            <div class="stat-card" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white;">
-                                <div class="stat-value" id="validation_rate" style="color: white;">0%</div>
-                                <div class="stat-label" style="color: rgba(255, 255, 255, 0.9);">📊 Pass Rate</div>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- Validation Feed -->
-                    <div id="validation_feed" style="max-height: calc(100vh - 350px); background: white; border-radius: 12px; padding: 16px;">
-                        <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary);">
-                            <div style="font-size: 48px; margin-bottom: 16px;">🧪</div>
-                            <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">Waiting for validation to start...</p>
-                            <p style="font-size: 14px; margin-bottom: 12px;">Live validation results will appear here</p>
-                            <p style="font-size: 12px; color: var(--primary); font-weight: 500;">
-                                ⚡ Validations run as pages are discovered!
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Run History View -->
+            <!-- Discovery History View -->
             <div id="history-view" class="app-view">
                 <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
                     <div style="margin-bottom: 24px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                             <h2 style="font-size: 22px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin: 0;">
-                                <span>📜</span> Run History
+                                <span>📜</span> Discovery History
                             </h2>
                             <button onclick="loadRunHistory()" class="btn-secondary btn-sm">
                                 🔄 Refresh
@@ -1215,8 +1096,31 @@
                     <div id="run_history_list" style="display: flex; flex-direction: column; gap: 12px;">
                         <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px; border: 2px dashed var(--border);">
                             <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
-                            <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">Loading run history...</p>
+                            <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">Loading discovery history...</p>
                             <p style="font-size: 14px;">Past discovery runs will appear here</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Test Execution History View -->
+            <div id="execution-history-view" class="app-view">
+                <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
+                    <div style="margin-bottom: 24px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h2 style="font-size: 22px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin: 0;">
+                                <span>🧪</span> Test Execution History
+                            </h2>
+                            <button onclick="loadTestExecutionHistory()" class="btn-secondary btn-sm">
+                                🔄 Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div id="execution_history_list" style="display: flex; flex-direction: column; gap: 12px;">
+                        <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px; border: 2px dashed var(--border);">
+                            <div style="font-size: 48px; margin-bottom: 16px;">🧪</div>
+                            <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">Loading test execution history...</p>
+                            <p style="font-size: 14px;">Past test execution runs will appear here</p>
                         </div>
                     </div>
                 </div>
@@ -1630,6 +1534,13 @@
             document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
             event.target.classList.add('active');
             document.getElementById(`${viewName}-view`).classList.add('active');
+            
+            // Load data when switching to specific views
+            if (viewName === 'execution-history') {
+                loadTestExecutionHistory();
+            } else if (viewName === 'history') {
+                loadRunHistory();
+            }
         }
 
         // File upload handlers
@@ -2547,8 +2458,6 @@
                     incrementHealthCounter('pages_validated');
                 } else if (event.type === 'health_check_completed') {
                     showHealthCheckSummary(event.data);
-                } else if (event.type === 'live_validation_completed') {
-                    handleLiveValidationEvent(event.data);
                 } else if (event.type === 'free_text_execution_started') {
                     showFreeTextExecutionStarted(event.data);
                 } else if (event.type === 'free_text_test_started') {
@@ -2858,13 +2767,15 @@
             let pendingCount = 0;
             
             data.features.forEach(feature => {
-                feature.test_cases.forEach(tc => {
-                    totalTestCases++;
-                    const status = tc.status || 'pending';
-                    if (status === 'passed') passedCount++;
-                    else if (status === 'failed') failedCount++;
-                    else pendingCount++;
-                });
+                if (feature.test_cases && Array.isArray(feature.test_cases)) {
+                    feature.test_cases.forEach(tc => {
+                        totalTestCases++;
+                        const status = tc.status || 'pending';
+                        if (status === 'passed') passedCount++;
+                        else if (status === 'failed') failedCount++;
+                        else pendingCount++;
+                    });
+                }
             });
             
             // Update summary
@@ -3009,59 +2920,8 @@
         }
 
         async function executeSelectedTests() {
-            if (selectedTestCases.size === 0 || !currentRunId) {
-                showMessage('Please select at least one test case to run', 'error');
-                return;
-            }
-
-            try {
-                showMessage(`Executing ${selectedTestCases.size} test case(s)...`, 'success');
-                document.getElementById('execute_tests_btn').disabled = true;
-
-                // Get selected test case details
-                const testCasesToRun = [];
-                selectedTestCases.forEach(testCaseId => {
-                    // Extract test case info from the UI
-                    const checkbox = document.getElementById(`tc_${testCaseId}`);
-                    if (checkbox) {
-                        const card = checkbox.closest('div[style*="background: white"]');
-                        if (card) {
-                            const testName = card.querySelector('span[style*="font-weight: 600"]')?.textContent;
-                            const testType = card.textContent.match(/Type:\s*([^|]+)/)?.[1]?.trim();
-                            if (testName) {
-                                testCasesToRun.push({
-                                    test_id: testCaseId,
-                                    test_name: testName,
-                                    test_type: testType || 'unknown'
-                                });
-                            }
-                        }
-                    }
-                });
-
-                // Execute via free text command
-                const response = await fetch(`${API_BASE}/runs/${currentRunId}/answer`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        question_id: 'free_text',
-                        answer: `Execute the following test cases: ${testCasesToRun.map(tc => tc.test_name).join(', ')}`
-                    })
-                });
-
-                if (!response.ok) throw new Error(await response.text());
-
-                showMessage(`Test execution started for ${testCasesToRun.length} test case(s)`, 'success');
-                showCompletionNotification(`Running ${testCasesToRun.length} selected test case(s)...`, 'success');
-                
-                // Resume polling to see execution progress
-                startPolling();
-                startEventsPolling();
-
-            } catch (error) {
-                showMessage(`Failed to execute tests: ${error.message}`, 'error');
-                document.getElementById('execute_tests_btn').disabled = false;
-            }
+            // Open popup instead of executing directly
+            openTestExecutionModal();
         }
 
         function viewReport() {
@@ -3072,99 +2932,6 @@
             window.open(`${API_BASE}/runs/${currentRunId}/report`, '_blank');
         }
 
-        // Live Validation Event Handlers
-        function handleLiveValidationEvent(data) {
-            const { page_name, page_url, passed, failed, skipped, validations } = data;
-
-            // Update counters
-            updateValidationCounters(passed || 0, failed || 0, skipped || 0);
-
-            // Add to feed
-            const feedHtml = `
-                <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; border-left: 4px solid ${failed > 0 ? '#ef4444' : '#10b981'};">
-                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
-                        <div style="flex: 1;">
-                            <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px; font-size: 14px;">${page_name || 'Page'}</div>
-                            <div style="font-size: 11px; color: var(--text-secondary); word-break: break-all;">${page_url}</div>
-                        </div>
-                        <div style="display: flex; gap: 8px; margin-left: 12px;">
-                            <span style="padding: 6px 12px; background: #d1fae5; color: #065f46; border-radius: 12px; font-size: 11px; font-weight: 600;">✅ ${passed}</span>
-                            <span style="padding: 6px 12px; background: #fee2e2; color: #991b1b; border-radius: 12px; font-size: 11px; font-weight: 600;">❌ ${failed}</span>
-                            <span style="padding: 6px 12px; background: #fef3c7; color: #92400e; border-radius: 12px; font-size: 11px; font-weight: 600;">⏭️ ${skipped}</span>
-                        </div>
-                    </div>
-                    <div style="display: grid; gap: 6px;">
-                        ${(validations || []).map(v => `
-                            <div style="display: flex; align-items: center; gap: 8px; padding: 8px; background: ${getValidationBg(v.status)}; border-radius: 6px; font-size: 12px;">
-                                <span style="font-size: 16px;">${getValidationIcon(v.status)}</span>
-                                <span style="flex: 1; font-weight: 500; color: var(--text-primary);">${v.name}</span>
-                                <span style="padding: 4px 8px; background: white; border-radius: 8px; font-size: 10px; font-weight: 600; color: ${getValidationColor(v.status)};">${v.status.toUpperCase()}</span>
-                                ${v.severity ? `<span style="padding: 4px 8px; background: rgba(0,0,0,0.05); border-radius: 8px; font-size: 10px; font-weight: 600; color: var(--text-secondary);">${v.severity.toUpperCase()}</span>` : ''}
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-
-            const feed = document.getElementById('validation_feed');
-            if (feed) {
-                // Clear empty state if present
-                const emptyState = feed.querySelector('div[style*="text-align: center"]');
-                if (emptyState) {
-                    feed.innerHTML = '';
-                }
-                feed.insertAdjacentHTML('afterbegin', feedHtml);
-                feed.scrollTop = 0; // Scroll to show latest
-            }
-        }
-
-        function updateValidationCounters(passed, failed, skipped) {
-            const passedElem = document.getElementById('validation_passed');
-            const failedElem = document.getElementById('validation_failed');
-            const skippedElem = document.getElementById('validation_skipped');
-            const rateElem = document.getElementById('validation_rate');
-
-            if (!passedElem || !failedElem || !skippedElem || !rateElem) return;
-
-            const currentPassed = parseInt(passedElem.textContent) + passed;
-            const currentFailed = parseInt(failedElem.textContent) + failed;
-            const currentSkipped = parseInt(skippedElem.textContent) + skipped;
-            const total = currentPassed + currentFailed;
-            const passRate = total > 0 ? Math.round((currentPassed / total) * 100) : 0;
-
-            passedElem.textContent = currentPassed;
-            failedElem.textContent = currentFailed;
-            skippedElem.textContent = currentSkipped;
-            rateElem.textContent = passRate + '%';
-        }
-
-        function getValidationIcon(status) {
-            switch(status) {
-                case 'passed': return '✅';
-                case 'failed': return '❌';
-                case 'skipped': return '⏭️';
-                case 'running': return '⏳';
-                default: return '⏳';
-            }
-        }
-
-        function getValidationBg(status) {
-            switch(status) {
-                case 'passed': return 'rgba(16, 185, 129, 0.08)';
-                case 'failed': return 'rgba(239, 68, 68, 0.08)';
-                case 'skipped': return 'rgba(245, 158, 11, 0.08)';
-                default: return 'rgba(107, 114, 128, 0.08)';
-            }
-        }
-
-        function getValidationColor(status) {
-            switch(status) {
-                case 'passed': return '#065f46';
-                case 'failed': return '#991b1b';
-                case 'skipped': return '#92400e';
-                default: return '#6b7280';
-            }
-        }
 
         function updateDiscoveryStatus(status, data) {
             const badge = document.getElementById('discovery_status_badge');
@@ -3386,34 +3153,14 @@
                 skipped: 0
             };
 
-            // Show timeline
-            document.getElementById('execution_timeline').style.display = 'block';
-            document.getElementById('timeline_start').textContent = `Started: ${new Date().toLocaleTimeString()}`;
-            document.getElementById('execution_status').innerHTML = '⏳ IN PROGRESS';
-            document.getElementById('execution_status').style.background = '#fff4ce';
-            document.getElementById('execution_status').style.color = '#ca5010';
+            // Note: Test Results view removed - free text execution will show results in notifications
 
-            // Clear empty state
-            const feed = document.getElementById('test_results_feed');
-            feed.innerHTML = '';
-
-            // Auto-switch to Test Results tab
-            setTimeout(() => {
-                const resultsTab = document.querySelector('.app-tab[onclick*="results"]');
-                if (resultsTab) {
-                    document.querySelectorAll('.app-tab').forEach(t => t.classList.remove('active'));
-                    document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
-                    resultsTab.classList.add('active');
-                    document.getElementById('results-view').classList.add('active');
-                }
-            }, 500);
+            // Note: Test Results view removed - free text execution results will be shown in notifications
 
             // Start elapsed timer
             const timerInterval = setInterval(() => {
                 if (testExecutionState.startTime) {
-                    const elapsed = Math.floor((Date.now() - testExecutionState.startTime) / 1000);
-                    document.getElementById('timeline_elapsed').textContent = `Elapsed: ${elapsed}s`;
-                    document.getElementById('test_results_duration').textContent = `${elapsed}s`;
+                    // Note: Test Results view removed - duration tracking kept in state only
                 } else {
                     clearInterval(timerInterval);
                 }
@@ -3441,33 +3188,7 @@
             // Update counters
             updateTestResultsCounters();
 
-            // Add to feed (Azure style)
-            const feed = document.getElementById('test_results_feed');
-            const testCard = document.createElement('div');
-            testCard.id = `test_result_${testId}`;
-            testCard.style.cssText = 'background: white; border-radius: 8px; padding: 16px; border-left: 4px solid #ffb900; transition: all 0.3s;';
-            testCard.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-                    <div style="flex: 1;">
-                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px; font-size: 14px;">
-                            ${testName}
-                        </div>
-                        <div style="font-size: 11px; color: var(--text-secondary);">
-                            Test ID: ${testId}
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <div class="spinner" style="width: 16px; height: 16px; border: 2px solid #f3f4f6; border-top-color: #ffb900; border-radius: 50%; animation: spin 1s linear infinite;"></div>
-                        <span style="padding: 6px 12px; background: #fff4ce; color: #ca5010; border-radius: 12px; font-size: 12px; font-weight: 600;">
-                            ⏳ RUNNING
-                        </span>
-                    </div>
-                </div>
-                <div style="font-size: 12px; color: var(--text-secondary);">
-                    ⏱️ Started: ${new Date().toLocaleTimeString()}
-                </div>
-            `;
-            feed.insertBefore(testCard, feed.firstChild);
+            // Note: Test Results view removed - test status tracked in state only
 
             // Update progress bar
             updateProgressBar();
@@ -3496,46 +3217,7 @@
                 }
 
                 updateTestResultsCounters();
-
-                // Update test card (Azure style)
-                const testCard = document.getElementById(`test_result_${testId}`);
-                if (testCard) {
-                    const statusConfig = {
-                        passed: { bg: '#107c10', color: '#107c10', label: '✓ PASSED', cardBg: 'rgba(16, 124, 16, 0.05)' },
-                        failed: { bg: '#d13438', color: '#d13438', label: '✗ FAILED', cardBg: 'rgba(209, 52, 56, 0.05)' },
-                        skipped: { bg: '#797979', color: '#797979', label: '⊘ SKIPPED', cardBg: 'rgba(121, 121, 121, 0.05)' }
-                    };
-                    const config = statusConfig[test.status] || statusConfig.passed;
-
-                    testCard.style.borderLeftColor = config.bg;
-                    testCard.style.background = config.cardBg;
-                    testCard.innerHTML = `
-                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-                            <div style="flex: 1;">
-                                <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px; font-size: 14px;">
-                                    ${test.name}
-                                </div>
-                                <div style="font-size: 11px; color: var(--text-secondary);">
-                                    Test ID: ${testId}
-                                </div>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="padding: 6px 12px; background: white; color: ${config.color}; border-radius: 12px; font-size: 12px; font-weight: 600; border: 1px solid ${config.bg};">
-                                    ${config.label}
-                                </span>
-                            </div>
-                        </div>
-                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">
-                            ⏱️ Duration: ${(test.duration / 1000).toFixed(2)}s
-                        </div>
-                        ${test.error ? `
-                            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px; margin-top: 8px;">
-                                <div style="font-size: 11px; font-weight: 600; color: #991b1b; margin-bottom: 4px;">ERROR:</div>
-                                <div style="font-size: 11px; color: #7f1d1d; font-family: monospace; white-space: pre-wrap;">${test.error}</div>
-                            </div>
-                        ` : ''}
-                    `;
-                }
+                // Note: Test Results view removed - test completion tracked in state only
 
                 // Update progress bar
                 updateProgressBar();
@@ -3547,11 +3229,6 @@
 
             testExecutionState.startTime = null; // Stop timer
 
-            // Update status
-            document.getElementById('execution_status').innerHTML = '✓ COMPLETED';
-            document.getElementById('execution_status').style.background = '#d1fae5';
-            document.getElementById('execution_status').style.color = '#065f46';
-
             // Show completion notification
             const passRate = testExecutionState.totalTests > 0
                 ? Math.round((testExecutionState.passed / testExecutionState.totalTests) * 100)
@@ -3561,9 +3238,6 @@
                 `✓ Test execution completed! Pass rate: ${passRate}% (${testExecutionState.passed}/${testExecutionState.totalTests})`,
                 passRate >= 80 ? 'success' : 'error'
             );
-
-            // Show clear button
-            document.getElementById('clear_results_btn').style.display = 'block';
         }
 
         function showFreeTextExecutionError(data) {
@@ -3571,60 +3245,17 @@
 
             testExecutionState.startTime = null; // Stop timer
 
-            // Update status
-            document.getElementById('execution_status').innerHTML = '✗ FAILED';
-            document.getElementById('execution_status').style.background = '#fee2e2';
-            document.getElementById('execution_status').style.color = '#991b1b';
-
             // Show error notification
             showMessage(`Test execution failed: ${data.error}`, 'error');
-
-            // Show clear button
-            document.getElementById('clear_results_btn').style.display = 'block';
         }
 
+        // Note: Test Results view removed - these functions are kept for free text execution but won't update UI
         function updateTestResultsCounters() {
-            document.getElementById('test_results_total').textContent = testExecutionState.totalTests;
-            document.getElementById('test_results_passed').textContent = testExecutionState.passed;
-            document.getElementById('test_results_failed').textContent = testExecutionState.failed;
-            document.getElementById('test_results_running').textContent = testExecutionState.running;
-            document.getElementById('test_results_skipped').textContent = testExecutionState.skipped;
+            // View removed - function kept for compatibility
         }
 
         function updateProgressBar() {
-            const completed = testExecutionState.passed + testExecutionState.failed + testExecutionState.skipped;
-            const progress = testExecutionState.totalTests > 0
-                ? (completed / testExecutionState.totalTests) * 100
-                : 0;
-            document.getElementById('timeline_progress_bar').style.width = `${progress}%`;
-        }
-
-        function clearTestResults() {
-            testExecutionState = {
-                startTime: null,
-                tests: new Map(),
-                totalTests: 0,
-                passed: 0,
-                failed: 0,
-                running: 0,
-                skipped: 0
-            };
-
-            document.getElementById('test_results_feed').innerHTML = `
-                <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px;">
-                    <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
-                    <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">No test results yet</p>
-                    <p style="font-size: 14px; margin-bottom: 12px;">Select and execute test cases to see results here</p>
-                    <p style="font-size: 12px; color: var(--primary); font-weight: 500;">
-                        ⚡ Results update in real-time as tests execute!
-                    </p>
-                </div>
-            `;
-
-            document.getElementById('execution_timeline').style.display = 'none';
-            document.getElementById('clear_results_btn').style.display = 'none';
-            updateTestResultsCounters();
-            document.getElementById('test_results_duration').textContent = '0s';
+            // View removed - function kept for compatibility
         }
 
         // Test Case Event Handlers
@@ -3769,6 +3400,121 @@
             });
 
             container.innerHTML = html;
+        }
+
+        async function loadTestExecutionHistory() {
+            const container = document.getElementById('execution_history_list');
+            if (!container) return;
+
+            container.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-secondary);"><p>Loading test execution history...</p></div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/runs/executions/list`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const data = await response.json();
+                displayTestExecutionHistory(data.executions || []);
+            } catch (error) {
+                console.error('Failed to load test execution history:', error);
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: var(--danger);">
+                        <p>❌ Failed to load test execution history</p>
+                        <p style="font-size: 14px; margin-top: 8px;">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function displayTestExecutionHistory(executions) {
+            const container = document.getElementById('execution_history_list');
+            if (!container) return;
+
+            if (executions.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px; border: 2px dashed var(--border);">
+                        <div style="font-size: 48px; margin-bottom: 16px;">🧪</div>
+                        <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">No test executions found</p>
+                        <p style="font-size: 14px;">Execute test cases to see execution history here</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            executions.forEach(exec => {
+                const startDate = exec.started_at ? new Date(exec.started_at).toLocaleString() : 'Unknown';
+                const endDate = exec.completed_at ? new Date(exec.completed_at).toLocaleString() : 'Running...';
+                const duration = exec.duration_seconds ? `${Math.round(exec.duration_seconds)}s` : '-';
+                const passRate = exec.total_tests > 0 ? Math.round((exec.passed / exec.total_tests) * 100) : 0;
+                const statusColor = exec.status === 'completed' ? (exec.failed === 0 ? '#10b981' : '#ef4444') : '#f59e0b';
+
+                html += `
+                    <div style="background: white; border-radius: 12px; padding: 20px; border: 1px solid var(--border);">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                            <div style="flex: 1;">
+                                <div style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">
+                                    ${exec.execution_name}
+                                </div>
+                                <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">
+                                    ID: <span style="font-family: monospace;">${exec.execution_id}</span>
+                                </div>
+                                ${exec.description ? `
+                                    <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">
+                                        ${exec.description}
+                                    </div>
+                                ` : ''}
+                            </div>
+                            <div style="padding: 6px 12px; background: ${statusColor}20; color: ${statusColor}; border-radius: 12px; font-size: 11px; font-weight: 600;">
+                                ${exec.status.toUpperCase()}
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                            <div style="text-align: center; padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
+                                <div style="font-size: 20px; font-weight: 700; color: var(--primary);">${exec.total_tests}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Total</div>
+                            </div>
+                            <div style="text-align: center; padding: 12px; background: rgba(16, 185, 129, 0.1); border-radius: 8px;">
+                                <div style="font-size: 20px; font-weight: 700; color: #10b981;">${exec.passed}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Passed</div>
+                            </div>
+                            <div style="text-align: center; padding: 12px; background: rgba(239, 68, 68, 0.1); border-radius: 8px;">
+                                <div style="font-size: 20px; font-weight: 700; color: #ef4444;">${exec.failed}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Failed</div>
+                            </div>
+                            <div style="text-align: center; padding: 12px; background: rgba(245, 158, 11, 0.1); border-radius: 8px;">
+                                <div style="font-size: 20px; font-weight: 700; color: #f59e0b;">${exec.skipped}</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Skipped</div>
+                            </div>
+                            <div style="text-align: center; padding: 12px; background: var(--bg-tertiary); border-radius: 8px;">
+                                <div style="font-size: 20px; font-weight: 700; color: var(--primary);">${passRate}%</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">Pass Rate</div>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid var(--border);">
+                            <div style="font-size: 12px; color: var(--text-secondary);">
+                                <div>🕐 Started: ${startDate}</div>
+                                <div>⏱️ Duration: ${duration}</div>
+                                ${exec.discovery_run_id ? `<div>🔗 Discovery: <span style="font-family: monospace; color: var(--primary); cursor: pointer;" onclick="loadRun('${exec.discovery_run_id}')">${exec.discovery_run_id}</span></div>` : ''}
+                            </div>
+                            <button onclick="viewExecutionReport('${exec.execution_id}')" style="padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;">
+                                📊 View Report
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function viewExecutionReport(executionId) {
+            // Switch to execution history tab
+            switchAppTab('execution-history');
+            showMessage(`Viewing execution report: ${executionId}`, 'info');
+            // Refresh to show the selected execution
+            loadTestExecutionHistory();
         }
 
         function loadRun(runId) {
@@ -4463,6 +4209,210 @@
             initializePage();
             loadRunHistory();
         }
-    </script>
-</body>
+        </script>
+
+        <!-- Test Execution Popup Modal -->
+        <div id="test_execution_modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
+            <div style="background: white; border-radius: 12px; padding: 24px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);" onclick="event.stopPropagation()">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="font-size: 20px; font-weight: 700; color: var(--text-primary); margin: 0;">🚀 Execute Test Cases</h2>
+                    <button onclick="closeTestExecutionModal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-secondary); padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">&times;</button>
+                </div>
+                
+                <form id="test_execution_form" onsubmit="submitTestExecution(event)">
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Test Run Name *</label>
+                        <input type="text" id="execution_name" required placeholder="e.g., Smoke Tests - 2024-01-25" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
+                    </div>
+                    
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Description</label>
+                        <textarea id="execution_description" placeholder="Optional description for this test run" rows="3" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-family: inherit;"></textarea>
+                    </div>
+                    
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Environment</label>
+                        <select id="execution_environment" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
+                            <option value="staging">Staging</option>
+                            <option value="dev">Development</option>
+                            <option value="prod">Production</option>
+                            <option value="qa">QA</option>
+                        </select>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px; padding: 16px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border);">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                            <span style="font-weight: 600; color: var(--text-primary);">🔐 Authentication Credentials</span>
+                            <span id="credentials_status" style="font-size: 12px; padding: 4px 8px; background: #dbeafe; color: #1e40af; border-radius: 4px; font-weight: 600;">Loading...</span>
+                        </div>
+                        <div id="credentials_info" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;"></div>
+                        
+                        <div id="credentials_inputs" style="display: none;">
+                            <div style="margin-bottom: 12px;">
+                                <label style="display: block; font-weight: 500; margin-bottom: 6px; color: var(--text-primary); font-size: 13px;">Username *</label>
+                                <input type="text" id="execution_username" required placeholder="Enter username" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
+                            </div>
+                            <div>
+                                <label style="display: block; font-weight: 500; margin-bottom: 6px; color: var(--text-primary); font-size: 13px;">Password *</label>
+                                <input type="password" id="execution_password" required placeholder="Enter password" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+                        <button type="button" onclick="closeTestExecutionModal()" style="padding: 10px 20px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; color: var(--text-primary);">Cancel</button>
+                        <button type="submit" id="submit_execution_btn" style="padding: 10px 20px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600;">▶️ Start Execution</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script>
+        // Test Execution Modal Functions
+        let pendingTestCaseIds = [];
+        
+        function openTestExecutionModal() {
+            if (selectedTestCases.size === 0 || !currentRunId) {
+                showMessage('Please select at least one test case to run', 'error');
+                return;
+            }
+            
+            pendingTestCaseIds = Array.from(selectedTestCases);
+            document.getElementById('test_execution_modal').style.display = 'flex';
+            
+            // Set default execution name
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0];
+            document.getElementById('execution_name').value = `Test Run - ${dateStr} ${now.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})}`;
+            
+            // Load credentials from discovery run
+            loadDiscoveryCredentials();
+        }
+        
+        function closeTestExecutionModal() {
+            document.getElementById('test_execution_modal').style.display = 'none';
+            pendingTestCaseIds = [];
+        }
+        
+        async function loadDiscoveryCredentials() {
+            const statusEl = document.getElementById('credentials_status');
+            const infoEl = document.getElementById('credentials_info');
+            const inputsDiv = document.getElementById('credentials_inputs');
+            const usernameInput = document.getElementById('execution_username');
+            const passwordInput = document.getElementById('execution_password');
+            
+            statusEl.textContent = 'Loading...';
+            statusEl.style.background = '#dbeafe';
+            statusEl.style.color = '#1e40af';
+            
+            try {
+                // Get discovery run status to check for credentials
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/status`);
+                if (!response.ok) throw new Error('Failed to load run status');
+                
+                const data = await response.json();
+                
+                // Check if credentials exist in discovery run
+                if (data.auth && data.auth.username) {
+                    // Credentials found - pre-fill
+                    usernameInput.value = data.auth.username;
+                    passwordInput.value = data.auth.password || '';
+                    
+                    statusEl.textContent = 'Found';
+                    statusEl.style.background = '#d1fae5';
+                    statusEl.style.color = '#065f46';
+                    infoEl.textContent = `Using credentials from discovery run. You can modify if needed.`;
+                    infoEl.style.color = '#059669';
+                    inputsDiv.style.display = 'block';
+                    
+                    // Make password required only if not provided
+                    if (!data.auth.password) {
+                        passwordInput.required = true;
+                        passwordInput.placeholder = 'Password not saved - please enter';
+                    } else {
+                        passwordInput.required = false;
+                    }
+                } else {
+                    // No credentials - ask user to provide
+                    statusEl.textContent = 'Not Found';
+                    statusEl.style.background = '#fee2e2';
+                    statusEl.style.color = '#991b1b';
+                    infoEl.textContent = `No credentials found in discovery run. Please provide authentication credentials.`;
+                    infoEl.style.color = '#dc2626';
+                    inputsDiv.style.display = 'block';
+                    usernameInput.required = true;
+                    passwordInput.required = true;
+                }
+            } catch (error) {
+                console.error('Failed to load credentials:', error);
+                statusEl.textContent = 'Error';
+                statusEl.style.background = '#fee2e2';
+                statusEl.style.color = '#991b1b';
+                infoEl.textContent = `Could not load credentials. Please provide them below.`;
+                infoEl.style.color = '#dc2626';
+                inputsDiv.style.display = 'block';
+                usernameInput.required = true;
+                passwordInput.required = true;
+            }
+        }
+        
+        async function submitTestExecution(event) {
+            event.preventDefault();
+            
+            const submitBtn = document.getElementById('submit_execution_btn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Starting...';
+            
+            try {
+                const executionData = {
+                    test_case_ids: pendingTestCaseIds,
+                    execution_name: document.getElementById('execution_name').value,
+                    description: document.getElementById('execution_description').value,
+                    environment: document.getElementById('execution_environment').value,
+                    username: document.getElementById('execution_username').value,
+                    password: document.getElementById('execution_password').value
+                };
+                
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/execute-tests`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(executionData)
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || `HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                closeTestExecutionModal();
+                showMessage(`✅ Test execution started! Execution ID: ${data.execution_id}`, 'success');
+                showCompletionNotification(`Test execution started! Check Test Execution History tab.`, 'success');
+                
+                // Switch to Test Execution History tab
+                setTimeout(() => {
+                    switchAppTab('execution-history');
+                    loadTestExecutionHistory();
+                }, 1000);
+                
+                // Refresh test cases
+                fetchAndDisplayFeatures();
+                
+            } catch (error) {
+                console.error('Test execution error:', error);
+                showMessage(`Failed to start test execution: ${error.message}`, 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = '▶️ Start Execution';
+            }
+        }
+        
+        // Close modal when clicking outside
+        document.getElementById('test_execution_modal')?.addEventListener('click', function(e) {
+            if (e.target.id === 'test_execution_modal') {
+                closeTestExecutionModal();
+            }
+        });
+        </script>
+    </body>
 </html>

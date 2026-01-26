@@ -168,3 +168,77 @@ class UploadedImage(Base):
 
     # Associated run (nullable for pre-run uploads)
     run_id = Column(String(50), nullable=True, index=True)
+
+
+class TestExecutionRun(Base):
+    """Test execution run metadata and results."""
+    __tablename__ = "test_execution_runs"
+
+    execution_id = Column(String(50), primary_key=True, index=True)
+    discovery_run_id = Column(String(50), ForeignKey("runs.run_id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    # Execution metadata
+    execution_name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    environment = Column(String(50), default="staging")
+    
+    # Credentials used (encrypted/hashed)
+    auth_type = Column(String(50), nullable=True)
+    username = Column(String(200), nullable=True)  # Encrypted in production
+    
+    # Timestamps
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    completed_at = Column(DateTime, nullable=True)
+    
+    # Test execution summary
+    total_tests = Column(Integer, default=0)
+    passed = Column(Integer, default=0)
+    failed = Column(Integer, default=0)
+    skipped = Column(Integer, default=0)
+    duration_seconds = Column(Float, nullable=True)
+    
+    # Status
+    status = Column(String(20), default="running", index=True)  # running, completed, failed
+    
+    # Results data (JSONB for detailed results)
+    execution_results = Column(JSON, nullable=True)
+    
+    # Artifacts path
+    artifacts_path = Column(String(500), nullable=False)
+    
+    # Configuration
+    headless = Column(Boolean, default=True)
+    
+    # Relationship
+    discovery_run = relationship("Run", foreign_keys=[discovery_run_id])
+
+
+class TestExecutionResult(Base):
+    """Individual test execution results."""
+    __tablename__ = "test_execution_results"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    execution_id = Column(String(50), ForeignKey("test_execution_runs.execution_id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Test identification
+    test_id = Column(String(100), nullable=False, index=True)
+    test_name = Column(String(500), nullable=False)
+    test_type = Column(String(50), nullable=True)
+    
+    # Execution details
+    status = Column(String(20), nullable=False, index=True)  # passed, failed, skipped
+    duration_ms = Column(Float, nullable=True)
+    executed_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Test details
+    steps = Column(JSON, nullable=True)  # Array of step results
+    error_message = Column(Text, nullable=True)
+    screenshot_path = Column(String(500), nullable=True)
+    evidence = Column(JSON, nullable=True)  # Additional evidence
+    
+    # Relationship
+    execution_run = relationship("TestExecutionRun", back_populates="test_results")
+
+
+# Add relationship to TestExecutionRun
+TestExecutionRun.test_results = relationship("TestExecutionResult", back_populates="execution_run", cascade="all, delete-orphan")
