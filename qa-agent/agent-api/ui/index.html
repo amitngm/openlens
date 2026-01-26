@@ -109,6 +109,11 @@
             50% { transform: scale(1.1); }
         }
 
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
         .buddy-header .subtitle {
             font-size: 15px;
             opacity: 0.95;
@@ -944,7 +949,8 @@
             <!-- App Panel Tabs -->
             <div class="app-tabs">
                 <button class="app-tab active" onclick="switchAppTab('testcases')">✅ Test Cases</button>
-                <button class="app-tab" onclick="switchAppTab('progress')">📊 Live Progress</button>
+                <button class="app-tab" onclick="switchAppTab('results')">📊 Test Results</button>
+                <button class="app-tab" onclick="switchAppTab('progress')">⏱️ Live Progress</button>
                 <button class="app-tab" onclick="switchAppTab('validation')">🧪 Live Validation</button>
                 <button class="app-tab" onclick="switchAppTab('history')">📜 Run History</button>
             </div>
@@ -1021,6 +1027,80 @@
                             <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
                             <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">No test cases available yet</p>
                             <p style="font-size: 14px;">Start a discovery run to see test cases with their status</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Test Results View (Azure DevOps Style) -->
+            <div id="results-view" class="app-view">
+                <div style="padding: 20px; height: 100%; overflow-y: auto; background: var(--bg-secondary);">
+                    <div style="margin-bottom: 24px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h2 style="font-size: 22px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px; margin: 0;">
+                                <span>📊</span> Test Execution Results
+                                <span style="font-size: 12px; font-weight: 400; color: var(--text-secondary); margin-left: 8px;">(Azure DevOps Style)</span>
+                            </h2>
+                            <button onclick="clearTestResults()" class="btn-secondary btn-sm" id="clear_results_btn" style="display: none;">
+                                🗑️ Clear Results
+                            </button>
+                        </div>
+
+                        <!-- Execution Summary Cards (Azure Style) -->
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 24px;">
+                            <div class="stat-card" style="background: white; border-left: 4px solid #0078d4;">
+                                <div class="stat-value" id="test_results_total" style="color: #0078d4;">0</div>
+                                <div class="stat-label">Total Tests</div>
+                            </div>
+                            <div class="stat-card" style="background: white; border-left: 4px solid #107c10;">
+                                <div class="stat-value" id="test_results_passed" style="color: #107c10;">0</div>
+                                <div class="stat-label">✓ Passed</div>
+                            </div>
+                            <div class="stat-card" style="background: white; border-left: 4px solid #d13438;">
+                                <div class="stat-value" id="test_results_failed" style="color: #d13438;">0</div>
+                                <div class="stat-label">✗ Failed</div>
+                            </div>
+                            <div class="stat-card" style="background: white; border-left: 4px solid #ffb900;">
+                                <div class="stat-value" id="test_results_running" style="color: #ffb900;">0</div>
+                                <div class="stat-label">⏳ Running</div>
+                            </div>
+                            <div class="stat-card" style="background: white; border-left: 4px solid #797979;">
+                                <div class="stat-value" id="test_results_skipped" style="color: #797979;">0</div>
+                                <div class="stat-label">⊘ Skipped</div>
+                            </div>
+                            <div class="stat-card" style="background: white; border-left: 4px solid #0078d4;">
+                                <div class="stat-value" id="test_results_duration" style="color: #0078d4;">0s</div>
+                                <div class="stat-label">⏱️ Duration</div>
+                            </div>
+                        </div>
+
+                        <!-- Execution Timeline -->
+                        <div id="execution_timeline" style="background: white; border-radius: 12px; padding: 16px; margin-bottom: 16px; display: none;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <div style="font-weight: 600; color: var(--text-primary); font-size: 14px;">⏱️ Execution Timeline</div>
+                                <div id="execution_status" style="padding: 6px 12px; background: #fff4ce; color: #ca5010; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                                    ⏳ IN PROGRESS
+                                </div>
+                            </div>
+                            <div id="timeline_progress" style="height: 6px; background: #f3f4f6; border-radius: 3px; overflow: hidden; margin-bottom: 8px;">
+                                <div id="timeline_progress_bar" style="height: 100%; background: linear-gradient(90deg, #0078d4, #00bcf2); width: 0%; transition: width 0.3s;"></div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-secondary);">
+                                <span id="timeline_start">Started: --</span>
+                                <span id="timeline_elapsed">Elapsed: 0s</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Test Results Feed (Azure Style) -->
+                    <div id="test_results_feed" style="display: flex; flex-direction: column; gap: 8px;">
+                        <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px;">
+                            <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
+                            <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">No test results yet</p>
+                            <p style="font-size: 14px; margin-bottom: 12px;">Select and execute test cases to see results here</p>
+                            <p style="font-size: 12px; color: var(--primary); font-weight: 500;">
+                                ⚡ Results update in real-time as tests execute!
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -3073,28 +3153,270 @@
             console.log('Health Check Summary:', data);
         }
 
-        // Ask QA Buddy Event Handlers
+        // Test Execution Results (Azure DevOps Style)
+        let testExecutionState = {
+            startTime: null,
+            tests: new Map(), // test_id -> {name, status, start, end, duration, error}
+            totalTests: 0,
+            passed: 0,
+            failed: 0,
+            running: 0,
+            skipped: 0
+        };
+
         function showFreeTextExecutionStarted(data) {
-            console.log('QA Buddy started:', data.instruction);
-            // Could show a banner or notification
+            console.log('Test execution started:', data.instruction);
+
+            // Reset state
+            testExecutionState = {
+                startTime: Date.now(),
+                tests: new Map(),
+                totalTests: 0,
+                passed: 0,
+                failed: 0,
+                running: 0,
+                skipped: 0
+            };
+
+            // Show timeline
+            document.getElementById('execution_timeline').style.display = 'block';
+            document.getElementById('timeline_start').textContent = `Started: ${new Date().toLocaleTimeString()}`;
+            document.getElementById('execution_status').innerHTML = '⏳ IN PROGRESS';
+            document.getElementById('execution_status').style.background = '#fff4ce';
+            document.getElementById('execution_status').style.color = '#ca5010';
+
+            // Clear empty state
+            const feed = document.getElementById('test_results_feed');
+            feed.innerHTML = '';
+
+            // Auto-switch to Test Results tab
+            setTimeout(() => {
+                const resultsTab = document.querySelector('.app-tab[onclick*="results"]');
+                if (resultsTab) {
+                    document.querySelectorAll('.app-tab').forEach(t => t.classList.remove('active'));
+                    document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
+                    resultsTab.classList.add('active');
+                    document.getElementById('results-view').classList.add('active');
+                }
+            }, 500);
+
+            // Start elapsed timer
+            const timerInterval = setInterval(() => {
+                if (testExecutionState.startTime) {
+                    const elapsed = Math.floor((Date.now() - testExecutionState.startTime) / 1000);
+                    document.getElementById('timeline_elapsed').textContent = `Elapsed: ${elapsed}s`;
+                    document.getElementById('test_results_duration').textContent = `${elapsed}s`;
+                } else {
+                    clearInterval(timerInterval);
+                }
+            }, 1000);
         }
 
         function showFreeTextTestStarted(data) {
-            console.log('QA Buddy test started:', data.test);
+            console.log('Test started:', data.test);
+
+            const testId = data.test_id || data.test || `test_${testExecutionState.tests.size}`;
+            const testName = data.test_name || data.test || 'Unnamed Test';
+
+            // Add to state
+            testExecutionState.tests.set(testId, {
+                name: testName,
+                status: 'running',
+                start: Date.now(),
+                end: null,
+                duration: null,
+                error: null
+            });
+            testExecutionState.totalTests++;
+            testExecutionState.running++;
+
+            // Update counters
+            updateTestResultsCounters();
+
+            // Add to feed (Azure style)
+            const feed = document.getElementById('test_results_feed');
+            const testCard = document.createElement('div');
+            testCard.id = `test_result_${testId}`;
+            testCard.style.cssText = 'background: white; border-radius: 8px; padding: 16px; border-left: 4px solid #ffb900; transition: all 0.3s;';
+            testCard.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px; font-size: 14px;">
+                            ${testName}
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-secondary);">
+                            Test ID: ${testId}
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <div class="spinner" style="width: 16px; height: 16px; border: 2px solid #f3f4f6; border-top-color: #ffb900; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                        <span style="padding: 6px 12px; background: #fff4ce; color: #ca5010; border-radius: 12px; font-size: 12px; font-weight: 600;">
+                            ⏳ RUNNING
+                        </span>
+                    </div>
+                </div>
+                <div style="font-size: 12px; color: var(--text-secondary);">
+                    ⏱️ Started: ${new Date().toLocaleTimeString()}
+                </div>
+            `;
+            feed.insertBefore(testCard, feed.firstChild);
+
+            // Update progress bar
+            updateProgressBar();
         }
 
         function showFreeTextTestCompleted(data) {
-            console.log('QA Buddy test completed:', data.test, data.status);
+            console.log('Test completed:', data.test, data.status);
+
+            const testId = data.test_id || data.test || `test_${testExecutionState.tests.size}`;
+            const test = testExecutionState.tests.get(testId);
+
+            if (test) {
+                test.status = data.status || 'passed';
+                test.end = Date.now();
+                test.duration = test.end - test.start;
+                test.error = data.error || null;
+
+                // Update counters
+                testExecutionState.running--;
+                if (test.status === 'passed') {
+                    testExecutionState.passed++;
+                } else if (test.status === 'failed') {
+                    testExecutionState.failed++;
+                } else {
+                    testExecutionState.skipped++;
+                }
+
+                updateTestResultsCounters();
+
+                // Update test card (Azure style)
+                const testCard = document.getElementById(`test_result_${testId}`);
+                if (testCard) {
+                    const statusConfig = {
+                        passed: { bg: '#107c10', color: '#107c10', label: '✓ PASSED', cardBg: 'rgba(16, 124, 16, 0.05)' },
+                        failed: { bg: '#d13438', color: '#d13438', label: '✗ FAILED', cardBg: 'rgba(209, 52, 56, 0.05)' },
+                        skipped: { bg: '#797979', color: '#797979', label: '⊘ SKIPPED', cardBg: 'rgba(121, 121, 121, 0.05)' }
+                    };
+                    const config = statusConfig[test.status] || statusConfig.passed;
+
+                    testCard.style.borderLeftColor = config.bg;
+                    testCard.style.background = config.cardBg;
+                    testCard.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px; font-size: 14px;">
+                                    ${test.name}
+                                </div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">
+                                    Test ID: ${testId}
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="padding: 6px 12px; background: white; color: ${config.color}; border-radius: 12px; font-size: 12px; font-weight: 600; border: 1px solid ${config.bg};">
+                                    ${config.label}
+                                </span>
+                            </div>
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">
+                            ⏱️ Duration: ${(test.duration / 1000).toFixed(2)}s
+                        </div>
+                        ${test.error ? `
+                            <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 8px; margin-top: 8px;">
+                                <div style="font-size: 11px; font-weight: 600; color: #991b1b; margin-bottom: 4px;">ERROR:</div>
+                                <div style="font-size: 11px; color: #7f1d1d; font-family: monospace; white-space: pre-wrap;">${test.error}</div>
+                            </div>
+                        ` : ''}
+                    `;
+                }
+
+                // Update progress bar
+                updateProgressBar();
+            }
         }
 
         function showFreeTextExecutionCompleted(data) {
-            console.log('QA Buddy execution completed:', data);
-            // Could show a summary notification
+            console.log('Test execution completed:', data);
+
+            testExecutionState.startTime = null; // Stop timer
+
+            // Update status
+            document.getElementById('execution_status').innerHTML = '✓ COMPLETED';
+            document.getElementById('execution_status').style.background = '#d1fae5';
+            document.getElementById('execution_status').style.color = '#065f46';
+
+            // Show completion notification
+            const passRate = testExecutionState.totalTests > 0
+                ? Math.round((testExecutionState.passed / testExecutionState.totalTests) * 100)
+                : 0;
+
+            showCompletionNotification(
+                `✓ Test execution completed! Pass rate: ${passRate}% (${testExecutionState.passed}/${testExecutionState.totalTests})`,
+                passRate >= 80 ? 'success' : 'error'
+            );
+
+            // Show clear button
+            document.getElementById('clear_results_btn').style.display = 'block';
         }
 
         function showFreeTextExecutionError(data) {
-            console.error('QA Buddy error:', data.error);
-            // Could show an error notification
+            console.error('Test execution error:', data.error);
+
+            testExecutionState.startTime = null; // Stop timer
+
+            // Update status
+            document.getElementById('execution_status').innerHTML = '✗ FAILED';
+            document.getElementById('execution_status').style.background = '#fee2e2';
+            document.getElementById('execution_status').style.color = '#991b1b';
+
+            // Show error notification
+            showMessage(`Test execution failed: ${data.error}`, 'error');
+
+            // Show clear button
+            document.getElementById('clear_results_btn').style.display = 'block';
+        }
+
+        function updateTestResultsCounters() {
+            document.getElementById('test_results_total').textContent = testExecutionState.totalTests;
+            document.getElementById('test_results_passed').textContent = testExecutionState.passed;
+            document.getElementById('test_results_failed').textContent = testExecutionState.failed;
+            document.getElementById('test_results_running').textContent = testExecutionState.running;
+            document.getElementById('test_results_skipped').textContent = testExecutionState.skipped;
+        }
+
+        function updateProgressBar() {
+            const completed = testExecutionState.passed + testExecutionState.failed + testExecutionState.skipped;
+            const progress = testExecutionState.totalTests > 0
+                ? (completed / testExecutionState.totalTests) * 100
+                : 0;
+            document.getElementById('timeline_progress_bar').style.width = `${progress}%`;
+        }
+
+        function clearTestResults() {
+            testExecutionState = {
+                startTime: null,
+                tests: new Map(),
+                totalTests: 0,
+                passed: 0,
+                failed: 0,
+                running: 0,
+                skipped: 0
+            };
+
+            document.getElementById('test_results_feed').innerHTML = `
+                <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px;">
+                    <div style="font-size: 48px; margin-bottom: 16px;">📊</div>
+                    <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">No test results yet</p>
+                    <p style="font-size: 14px; margin-bottom: 12px;">Select and execute test cases to see results here</p>
+                    <p style="font-size: 12px; color: var(--primary); font-weight: 500;">
+                        ⚡ Results update in real-time as tests execute!
+                    </p>
+                </div>
+            `;
+
+            document.getElementById('execution_timeline').style.display = 'none';
+            document.getElementById('clear_results_btn').style.display = 'none';
+            updateTestResultsCounters();
+            document.getElementById('test_results_duration').textContent = '0s';
         }
 
         // Test Case Event Handlers

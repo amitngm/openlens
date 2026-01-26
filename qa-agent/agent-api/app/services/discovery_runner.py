@@ -3365,6 +3365,19 @@ class DiscoveryRunner:
                                             fingerprint = self._create_fingerprint(nav_path, new_url, heading)
 
                                             if fingerprint not in visited_fingerprints:
+                                                # 🧪 LIVE VALIDATION - Test features immediately
+                                                try:
+                                                    validation_results = await self.live_validator.validate_page_live(
+                                                        page=page,
+                                                        page_info=page_info,
+                                                        run_id=run_id,
+                                                        artifacts_path=artifacts_path
+                                                    )
+                                                    page_info["validation_results"] = validation_results
+                                                except Exception as e:
+                                                    logger.error(f"[{run_id}] ❌ Validation error: {e}")
+                                                    page_info["validation_results"] = {"error": str(e)}
+
                                                 visited_pages.append(page_info)
                                                 visited_fingerprints.add(fingerprint)
                                             
@@ -3418,6 +3431,19 @@ class DiscoveryRunner:
                                 fingerprint = self._create_fingerprint(nav_path, new_url, heading)
 
                                 if fingerprint not in visited_fingerprints:
+                                    # 🧪 LIVE VALIDATION
+                                    try:
+                                        validation_results = await self.live_validator.validate_page_live(
+                                            page=page,
+                                            page_info=page_info,
+                                            run_id=run_id,
+                                            artifacts_path=artifacts_path
+                                        )
+                                        page_info["validation_results"] = validation_results
+                                    except Exception as e:
+                                        logger.error(f"[{run_id}] ❌ Validation error: {e}")
+                                        page_info["validation_results"] = {"error": str(e)}
+
                                     visited_pages.append(page_info)
                                     visited_fingerprints.add(fingerprint)
                                     
@@ -3606,6 +3632,19 @@ class DiscoveryRunner:
                                             fingerprint = self._create_fingerprint(nav_path, after_url, heading)
 
                                             if fingerprint not in visited_fingerprints:
+                                                # 🧪 LIVE VALIDATION
+                                                try:
+                                                    validation_results = await self.live_validator.validate_page_live(
+                                                        page=page,
+                                                        page_info=page_info,
+                                                        run_id=run_id,
+                                                        artifacts_path=artifacts_path
+                                                    )
+                                                    page_info["validation_results"] = validation_results
+                                                except Exception as e:
+                                                    logger.error(f"[{run_id}] ❌ Validation error: {e}")
+                                                    page_info["validation_results"] = {"error": str(e)}
+
                                                 visited_pages.append(page_info)
                                                 visited_fingerprints.add(fingerprint)
                                                 
