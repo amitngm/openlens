@@ -512,6 +512,8 @@ class TestExecutor:
                                 expected = ast.literal_eval(verify_dict_str)
                             except:
                                 pass
+                    except:
+                        pass
                 
                 try:
                     # Handle different assertion types
@@ -613,16 +615,6 @@ class TestExecutor:
                     step_result["status"] = "failed"
                     step_result["error"] = "No selector provided for clear action"
                     logger.warning(f"[{run_id}] Clear step failed: no selector")
-                
-                else:
-                    # Generic step - wait and verify page is accessible
-                    try:
-                        await page.wait_for_load_state("networkidle", timeout=3000)
-                    except:
-                        pass
-                    await asyncio.sleep(1)
-                    step_result["status"] = "passed"
-                    logger.info(f"[{run_id}] Generic step completed: {step[:50]}")
             
             elif action == "navigate":
                 # Handle both dict format (with data.url) and string format
