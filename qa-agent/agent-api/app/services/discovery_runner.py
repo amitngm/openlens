@@ -1584,18 +1584,18 @@ class DiscoveryRunner:
                 )
 
                 # Save coverage report
-                coverage_file = artifacts_path / "test_coverage_report.json"
+                coverage_file = discovery_dir / "test_coverage_report.json"
                 with open(coverage_file, "w") as f:
                     json.dump(coverage_report, f, indent=2)
                 logger.info(f"[{run_id}] Coverage report saved to: {coverage_file.name}")
 
                 # Save coverage summary (human-readable)
-                coverage_summary_file = artifacts_path / "coverage_summary.txt"
+                coverage_summary_file = discovery_dir / "coverage_summary.txt"
                 with open(coverage_summary_file, "w") as f:
                     f.write(self.coverage_engine.generate_coverage_summary_text(coverage_report))
 
                 # Save quality report
-                quality_file = artifacts_path / "test_quality_report.json"
+                quality_file = discovery_dir / "test_quality_report.json"
                 with open(quality_file, "w") as f:
                     json.dump(quality_report, f, indent=2)
 
@@ -1608,7 +1608,7 @@ class DiscoveryRunner:
                     "total_count": len(all_test_cases),
                     "generated_at": datetime.utcnow().isoformat() + "Z"
                 }
-                enhanced_file = artifacts_path / "test_cases_enhanced.json"
+                enhanced_file = discovery_dir / "test_cases_enhanced.json"
                 with open(enhanced_file, "w") as f:
                     json.dump(test_cases_enhanced, f, indent=2, default=str)
 

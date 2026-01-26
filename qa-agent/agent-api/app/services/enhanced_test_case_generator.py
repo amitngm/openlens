@@ -224,24 +224,24 @@ class EnhancedTestCaseGenerator:
         page_sig = page_info.get("page_signature", {})
 
         # Detect search
-        if self._has_search(page_sig):
+        if self._has_search(page_sig, page_info):
             detected["search"] = {"detected": True, "confidence": "high"}
 
         # Detect pagination
-        if self._has_pagination(page_sig):
+        if self._has_pagination(page_sig, page_info):
             detected["pagination"] = {"detected": True, "confidence": "high"}
 
         # Detect filters
-        if self._has_filters(page_sig):
+        if self._has_filters(page_sig, page_info):
             detected["filter"] = {"detected": True, "confidence": "high"}
 
         # Detect listing/table
-        if self._has_listing(page_sig):
+        if self._has_listing(page_sig, page_info):
             detected["listing"] = {"detected": True, "confidence": "high"}
 
         return detected
 
-    def _has_search(self, page_sig: Dict) -> bool:
+    def _has_search(self, page_sig: Dict, page_info: Dict) -> bool:
         """Check if page has search functionality."""
         # Check primary actions
         for action in page_sig.get("primary_actions", []):
@@ -254,19 +254,30 @@ class EnhancedTestCaseGenerator:
                 if "search" in field.get("name", "").lower():
                     return True
 
+        # Assume pages with tables have search (common pattern)
+        if page_info.get("tables") and len(page_info.get("tables", [])) > 0:
+            return True
+
         return False
 
-    def _has_pagination(self, page_sig: Dict) -> bool:
+    def _has_pagination(self, page_sig: Dict, page_info: Dict) -> bool:
         """Check if page has pagination."""
         # Check primary actions for next/previous
         for action in page_sig.get("primary_actions", []):
             action_text = action.get("text", "").lower()
-            if action_text in ["next", "previous", "prev", ">"]:
+            if action_text in ["next", "previous", "prev", ">", "«", "»"]:
                 return True
+
+        # Assume pages with large tables (>10 rows) have pagination
+        tables = page_info.get("tables", [])
+        if tables:
+            for table in tables:
+                if table.get("row_count", 0) >= 10:
+                    return True
 
         return False
 
-    def _has_filters(self, page_sig: Dict) -> bool:
+    def _has_filters(self, page_sig: Dict, page_info: Dict) -> bool:
         """Check if page has filters."""
         # Check for filter-related forms
         for form in page_sig.get("forms", []):
@@ -275,11 +286,25 @@ class EnhancedTestCaseGenerator:
                 if "filter" in field_name or "status" in field_name or "type" in field_name:
                     return True
 
+        # Assume pages with tables have filters (common pattern)
+        if page_info.get("tables") and len(page_info.get("tables", [])) > 0:
+            return True
+
         return False
 
-    def _has_listing(self, page_sig: Dict) -> bool:
+    def _has_listing(self, page_sig: Dict, page_info: Dict) -> bool:
         """Check if page has listing/table."""
-        return page_sig.get("has_tables", False)
+        # Check page_signature first
+        has_tables_sig = page_sig.get("has_tables")
+        if has_tables_sig is True:
+            return True
+
+        # Fall back to checking actual tables in page_info
+        tables = page_info.get("tables", [])
+        if tables and len(tables) > 0:
+            return True
+
+        return False
 
     def _should_generate_for_coverage_mode(
         self,

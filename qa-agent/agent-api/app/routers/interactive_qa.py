@@ -2763,13 +2763,21 @@ async def get_run_history(
 async def get_test_cases(run_id: str):
     """Get all generated test cases for a run."""
     try:
-        # Get run context to find artifacts path
+        # Try to get artifacts path from run context first
         context = _run_store.get_run(run_id)
-        if not context:
-            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+        if context:
+            test_cases_file = Path(context.artifacts_path) / "test_cases.json"
+        else:
+            # If run not in memory, try loading from file system directly
+            data_dir = Path("data")
+            if not data_dir.exists():
+                data_dir = Path("agent-api/data")
 
-        # Load test cases from file
-        test_cases_file = Path(context.artifacts_path) / "test_cases.json"
+            run_dir = data_dir / run_id
+            if not run_dir.exists():
+                raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+            test_cases_file = run_dir / "test_cases.json"
 
         if not test_cases_file.exists():
             # Return empty if not generated yet
