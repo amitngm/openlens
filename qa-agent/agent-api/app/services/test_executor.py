@@ -610,9 +610,56 @@ class TestExecutor:
                         # Try to get current page URL or use base URL from page
                         url = page.url
                     if url:
-                        await page.goto(url, timeout=30000, wait_until="networkidle")
-                        step_result["status"] = "passed"
-                        logger.info(f"[{run_id}] Navigated to: {url}")
+                        try:
+                            await page.goto(url, timeout=30000, wait_until="networkidle")
+                            await asyncio.sleep(1)  # Wait for page to settle
+                            
+                            # Verify that we actually navigated to the expected URL
+                            actual_url = page.url
+                            from urllib.parse import urlparse, urlunparse
+                            url_parsed = urlparse(url)
+                            actual_parsed = urlparse(actual_url)
+                            
+                            # Normalize URLs: scheme + netloc + path (ignore query params, fragments, trailing slashes)
+                            url_normalized = urlunparse((
+                                url_parsed.scheme or "https",
+                                url_parsed.netloc.lower(),
+                                url_parsed.path.rstrip('/') or '/',
+                                '',  # params
+                                '',  # query
+                                ''   # fragment
+                            ))
+                            actual_normalized = urlunparse((
+                                actual_parsed.scheme or "https",
+                                actual_parsed.netloc.lower(),
+                                actual_parsed.path.rstrip('/') or '/',
+                                '',  # params
+                                '',  # query
+                                ''   # fragment
+                            ))
+                            
+                            if url_normalized != actual_normalized:
+                                # URL doesn't match - this is a failure
+                                step_result["status"] = "failed"
+                                step_result["error"] = f"Navigation verification failed: Expected URL '{url_normalized}' but navigated to '{actual_normalized}'"
+                                step_result["ui_observations"].append({
+                                    "type": "navigation_mismatch",
+                                    "message": f"Expected URL: {url_normalized}, Actual URL: {actual_normalized}",
+                                    "expected": url_normalized,
+                                    "actual": actual_normalized,
+                                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                                })
+                                logger.error(f"[{run_id}] Navigation verification failed: Expected '{url_normalized}', got '{actual_normalized}'")
+                            else:
+                                step_result["status"] = "passed"
+                                step_result["details"]["expected_url"] = url_normalized
+                                step_result["details"]["actual_url"] = actual_normalized
+                                step_result["details"]["full_actual_url"] = actual_url
+                                logger.info(f"[{run_id}] Navigated to: {url} (verified: {actual_url})")
+                        except Exception as nav_error:
+                            step_result["status"] = "failed"
+                            step_result["error"] = f"Navigation failed: {str(nav_error)}"
+                            logger.error(f"[{run_id}] Navigation error: {nav_error}")
                     else:
                         step_result["status"] = "failed"
                         step_result["error"] = "Could not determine URL for navigation"
@@ -861,10 +908,56 @@ class TestExecutor:
                             target = f"{base_url.rstrip('/')}/{target.lstrip('/')}"
                 
                 logger.info(f"[{run_id}] Navigating to: {target}")
-                await page.goto(target, timeout=30000, wait_until="networkidle")
-                await asyncio.sleep(1)  # Wait for page to settle
-                step_result["status"] = "passed"
-                logger.info(f"[{run_id}] Successfully navigated to: {target}")
+                try:
+                    await page.goto(target, timeout=30000, wait_until="networkidle")
+                    await asyncio.sleep(1)  # Wait for page to settle
+                    
+                    # Verify that we actually navigated to the expected URL
+                    actual_url = page.url
+                    from urllib.parse import urlparse, urlunparse
+                    target_parsed = urlparse(target)
+                    actual_parsed = urlparse(actual_url)
+                    
+                    # Normalize URLs: scheme + netloc + path (ignore query params, fragments, trailing slashes)
+                    target_normalized = urlunparse((
+                        target_parsed.scheme or "https",
+                        target_parsed.netloc.lower(),
+                        target_parsed.path.rstrip('/') or '/',
+                        '',  # params
+                        '',  # query
+                        ''   # fragment
+                    ))
+                    actual_normalized = urlunparse((
+                        actual_parsed.scheme or "https",
+                        actual_parsed.netloc.lower(),
+                        actual_parsed.path.rstrip('/') or '/',
+                        '',  # params
+                        '',  # query
+                        ''   # fragment
+                    ))
+                    
+                    if target_normalized != actual_normalized:
+                        # URL doesn't match - this is a failure
+                        step_result["status"] = "failed"
+                        step_result["error"] = f"Navigation verification failed: Expected URL '{target_normalized}' but navigated to '{actual_normalized}'"
+                        step_result["ui_observations"].append({
+                            "type": "navigation_mismatch",
+                            "message": f"Expected URL: {target_normalized}, Actual URL: {actual_normalized}",
+                            "expected": target_normalized,
+                            "actual": actual_normalized,
+                            "timestamp": datetime.utcnow().isoformat() + "Z"
+                        })
+                        logger.error(f"[{run_id}] Navigation verification failed: Expected '{target_normalized}', got '{actual_normalized}'")
+                    else:
+                        step_result["status"] = "passed"
+                        step_result["details"]["expected_url"] = target_normalized
+                        step_result["details"]["actual_url"] = actual_normalized
+                        step_result["details"]["full_actual_url"] = actual_url
+                        logger.info(f"[{run_id}] Successfully navigated to: {target} (verified: {actual_url})")
+                except Exception as nav_error:
+                    step_result["status"] = "failed"
+                    step_result["error"] = f"Navigation failed: {str(nav_error)}"
+                    logger.error(f"[{run_id}] Navigation error: {nav_error}")
             
             elif action == "wait":
                 # Handle both dict format (with data.duration_ms) and string format
