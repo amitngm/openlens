@@ -12,6 +12,8 @@ from urllib.parse import urlparse, urljoin
 from app.models.run_state import RunState
 from app.services.live_validator import LiveValidator
 from app.services.production_validator import ProductionValidator
+from app.services.enhanced_test_case_generator import EnhancedTestCaseGenerator
+from app.services.coverage_engine import TestCoverageEngine, CoverageAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +110,9 @@ class DiscoveryRunner:
         self.config = config or DiscoveryConfig()
         self.live_validator = LiveValidator()  # Initialize live validator for real-time feature testing
         self.production_validator = ProductionValidator()  # Initialize production-grade validator
+        self.enhanced_test_generator = EnhancedTestCaseGenerator()  # Enhanced test case generator
+        self.coverage_engine = TestCoverageEngine()  # Test coverage engine
+        self.coverage_analyzer = CoverageAnalyzer()  # Coverage quality analyzer
         self.event_writers: Dict[str, Any] = {}  # run_id -> file handle
         self.trace_writers: Dict[str, Any] = {}  # run_id -> file handle
         self.trace_step_no: Dict[str, int] = {}  # run_id -> step counter
@@ -1181,18 +1186,29 @@ class DiscoveryRunner:
                     "resources": []
                 })
 
-                # Generate test cases for this page
+                # Generate test cases for this page using enhanced generator
                 try:
                     from app.services.test_case_generator import get_test_case_generator
+
+                    # Generate comprehensive test cases
+                    page_test_cases = self.enhanced_test_generator.generate_test_cases_for_page(
+                        page_info=page_info,
+                        run_id=run_id,
+                        coverage_mode="comprehensive"
+                    )
+
+                    # Convert to legacy format for incremental saving and event emission
                     test_gen = get_test_case_generator()
-                    page_test_cases = test_gen.generate_test_cases_for_page(page_info, run_id)
+                    legacy_test_cases = [tc.to_legacy_format() for tc in page_test_cases]
 
                     # Emit events for each test case
-                    for tc in page_test_cases:
+                    for tc in legacy_test_cases:
                         test_gen.emit_test_case_event(run_id, artifacts_path, tc)
 
                     # Save test cases incrementally so UI can display them in real-time
-                    test_gen.append_test_cases(run_id, artifacts_path, page_test_cases)
+                    test_gen.append_test_cases(run_id, artifacts_path, legacy_test_cases)
+
+                    logger.debug(f"[{run_id}] Generated {len(page_test_cases)} test cases for {page_name}")
                 except Exception as tc_error:
                     logger.warning(f"[{run_id}] Failed to generate test cases: {tc_error}")
 
@@ -1436,18 +1452,29 @@ class DiscoveryRunner:
                         "tables": page_info.get("tables", [])[:3],
                     })
 
-                    # Generate test cases for this page
+                    # Generate test cases for this page using enhanced generator
                     try:
                         from app.services.test_case_generator import get_test_case_generator
+
+                        # Generate comprehensive test cases
+                        page_test_cases = self.enhanced_test_generator.generate_test_cases_for_page(
+                            page_info=page_info,
+                            run_id=run_id,
+                            coverage_mode="comprehensive"
+                        )
+
+                        # Convert to legacy format for incremental saving and event emission
                         test_gen = get_test_case_generator()
-                        page_test_cases = test_gen.generate_test_cases_for_page(page_info, run_id)
+                        legacy_test_cases = [tc.to_legacy_format() for tc in page_test_cases]
 
                         # Emit events for each test case
-                        for tc in page_test_cases:
+                        for tc in legacy_test_cases:
                             test_gen.emit_test_case_event(run_id, artifacts_path, tc)
 
                         # Save test cases incrementally so UI can display them in real-time
-                        test_gen.append_test_cases(run_id, artifacts_path, page_test_cases)
+                        test_gen.append_test_cases(run_id, artifacts_path, legacy_test_cases)
+
+                        logger.debug(f"[{run_id}] Generated {len(page_test_cases)} test cases for {page_name}")
                     except Exception as tc_error:
                         logger.warning(f"[{run_id}] Failed to generate test cases: {tc_error}")
 
@@ -1515,29 +1542,102 @@ class DiscoveryRunner:
             with open(appmap_file, "w") as f:
                 json.dump(appmap, f, indent=2, default=str)
             
-            # Collect and save all generated test cases
+            # Collect and save all generated test cases using ENHANCED generator
             try:
+                logger.info(f"[{run_id}] Generating comprehensive test cases using enhanced generator...")
+
+                # Generate comprehensive test cases for all pages
+                all_test_cases = []
+                detected_features = {}
+
+                for page in visited_pages:
+                    # Use enhanced generator for comprehensive, executable test cases
+                    page_test_cases = self.enhanced_test_generator.generate_test_cases_for_page(
+                        page_info=page,
+                        run_id=run_id,
+                        coverage_mode="comprehensive"  # Generate all validation tests
+                    )
+                    all_test_cases.extend(page_test_cases)
+
+                    # Track detected features for coverage calculation
+                    page_features = self.enhanced_test_generator._detect_all_features(page)
+                    for feature_type, feature_info in page_features.items():
+                        if feature_type not in detected_features:
+                            detected_features[feature_type] = []
+                        detected_features[feature_type].append(page)
+
+                # Calculate comprehensive coverage
+                logger.info(f"[{run_id}] Calculating test coverage...")
+                coverage_report = self.coverage_engine.calculate_coverage(
+                    detected_features=detected_features,
+                    generated_tests=all_test_cases
+                )
+
+                # Analyze test quality
+                quality_report = self.coverage_analyzer.analyze_test_quality(all_test_cases)
+
+                logger.info(
+                    f"[{run_id}] Generated {len(all_test_cases)} test cases | "
+                    f"Coverage: {coverage_report['overall_coverage_percentage']:.1f}% | "
+                    f"Quality Score: {quality_report['quality_score']:.1f}/100 | "
+                    f"Requirements Met: {coverage_report['requirements_met']}"
+                )
+
+                # Save coverage report
+                coverage_file = artifacts_path / "test_coverage_report.json"
+                with open(coverage_file, "w") as f:
+                    json.dump(coverage_report, f, indent=2)
+                logger.info(f"[{run_id}] Coverage report saved to: {coverage_file.name}")
+
+                # Save coverage summary (human-readable)
+                coverage_summary_file = artifacts_path / "coverage_summary.txt"
+                with open(coverage_summary_file, "w") as f:
+                    f.write(self.coverage_engine.generate_coverage_summary_text(coverage_report))
+
+                # Save quality report
+                quality_file = artifacts_path / "test_quality_report.json"
+                with open(quality_file, "w") as f:
+                    json.dump(quality_report, f, indent=2)
+
+                # Save test cases in BOTH formats (enhanced + legacy)
+                # Enhanced format (executable)
+                test_cases_enhanced = {
+                    "test_cases": [tc.to_executable_dict() for tc in all_test_cases],
+                    "coverage_report": coverage_report,
+                    "quality_report": quality_report,
+                    "total_count": len(all_test_cases),
+                    "generated_at": datetime.utcnow().isoformat() + "Z"
+                }
+                enhanced_file = artifacts_path / "test_cases_enhanced.json"
+                with open(enhanced_file, "w") as f:
+                    json.dump(test_cases_enhanced, f, indent=2, default=str)
+
+                # Legacy format (backwards compatible with existing test_executor)
                 from app.services.test_case_generator import get_test_case_generator
                 test_gen = get_test_case_generator()
 
-                # Collect all test cases from all pages
-                all_test_cases = []
-                for page in visited_pages:
-                    page_test_cases = test_gen.generate_test_cases_for_page(page, run_id)
-                    all_test_cases.extend(page_test_cases)
+                legacy_test_cases = [tc.to_legacy_format() for tc in all_test_cases]
+                test_gen.save_test_cases(run_id, artifacts_path, legacy_test_cases)
 
-                # Save consolidated test cases
-                test_gen.save_test_cases(run_id, artifacts_path, all_test_cases)
+                logger.info(f"[{run_id}] Saved test cases in both enhanced and legacy formats")
 
-                logger.info(f"[{run_id}] Generated and saved {len(all_test_cases)} test cases")
-
-                # Emit test cases summary event
-                scenarios = test_gen.group_test_cases_by_scenario(all_test_cases)
+                # Emit test cases summary event with coverage info
+                scenarios = test_gen.group_test_cases_by_scenario(legacy_test_cases)
                 self._emit_event(run_id, artifacts_path, "test_cases_generated", {
                     "total_test_cases": len(all_test_cases),
                     "scenarios_count": len(scenarios),
-                    "scenarios": scenarios
+                    "scenarios": scenarios,
+                    "coverage_percentage": coverage_report['overall_coverage_percentage'],
+                    "requirements_met": coverage_report['requirements_met'],
+                    "quality_score": quality_report['quality_score']
                 })
+
+                # Emit coverage gaps if any
+                if coverage_report['coverage_gaps']:
+                    self._emit_event(run_id, artifacts_path, "coverage_gaps_identified", {
+                        "gaps_count": len(coverage_report['coverage_gaps']),
+                        "gaps": coverage_report['coverage_gaps'][:5]  # Top 5 gaps
+                    })
 
             except Exception as tc_error:
                 logger.error(f"[{run_id}] Failed to save test cases: {tc_error}", exc_info=True)
