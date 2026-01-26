@@ -384,7 +384,9 @@ class TestExecutor:
                         "step_description": step_desc[:200],
                         "status": step_status,
                         "duration_ms": step_result.get('duration_ms', 0),
-                        "action": step_result.get('action', 'unknown')
+                        "action": step_result.get('action', 'unknown'),
+                        "evidence_count": len(step_result.get('evidence', [])),
+                        "screenshots": step_result.get('evidence', [])
                     }
                     
                     # Add validation details if step failed or has issues
@@ -392,6 +394,14 @@ class TestExecutor:
                         step_details["error"] = step_error
                         step_details["validation_issue"] = True
                         step_details["issue_description"] = step_error or "Step execution failed"
+                        
+                        # Include UI observations and network errors
+                        if step_result.get('ui_observations'):
+                            step_details["ui_observations"] = step_result.get('ui_observations')
+                        if step_result.get('network_errors'):
+                            step_details["network_errors"] = step_result.get('network_errors')
+                        if step_result.get('network_info'):
+                            step_details["network_info"] = step_result.get('network_info')
                     elif step_result.get('details'):
                         # Include any validation details even for passed steps
                         step_details["validation_details"] = step_result.get('details')
@@ -442,6 +452,18 @@ class TestExecutor:
         
         return result
     
+    async def _capture_step_screenshot(self, page, artifacts_dir: Path, test_index: int, step_index: int, prefix: str = "step") -> Optional[str]:
+        """Capture screenshot for a step."""
+        try:
+            screenshots_dir = artifacts_dir / "screenshots"
+            screenshots_dir.mkdir(parents=True, exist_ok=True)
+            screenshot_path = screenshots_dir / f"test_{test_index:03d}_{prefix}_step_{step_index:03d}.png"
+            await page.screenshot(path=str(screenshot_path), full_page=True)
+            return str(screenshot_path.relative_to(artifacts_dir))
+        except Exception as e:
+            logger.warning(f"Failed to capture screenshot: {e}")
+            return None
+    
     async def _execute_step(
         self,
         step: Dict[str, Any],
@@ -483,10 +505,87 @@ class TestExecutor:
             "status": "running",
             "duration_ms": 0,
             "details": self._redact_secrets(step_dict) if isinstance(step_dict, dict) else step_dict,
-            "error": None
+            "error": None,
+            "evidence": [],
+            "ui_observations": [],
+            "network_errors": []
         }
         
         start_time = time.time()
+        
+        # Capture screenshot before step execution
+        before_screenshot = await self._capture_step_screenshot(page, artifacts_dir, test_index, step_index, "before")
+        if before_screenshot:
+            step_result["evidence"].append(before_screenshot)
+        
+        # Set up network capture listeners before step execution
+        network_logs = []
+        network_errors = []
+        
+        def handle_request(request):
+            try:
+                network_logs.append({
+                    "type": "request",
+                    "url": request.url,
+                    "method": request.method,
+                    "headers": dict(request.headers),
+                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                })
+            except Exception as e:
+                logger.debug(f"[{run_id}] Error capturing request: {e}")
+        
+        def handle_response(response):
+            try:
+                status = response.status
+                url = response.url
+                
+                log_entry = {
+                    "type": "response",
+                    "url": url,
+                    "status": status,
+                    "status_text": response.status_text,
+                    "headers": dict(response.headers),
+                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                }
+                
+                # Check for API errors (4xx, 5xx)
+                if status >= 400:
+                    error_msg = f"API error: {url} returned {status} {response.status_text}"
+                    network_errors.append({
+                        "url": url,
+                        "status": status,
+                        "status_text": response.status_text,
+                        "error": error_msg,
+                        "timestamp": datetime.utcnow().isoformat() + "Z"
+                    })
+                    log_entry["error"] = True
+                
+                network_logs.append(log_entry)
+            except Exception as e:
+                logger.debug(f"[{run_id}] Error capturing response: {e}")
+        
+        def handle_request_failed(request):
+            try:
+                failure_info = {
+                    "type": "request_failed",
+                    "url": request.url,
+                    "method": request.method,
+                    "failure": request.failure.error if request.failure else "Unknown failure",
+                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                }
+                network_logs.append(failure_info)
+                network_errors.append({
+                    "url": request.url,
+                    "error": f"Request failed: {failure_info['failure']}",
+                    "timestamp": datetime.utcnow().isoformat() + "Z"
+                })
+            except Exception as e:
+                logger.debug(f"[{run_id}] Error capturing failed request: {e}")
+        
+        # Register listeners
+        page.on("request", handle_request)
+        page.on("response", handle_response)
+        page.on("requestfailed", handle_request_failed)
         
         # Use step_dict for dict operations, step for string operations
         step = step_dict if isinstance(step_dict, dict) else step
@@ -670,6 +769,14 @@ class TestExecutor:
                     }
                     if validation_issues:
                         step_result["error"] = f"Validation issues: {', '.join(validation_issues)}"
+                        step_result["ui_observations"].extend([
+                            {
+                                "type": "validation_issue",
+                                "message": issue,
+                                "timestamp": datetime.utcnow().isoformat() + "Z"
+                            }
+                            for issue in validation_issues
+                        ])
                     logger.info(f"[{run_id}] Count elements completed: {total_count} total" + (f" (issues: {len(validation_issues)})" if validation_issues else ""))
                 else:
                     step_result["status"] = "failed"
@@ -962,7 +1069,85 @@ class TestExecutor:
             step_result["error"] = str(e)[:500]
         
         finally:
+            # Remove network listeners
+            try:
+                page.remove_listener("request", handle_request)
+                page.remove_listener("response", handle_response)
+                page.remove_listener("requestfailed", handle_request_failed)
+            except:
+                pass
+            
             step_result["duration_ms"] = int((time.time() - start_time) * 1000)
+            
+            # Wait a bit for any pending network requests to complete
+            await asyncio.sleep(0.5)
+            
+            # Capture screenshot after step execution (especially if failed)
+            after_screenshot = await self._capture_step_screenshot(page, artifacts_dir, test_index, step_index, "after")
+            if after_screenshot:
+                step_result["evidence"].append(after_screenshot)
+            
+            # Save network logs captured during step execution
+            if network_logs:
+                network_file = artifacts_dir / f"test_{test_index:03d}_step_{step_index:03d}_network.json"
+                try:
+                    with open(network_file, "w") as f:
+                        json.dump({
+                            "step_index": step_index,
+                            "test_index": test_index,
+                            "page_url": page.url,
+                            "network_logs": network_logs,
+                            "network_errors": network_errors,
+                            "total_requests": len([l for l in network_logs if l.get("type") == "request"]),
+                            "total_responses": len([l for l in network_logs if l.get("type") == "response"]),
+                            "error_count": len(network_errors)
+                        }, f, indent=2, default=str)
+                    
+                    step_result["network_info"] = {
+                        "network_logs_file": str(network_file.relative_to(artifacts_dir)),
+                        "requests_count": len([l for l in network_logs if l.get("type") == "request"]),
+                        "responses_count": len([l for l in network_logs if l.get("type") == "response"]),
+                        "error_count": len(network_errors),
+                        "logs": network_logs[-20:],  # Last 20 entries
+                        "errors": network_errors
+                    }
+                    
+                    # Add network errors to step result
+                    if network_errors:
+                        step_result["network_errors"].extend([
+                            err.get("error", str(err)) for err in network_errors
+                        ])
+                        # If there are network errors and step was passing, mark as failed
+                        if step_result["status"] == "passed":
+                            step_result["status"] = "failed"
+                            step_result["error"] = f"Network API errors detected: {', '.join([e.get('error', str(e)) for e in network_errors[:3]])}"
+                except Exception as e:
+                    logger.warning(f"[{run_id}] Failed to save network logs: {e}")
+            
+            # If step failed, capture failure screenshot
+            if step_result.get("status") == "failed":
+                failure_screenshot = await self._capture_step_screenshot(page, artifacts_dir, test_index, step_index, "failure")
+                if failure_screenshot:
+                    step_result["evidence"].append(failure_screenshot)
+                
+                # Add UI observation for failures
+                if step_result.get("error"):
+                    step_result["ui_observations"].append({
+                        "type": "error",
+                        "message": step_result["error"],
+                        "timestamp": datetime.utcnow().isoformat() + "Z"
+                    })
+                
+                # Combine UI and network error messages for comprehensive failure reporting
+                failure_reasons = []
+                if step_result.get("ui_observations"):
+                    failure_reasons.extend([obs.get("message", "") for obs in step_result["ui_observations"]])
+                if step_result.get("network_errors"):
+                    failure_reasons.extend(step_result["network_errors"])
+                
+                if failure_reasons:
+                    step_result["failure_reasons"] = failure_reasons
+                    step_result["error"] = " | ".join(failure_reasons[:3])  # Combine first 3 reasons
         
         return step_result
     
