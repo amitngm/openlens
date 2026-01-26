@@ -2266,8 +2266,8 @@
                 </div>
             `;
 
-            // Also update the app panel test cases view
-            updateAppPanelTestCases(data);
+            // Also update the app panel test cases view (async - loads accurate counts from test_cases.json)
+            updateAppPanelTestCases(data).catch(err => console.error('Failed to update test cases panel:', err));
             
             // Update discovered features cards in Application tab
             updateAppDiscoveredFeatures(data);
@@ -2754,29 +2754,79 @@
             }
         }
 
-        function updateAppPanelTestCases(data) {
+        async function updateAppPanelTestCases(data) {
             const testCasesList = document.getElementById('testcases_list');
             const testCasesSummary = document.getElementById('testcases_summary');
             
-            if (!testCasesList || !data || !data.features) return;
+            if (!testCasesList || !data) return;
             
-            // Calculate summary stats
-            let totalTestCases = 0;
+            // Use total_test_cases from API response (which includes count from test_cases.json)
+            let totalTestCases = data.total_test_cases || 0;
             let passedCount = 0;
             let failedCount = 0;
             let pendingCount = 0;
+            let scenarios = [];
             
-            data.features.forEach(feature => {
-                if (feature.test_cases && Array.isArray(feature.test_cases)) {
-                    feature.test_cases.forEach(tc => {
-                        totalTestCases++;
-                        const status = tc.status || 'pending';
-                        if (status === 'passed') passedCount++;
-                        else if (status === 'failed') failedCount++;
-                        else pendingCount++;
+            // Try to load actual test cases from test_cases.json for accurate display
+            if (currentRunId) {
+                try {
+                    const testCasesResponse = await fetch(`${API_BASE}/runs/${currentRunId}/test-cases`);
+                    if (testCasesResponse.ok) {
+                        const testCasesData = await testCasesResponse.json();
+                        // Use the actual total from test_cases.json
+                        totalTestCases = testCasesData.total_test_cases || totalTestCases;
+                        scenarios = testCasesData.scenarios || [];
+                        
+                        // Count statuses from all scenarios
+                        if (scenarios.length > 0) {
+                            scenarios.forEach(scenario => {
+                                if (scenario.test_cases && Array.isArray(scenario.test_cases)) {
+                                    scenario.test_cases.forEach(tc => {
+                                        const status = tc.status || 'pending';
+                                        if (status === 'passed') passedCount++;
+                                        else if (status === 'failed') failedCount++;
+                                        else pendingCount++;
+                                    });
+                                }
+                            });
+                        }
+                    }
+                } catch (e) {
+                    console.log('Could not load test_cases.json, using feature-based counts:', e);
+                    // Fallback to counting from features
+                    if (data.features) {
+                        data.features.forEach(feature => {
+                            if (feature.test_cases && Array.isArray(feature.test_cases)) {
+                                feature.test_cases.forEach(tc => {
+                                    const status = tc.status || 'pending';
+                                    if (status === 'passed') passedCount++;
+                                    else if (status === 'failed') failedCount++;
+                                    else pendingCount++;
+                                });
+                            }
+                        });
+                    }
+                }
+            } else {
+                // Fallback to counting from features if no run ID
+                if (data.features) {
+                    data.features.forEach(feature => {
+                        if (feature.test_cases && Array.isArray(feature.test_cases)) {
+                            feature.test_cases.forEach(tc => {
+                                const status = tc.status || 'pending';
+                                if (status === 'passed') passedCount++;
+                                else if (status === 'failed') failedCount++;
+                                else pendingCount++;
+                            });
+                        }
                     });
                 }
-            });
+            }
+            
+            // Ensure total matches sum of statuses if we have accurate counts
+            if (passedCount + failedCount + pendingCount > 0 && totalTestCases === 0) {
+                totalTestCases = passedCount + failedCount + pendingCount;
+            }
             
             // Update summary
             testCasesSummary.innerHTML = `
@@ -2798,63 +2848,155 @@
                 </div>
             `;
             
-            // Display test cases in a clean table format
+            // Display test cases from scenarios (if available) or fallback to features
             let html = '';
-            data.features.forEach((feature, featureIdx) => {
-                feature.test_cases.forEach((tc, tcIdx) => {
-                    const status = tc.status || 'pending';
-                    const statusColors = {
-                        'passed': { bg: '#d1fae5', color: '#065f46', icon: '✅' },
-                        'failed': { bg: '#fee2e2', color: '#991b1b', icon: '❌' },
-                        'skipped': { bg: '#f3f4f6', color: '#6b7280', icon: '⏭️' },
-                        'running': { bg: '#dbeafe', color: '#1e40af', icon: '⏳' },
-                        'pending': { bg: '#fef3c7', color: '#92400e', icon: '⏸️' }
-                    };
-                    const statusStyle = statusColors[status] || statusColors['pending'];
-                    const priorityColor = tc.priority === 'high' ? '#fef3c7' : '#e0e7ff';
-                    const priorityTextColor = tc.priority === 'high' ? '#92400e' : '#3730a3';
-                    
-                    const testCaseId = `${feature.feature_name}_${tc.test_id || tcIdx}`;
-                    const isSelected = selectedTestCases.has(testCaseId);
+            
+            if (scenarios.length > 0) {
+                // Display from test_cases.json scenarios
+                scenarios.forEach((scenario, scenarioIdx) => {
+                    const scenarioId = `scenario_${scenarioIdx}`;
+                    const isExpanded = localStorage.getItem(`scenario_${scenarioIdx}_expanded`) !== 'false';
                     
                     html += `
-                        <div style="background: white; border: ${isSelected ? '2px solid var(--primary)' : '1px solid var(--border)'}; border-radius: 8px; padding: 16px; transition: all 0.2s;">
-                            <div style="display: flex; gap: 12px; align-items: start;">
-                                <input type="checkbox" 
-                                    id="tc_${testCaseId}" 
-                                    test-case-id="${testCaseId}"
-                                    onchange="toggleTestCase('${testCaseId}')"
-                                    ${isSelected ? 'checked' : ''}
-                                    style="width: 20px; height: 20px; margin-top: 2px; cursor: pointer; flex-shrink: 0;">
-                                <div style="flex: 1;">
-                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
-                                        <div style="flex: 1;">
-                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
-                                                <span style="font-weight: 600; color: var(--text-primary); font-size: 15px;">${tc.test_name}</span>
-                                                <span style="padding: 4px 10px; background: ${statusStyle.bg}; color: ${statusStyle.color}; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
-                                                    ${statusStyle.icon} ${status.toUpperCase()}
-                                                </span>
-                                                <span style="padding: 4px 10px; background: ${priorityColor}; color: ${priorityTextColor}; border-radius: 12px; font-size: 11px; font-weight: 600;">
-                                                    ${tc.priority.toUpperCase()}
-                                                </span>
-                                            </div>
-                                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
-                                                <strong>Feature:</strong> ${feature.feature_name} | <strong>Type:</strong> ${tc.test_type.replace(/_/g, ' ')} | <strong>ID:</strong> ${tc.test_id || 'N/A'}
+                        <div style="background: white; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; overflow: hidden;">
+                            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center;" 
+                                 onclick="toggleScenario('${scenarioId}')">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <span style="font-size: 18px;">${isExpanded ? '▼' : '▶'}</span>
+                                    <h3 style="margin: 0; color: white; font-size: 16px; font-weight: 600;">${scenario.scenario_name || `Scenario ${scenarioIdx + 1}`}</h3>
+                                </div>
+                                <div style="display: flex; gap: 16px; font-size: 13px;">
+                                    <span>Total: ${scenario.test_cases ? scenario.test_cases.length : 0}</span>
+                                    ${scenario.passed > 0 ? `<span style="color: #d1fae5;">✓ ${scenario.passed}</span>` : ''}
+                                    ${scenario.failed > 0 ? `<span style="color: #fee2e2;">✗ ${scenario.failed}</span>` : ''}
+                                    ${scenario.pending > 0 ? `<span style="color: #fef3c7;">⏳ ${scenario.pending}</span>` : ''}
+                                </div>
+                            </div>
+                            <div id="${scenarioId}_content" style="display: ${isExpanded ? 'block' : 'none'}; padding: 16px;">
+                                ${(scenario.test_cases || []).map((tc, tcIdx) => {
+                                    const status = tc.status || 'pending';
+                                    const statusColors = {
+                                        'passed': { bg: '#d1fae5', color: '#065f46', icon: '✅' },
+                                        'failed': { bg: '#fee2e2', color: '#991b1b', icon: '❌' },
+                                        'skipped': { bg: '#f3f4f6', color: '#6b7280', icon: '⏭️' },
+                                        'running': { bg: '#dbeafe', color: '#1e40af', icon: '⏳' },
+                                        'pending': { bg: '#fef3c7', color: '#92400e', icon: '⏸️' }
+                                    };
+                                    const statusStyle = statusColors[status] || statusColors['pending'];
+                                    const priorityColor = tc.priority === 'high' ? '#fef3c7' : '#e0e7ff';
+                                    const priorityTextColor = tc.priority === 'high' ? '#92400e' : '#3730a3';
+                                    
+                                    const testCaseId = tc.id || `${scenarioId}_${tcIdx}`;
+                                    const isSelected = selectedTestCases.has(testCaseId);
+                                    
+                                    return `
+                                        <div style="background: ${isSelected ? 'rgba(99, 102, 241, 0.05)' : 'transparent'}; border: ${isSelected ? '2px solid var(--primary)' : '1px solid var(--border)'}; border-radius: 8px; padding: 16px; margin-bottom: 12px; transition: all 0.2s;">
+                                            <div style="display: flex; gap: 12px; align-items: start;">
+                                                <input type="checkbox" 
+                                                    class="test-case-checkbox"
+                                                    id="tc_${testCaseId}" 
+                                                    data-test-id="${testCaseId}"
+                                                    onchange="toggleTestCase('${testCaseId}')"
+                                                    ${isSelected ? 'checked' : ''}
+                                                    style="width: 20px; height: 20px; margin-top: 2px; cursor: pointer; flex-shrink: 0;">
+                                                <div style="flex: 1;">
+                                                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                                                        <div style="flex: 1;">
+                                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+                                                                <span style="font-weight: 600; color: var(--text-primary); font-size: 15px;">${tc.name || tc.test_name || 'Unnamed Test'}</span>
+                                                                <span style="padding: 4px 10px; background: ${statusStyle.bg}; color: ${statusStyle.color}; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                                                    ${statusStyle.icon} ${status.toUpperCase()}
+                                                                </span>
+                                                                <span style="padding: 4px 10px; background: ${priorityColor}; color: ${priorityTextColor}; border-radius: 12px; font-size: 11px; font-weight: 600;">
+                                                                    ${(tc.priority || 'medium').toUpperCase()}
+                                                                </span>
+                                                            </div>
+                                                            <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                                                                <strong>Type:</strong> ${(tc.type || tc.test_type || 'unknown').replace(/_/g, ' ')} | <strong>ID:</strong> ${tc.id || testCaseId}
+                                                            </div>
+                                                            ${tc.description ? `<div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">${tc.description}</div>` : ''}
+                                                        </div>
+                                                    </div>
+                                                    ${tc.steps && tc.steps.length > 0 ? `
+                                                        <div style="font-size: 13px; color: var(--text-secondary);">
+                                                            <strong style="color: var(--text-primary);">Steps:</strong>
+                                                            <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.6;">
+                                                                ${tc.steps.map(step => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
+                                                            </ol>
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div style="font-size: 13px; color: var(--text-secondary);">
-                                        <strong style="color: var(--text-primary);">Steps:</strong>
-                                        <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.6;">
-                                            ${tc.steps.map(step => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
-                                        </ol>
-                                    </div>
-                                </div>
+                                    `;
+                                }).join('')}
                             </div>
                         </div>
                     `;
                 });
-            });
+            } else if (data.features) {
+                // Fallback to features display
+                data.features.forEach((feature, featureIdx) => {
+                    if (feature.test_cases && Array.isArray(feature.test_cases)) {
+                        feature.test_cases.forEach((tc, tcIdx) => {
+                            const status = tc.status || 'pending';
+                            const statusColors = {
+                                'passed': { bg: '#d1fae5', color: '#065f46', icon: '✅' },
+                                'failed': { bg: '#fee2e2', color: '#991b1b', icon: '❌' },
+                                'skipped': { bg: '#f3f4f6', color: '#6b7280', icon: '⏭️' },
+                                'running': { bg: '#dbeafe', color: '#1e40af', icon: '⏳' },
+                                'pending': { bg: '#fef3c7', color: '#92400e', icon: '⏸️' }
+                            };
+                            const statusStyle = statusColors[status] || statusColors['pending'];
+                            const priorityColor = tc.priority === 'high' ? '#fef3c7' : '#e0e7ff';
+                            const priorityTextColor = tc.priority === 'high' ? '#92400e' : '#3730a3';
+                            
+                            const testCaseId = `${feature.feature_name}_${tc.test_id || tcIdx}`;
+                            const isSelected = selectedTestCases.has(testCaseId);
+                            
+                            html += `
+                                <div style="background: white; border: ${isSelected ? '2px solid var(--primary)' : '1px solid var(--border)'}; border-radius: 8px; padding: 16px; margin-bottom: 12px; transition: all 0.2s;">
+                                    <div style="display: flex; gap: 12px; align-items: start;">
+                                        <input type="checkbox" 
+                                            class="test-case-checkbox"
+                                            id="tc_${testCaseId}" 
+                                            data-test-id="${testCaseId}"
+                                            onchange="toggleTestCase('${testCaseId}')"
+                                            ${isSelected ? 'checked' : ''}
+                                            style="width: 20px; height: 20px; margin-top: 2px; cursor: pointer; flex-shrink: 0;">
+                                        <div style="flex: 1;">
+                                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                                                <div style="flex: 1;">
+                                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+                                                        <span style="font-weight: 600; color: var(--text-primary); font-size: 15px;">${tc.test_name}</span>
+                                                        <span style="padding: 4px 10px; background: ${statusStyle.bg}; color: ${statusStyle.color}; border-radius: 12px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                                            ${statusStyle.icon} ${status.toUpperCase()}
+                                                        </span>
+                                                        <span style="padding: 4px 10px; background: ${priorityColor}; color: ${priorityTextColor}; border-radius: 12px; font-size: 11px; font-weight: 600;">
+                                                            ${tc.priority.toUpperCase()}
+                                                        </span>
+                                                    </div>
+                                                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                                                        <strong>Feature:</strong> ${feature.feature_name} | <strong>Type:</strong> ${tc.test_type.replace(/_/g, ' ')} | <strong>ID:</strong> ${tc.test_id || 'N/A'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            ${tc.steps && tc.steps.length > 0 ? `
+                                                <div style="font-size: 13px; color: var(--text-secondary);">
+                                                    <strong style="color: var(--text-primary);">Steps:</strong>
+                                                    <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.6;">
+                                                        ${tc.steps.map(step => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
+                                                    </ol>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    }
+                });
+            }
             
             testCasesList.innerHTML = html || '<div style="text-align: center; padding: 40px; color: var(--text-secondary);"><p>No test cases available yet.</p></div>';
             
@@ -2866,9 +3008,27 @@
                 updateExecuteButtonState();
             }
         }
+        
+        function toggleScenario(scenarioId) {
+            const content = document.getElementById(`${scenarioId}_content`);
+            const header = content.previousElementSibling;
+            const arrow = header.querySelector('span');
+            
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                arrow.textContent = '▼';
+                localStorage.setItem(`${scenarioId}_expanded`, 'true');
+            } else {
+                content.style.display = 'none';
+                arrow.textContent = '▶';
+                localStorage.setItem(`${scenarioId}_expanded`, 'false');
+            }
+        }
 
         function toggleTestCase(testCaseId) {
             const checkbox = document.getElementById(`tc_${testCaseId}`);
+            if (!checkbox) return;
+            
             if (checkbox.checked) {
                 selectedTestCases.add(testCaseId);
             } else {
@@ -2876,30 +3036,58 @@
             }
             updateExecuteButtonState();
             // Update visual selection
-            const card = checkbox.closest('div[style*="background: white"]');
+            const card = checkbox.closest('div[style*="background"]');
             if (card) {
                 if (checkbox.checked) {
                     card.style.borderColor = 'var(--primary)';
                     card.style.borderWidth = '2px';
+                    card.style.background = 'rgba(99, 102, 241, 0.05)';
                 } else {
                     card.style.borderColor = 'var(--border)';
                     card.style.borderWidth = '1px';
+                    // Reset background - check if it's a scenario card or regular card
+                    if (card.style.background.includes('rgba(99, 102, 241')) {
+                        card.style.background = card.id && card.id.includes('scenario') ? 'white' : 'transparent';
+                    }
                 }
             }
         }
 
         function selectAllTestCases() {
-            document.querySelectorAll('.test-case-checkbox[data-test-id]').forEach(cb => {
+            document.querySelectorAll('.test-case-checkbox').forEach(cb => {
                 cb.checked = true;
                 const testCaseId = cb.getAttribute('data-test-id');
-                selectedTestCases.add(testCaseId);
+                if (testCaseId) {
+                    selectedTestCases.add(testCaseId);
+                }
+            });
+            // Update visual selection
+            document.querySelectorAll('.test-case-checkbox').forEach(cb => {
+                const testCaseId = cb.getAttribute('data-test-id');
+                if (testCaseId) {
+                    const card = cb.closest('div[style*="background"]');
+                    if (card) {
+                        card.style.borderColor = 'var(--primary)';
+                        card.style.borderWidth = '2px';
+                        card.style.background = 'rgba(99, 102, 241, 0.05)';
+                    }
+                }
             });
             updateExecuteButtonState();
         }
 
         function deselectAllTestCases() {
-            document.querySelectorAll('.test-case-checkbox[data-test-id]').forEach(cb => {
+            document.querySelectorAll('.test-case-checkbox').forEach(cb => {
                 cb.checked = false;
+                const testCaseId = cb.getAttribute('data-test-id');
+                if (testCaseId) {
+                    const card = cb.closest('div[style*="background"]');
+                    if (card) {
+                        card.style.borderColor = 'var(--border)';
+                        card.style.borderWidth = '1px';
+                        card.style.background = card.style.background.includes('rgba(99, 102, 241') ? 'white' : card.style.background;
+                    }
+                }
             });
             selectedTestCases.clear();
             updateExecuteButtonState();

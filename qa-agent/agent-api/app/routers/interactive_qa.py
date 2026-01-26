@@ -1387,16 +1387,31 @@ async def get_discovery_features(run_id: str):
                         break
                 test_case["status"] = status
 
-        # Convert to list and calculate totals
+        # Convert to list and calculate totals from features
         features_list = list(features.values())
-        total_test_cases = sum(len(f["test_cases"]) for f in features_list)
+        total_test_cases_from_features = sum(len(f["test_cases"]) for f in features_list)
+        
+        # Also check test_cases.json for the actual generated test cases count
+        test_cases_file = Path(context.artifacts_path) / "test_cases.json"
+        actual_total_test_cases = total_test_cases_from_features
+        scenarios_count = 0
+        
+        if test_cases_file.exists():
+            try:
+                with open(test_cases_file, "r", encoding="utf-8") as f:
+                    test_cases_data = json.load(f)
+                    actual_total_test_cases = test_cases_data.get("total_test_cases", total_test_cases_from_features)
+                    scenarios_count = len(test_cases_data.get("scenarios", []))
+            except Exception as e:
+                logger.warning(f"[{run_id}] Failed to load test_cases.json for accurate count: {e}")
 
         return {
             "run_id": run_id,
             "features": features_list,
             "total_features": len(features_list),
-            "total_test_cases": total_test_cases,
-            "message": f"Discovered {len(features_list)} features with {total_test_cases} test cases"
+            "total_test_cases": actual_total_test_cases,  # Use actual count from test_cases.json
+            "scenarios_count": scenarios_count,
+            "message": f"Discovered {len(features_list)} features with {actual_total_test_cases} test cases"
         }
 
     except Exception as e:
