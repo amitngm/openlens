@@ -11,6 +11,7 @@ from urllib.parse import urlparse, urljoin
 
 from app.models.run_state import RunState
 from app.services.live_validator import LiveValidator
+from app.services.production_validator import ProductionValidator
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,7 @@ class DiscoveryRunner:
         """Initialize discovery runner."""
         self.config = config or DiscoveryConfig()
         self.live_validator = LiveValidator()  # Initialize live validator for real-time feature testing
+        self.production_validator = ProductionValidator()  # Initialize production-grade validator
         self.event_writers: Dict[str, Any] = {}  # run_id -> file handle
         self.trace_writers: Dict[str, Any] = {}  # run_id -> file handle
         self.trace_step_no: Dict[str, int] = {}  # run_id -> step counter
@@ -1132,25 +1134,23 @@ class DiscoveryRunner:
                     page, base_url, "Home", run_id, discovery_dir, len(visited_pages), artifacts_path
                 )
 
-                # 🧪 LIVE VALIDATION - Test features immediately during discovery
+                # 🎯 PRODUCTION VALIDATION - Test features with real interactions
                 try:
-                    validation_results = await self.live_validator.validate_page_live(
+                    validation_results = await self.production_validator.validate_page_production(
                         page=page,
                         page_info=page_info,
                         run_id=run_id,
-                        artifacts_path=artifacts_path
+                        artifacts_path=discovery_dir  # Pass Path object, not string
                     )
-                    page_info["validation_results"] = validation_results
+                    page_info["production_validation"] = validation_results
 
                     logger.info(
-                        f"[{run_id}] ✅ Live validation complete | "
-                        f"Passed: {validation_results['passed_count']}, "
-                        f"Failed: {validation_results['failed_count']}, "
-                        f"Skipped: {validation_results['skipped_count']}"
+                        f"[{run_id}] ✅ Production validation complete | "
+                        f"Health Score: {validation_results.get('overall_health', 0):.1f}/10"
                     )
                 except Exception as e:
-                    logger.error(f"[{run_id}] ❌ Live validation error: {e}")
-                    page_info["validation_results"] = {"error": str(e)}
+                    logger.error(f"[{run_id}] ❌ Production validation error: {e}", exc_info=True)
+                    page_info["production_validation"] = {"error": str(e)}
 
                 visited_pages.append(page_info)
                 visited_urls.add(base_url)
@@ -1607,6 +1607,21 @@ class DiscoveryRunner:
                 )
             except Exception as e:
                 logger.error(f"[{run_id}] Failed to save validation report: {e}")
+
+            # 📊 Generate production validation observation report
+            try:
+                observation_report = self.production_validator.generate_observation_report(
+                    run_id, discovery_dir  # Pass Path object, not string
+                )
+                logger.info(
+                    f"[{run_id}] 🎯 Production Validation Report: "
+                    f"Health Score: {observation_report['overall_health_score']}/10 | "
+                    f"Critical: {observation_report['observations_summary']['critical']}, "
+                    f"High: {observation_report['observations_summary']['high']} | "
+                    f"Recommendation: {observation_report['recommendation']}"
+                )
+            except Exception as e:
+                logger.error(f"[{run_id}] Failed to generate observation report: {e}", exc_info=True)
 
             logger.info(f"[{run_id}] Discovery completed: {len(visited_pages)} pages, {len(forms_found)} forms, {len(api_requests)} APIs")
 
