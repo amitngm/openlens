@@ -264,8 +264,15 @@
             font-size: 12px;
         }
 
-        input[type="file"] {
+        /* Hide file inputs inside file-upload-area (they use onclick handlers) */
+        .file-upload-area input[type="file"] {
             display: none;
+        }
+        
+        /* Keep prd_upload and images_upload visible - they don't have click handlers */
+        #prd_upload,
+        #images_upload {
+            display: block;
         }
 
         .file-preview {
