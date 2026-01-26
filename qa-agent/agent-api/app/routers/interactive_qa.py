@@ -3,6 +3,7 @@
 import uuid
 import json
 import logging
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -812,6 +813,85 @@ async def list_runs():
     except Exception as e:
         logger.error(f"Failed to list runs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to list runs: {str(e)}")
+
+
+@router.delete("/{run_id}", summary="Delete a discovery run")
+async def delete_run(run_id: str):
+    """
+    Delete a discovery run and all its associated data.
+
+    This will permanently delete:
+    - All discovery artifacts (pages, forms, screenshots)
+    - Test cases
+    - Validation reports
+    - Coverage reports
+    - All files in the run directory
+
+    Args:
+        run_id: The run ID to delete
+
+    Returns:
+        Success message with deleted run details
+    """
+    try:
+        # Find the run directory
+        data_dir = Path("data")
+        if not data_dir.exists():
+            data_dir = Path("agent-api/data")
+        if not data_dir.exists():
+            raise HTTPException(status_code=404, detail="Data directory not found")
+
+        run_dir = data_dir / run_id
+
+        if not run_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+
+        if not run_dir.is_dir():
+            raise HTTPException(status_code=400, detail=f"Invalid run directory: {run_id}")
+
+        # Get run info before deletion
+        run_info = {
+            "run_id": run_id,
+            "deleted_at": datetime.utcnow().isoformat() + "Z"
+        }
+
+        # Try to load discovery.json for metadata
+        discovery_file = run_dir / "discovery.json"
+        if discovery_file.exists():
+            try:
+                with open(discovery_file, "r") as f:
+                    discovery_data = json.load(f)
+                    run_info["base_url"] = discovery_data.get("base_url")
+                    run_info["started_at"] = discovery_data.get("started_at")
+            except Exception:
+                pass
+
+        # Count files being deleted
+        file_count = sum(1 for _ in run_dir.rglob("*") if _.is_file())
+        run_info["files_deleted"] = file_count
+
+        # Calculate directory size
+        total_size = sum(f.stat().st_size for f in run_dir.rglob("*") if f.is_file())
+        run_info["size_deleted_mb"] = round(total_size / (1024 * 1024), 2)
+
+        # Delete the entire run directory
+        shutil.rmtree(run_dir)
+
+        logger.info(
+            f"Deleted run {run_id}: {file_count} files, {run_info['size_deleted_mb']} MB"
+        )
+
+        return {
+            "success": True,
+            "message": f"Run {run_id} deleted successfully",
+            "run_info": run_info
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete run {run_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete run: {str(e)}")
 
 
 @router.post("/start", response_model=StartRunResponse, summary="Start a new interactive QA run")

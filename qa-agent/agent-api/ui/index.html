@@ -3758,6 +3758,11 @@
                                     📊 Report
                                 </button>
                             ` : ''}
+                            ${!isCurrent ? `
+                                <button onclick="deleteRun('${run.run_id}')" class="btn-secondary btn-sm" style="min-width: 100px; color: var(--danger); border-color: var(--danger);" title="Delete this run permanently">
+                                    🗑️ Delete
+                                </button>
+                            ` : ''}
                         </div>
                     </div>
                 `;
@@ -3803,6 +3808,46 @@
             setTimeout(() => {
                 switchAppTab('testcases');
             }, 500);
+        }
+
+        async function deleteRun(runId) {
+            // Prevent deleting current run
+            if (runId === currentRunId) {
+                showMessage('Cannot delete the current active run', 'error');
+                return;
+            }
+
+            // Confirm deletion
+            if (!confirm(`Are you sure you want to permanently delete run ${runId}?\n\nThis will delete all discovery data, test cases, reports, and screenshots.\n\nThis action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                showMessage('Deleting run...', 'info');
+
+                const response = await fetch(`${API_BASE}/runs/${runId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.detail || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                showMessage(
+                    `Run deleted successfully: ${data.run_info.files_deleted} files (${data.run_info.size_deleted_mb} MB)`,
+                    'success'
+                );
+
+                // Refresh run history to show updated list
+                loadRunHistory();
+
+            } catch (error) {
+                console.error('Failed to delete run:', error);
+                showMessage(`Failed to delete run: ${error.message}`, 'error');
+            }
         }
 
         function updateCurrentRunIndicator() {
