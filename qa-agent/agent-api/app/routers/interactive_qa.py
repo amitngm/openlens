@@ -4,6 +4,7 @@ import uuid
 import json
 import logging
 import shutil
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -816,7 +817,7 @@ async def list_runs():
 
 
 @router.delete("/{run_id}", summary="Delete a discovery run")
-async def delete_run(run_id: str):
+async def delete_run(run_id: str, db: AsyncSession = Depends(get_db)):
     """
     Delete a discovery run and all its associated data.
 
@@ -826,6 +827,7 @@ async def delete_run(run_id: str):
     - Validation reports
     - Coverage reports
     - All files in the run directory
+    - Database records (Run, Page, TestCase, RunComparison)
 
     Args:
         run_id: The run ID to delete
@@ -834,6 +836,43 @@ async def delete_run(run_id: str):
         Success message with deleted run details
     """
     try:
+        # Delete database records first
+        try:
+            from app.models.database import Run, Page, TestCase, RunComparison
+            from sqlalchemy import delete
+            
+            try:
+                # Delete related records first (foreign key constraints)
+                # Delete RunComparisons (check both run1_id and run2_id)
+                await db.execute(
+                    delete(RunComparison).where(
+                        (RunComparison.run_id_a == run_id) | (RunComparison.run_id_b == run_id)
+                    )
+                )
+                
+                # Delete TestCases
+                await db.execute(
+                    delete(TestCase).where(TestCase.run_id == run_id)
+                )
+                
+                # Delete Pages
+                await db.execute(
+                    delete(Page).where(Page.run_id == run_id)
+                )
+                
+                # Delete Run
+                await db.execute(
+                    delete(Run).where(Run.run_id == run_id)
+                )
+                
+                await db.commit()
+                logger.info(f"[{run_id}] Deleted database records for run")
+            except Exception as db_error:
+                await db.rollback()
+                logger.warning(f"[{run_id}] Failed to delete database records: {db_error}")
+        except Exception as db_error:
+            logger.warning(f"[{run_id}] Database deletion failed (continuing with file deletion): {db_error}")
+        
         # Find the run directory
         data_dir = Path("data")
         if not data_dir.exists():
@@ -2843,9 +2882,11 @@ class ExecuteTestCasesRequest(BaseModel):
     test_case_ids: List[str] = Field(..., description="List of test case IDs to execute")
     execution_name: str = Field(..., description="Name for this test execution run")
     description: Optional[str] = Field(None, description="Description of the test execution")
+    base_url: str = Field(..., description="Base application URL to test", examples=["https://app.example.com"])
     environment: str = Field(default="staging", description="Environment name")
     username: str = Field(..., description="Username for authentication")
     password: str = Field(..., description="Password for authentication")
+    headless: Optional[bool] = Field(True, description="Run browser in headless mode")
 
 
 @router.post("/{run_id}/execute-tests", summary="Execute selected test cases")
@@ -2856,11 +2897,15 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
     This endpoint allows executing specific test cases that were generated during discovery.
     Creates a new test execution run and stores results in database.
     """
+    logger.info(f"[{run_id}] ===== EXECUTE TESTS ENDPOINT CALLED =====")
+    logger.info(f"[{run_id}] Test execution request received: {len(request.test_case_ids)} test cases")
+    logger.info(f"[{run_id}] Request data: execution_name={request.execution_name}, base_url={request.base_url}, environment={request.environment}")
     execution_id = str(uuid.uuid4())[:12]
     
     try:
         context = _run_store.get_run(run_id)
         if not context:
+            logger.warning(f"[{run_id}] Run not found in run store")
             raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
         
         # Load test cases
@@ -2879,18 +2924,66 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
         # Filter by selected IDs
         selected_tests = []
         for test_id in request.test_case_ids:
-            # Test ID format: feature_name_test_id
-            parts = test_id.split("_", 1)
-            if len(parts) == 2:
-                feature_name, test_id_part = parts
-            else:
-                test_id_part = test_id
+            found = False
             
-            # Find matching test case
+            # Try multiple matching strategies
+            # 1. Try exact match first (full ID)
             for tc in all_test_cases:
-                if tc.get("test_id") == test_id_part or tc.get("id") == test_id_part:
+                tc_id = tc.get("id") or tc.get("test_id") or ""
+                if tc_id == test_id:
                     selected_tests.append(tc)
+                    found = True
+                    logger.info(f"[{run_id}] Matched test case by exact ID: {test_id}")
                     break
+            
+            if found:
+                continue
+            
+            # 2. Try matching with different ID field names
+            for tc in all_test_cases:
+                tc_id = tc.get("id") or tc.get("test_id") or ""
+                # Try case-insensitive match
+                if tc_id.lower() == test_id.lower():
+                    selected_tests.append(tc)
+                    found = True
+                    logger.info(f"[{run_id}] Matched test case by case-insensitive ID: {test_id}")
+                    break
+            
+            if found:
+                continue
+            
+            # 3. Try splitting (format: feature_name_test_id or scenario_X_Y)
+            # Try splitting from the end to get the actual test ID
+            parts = test_id.split("_")
+            if len(parts) > 1:
+                # Try last part as ID
+                test_id_part = parts[-1]
+                for tc in all_test_cases:
+                    tc_id = tc.get("id") or tc.get("test_id") or ""
+                    if tc_id == test_id_part or tc_id.endswith(test_id_part) or test_id_part in tc_id:
+                        selected_tests.append(tc)
+                        found = True
+                        logger.info(f"[{run_id}] Matched test case by partial ID: {test_id} -> {test_id_part}")
+                        break
+            
+            if found:
+                continue
+            
+            # 4. Try matching by name if ID doesn't match
+            test_name_lower = test_id.lower()
+            for tc in all_test_cases:
+                tc_name = (tc.get("name") or tc.get("test_name") or "").lower()
+                if test_name_lower in tc_name or tc_name in test_name_lower:
+                    selected_tests.append(tc)
+                    found = True
+                    logger.info(f"[{run_id}] Matched test case by name: {test_id}")
+                    break
+            
+            if not found:
+                logger.warning(f"[{run_id}] Could not match test case ID: {test_id}")
+                # Log available test case IDs for debugging
+                available_ids = [tc.get("id") or tc.get("test_id") or "N/A" for tc in all_test_cases[:5]]
+                logger.warning(f"[{run_id}] Sample available test case IDs: {available_ids}")
         
         if not selected_tests:
             raise HTTPException(status_code=400, detail="No matching test cases found for the provided IDs")
@@ -2908,29 +3001,89 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
         
         # Get browser page (create new context for test execution)
         browser_manager = get_browser_manager()
-        page = await browser_manager.create_context(
+        # Use headless from request if provided, otherwise use context default
+        execution_headless = request.headless if request.headless is not None else context.headless
+        page = await browser_manager.get_page(
             execution_id,  # Use execution_id for test execution
-            headless=context.headless,
+            headless=execution_headless,
             debug=getattr(context, "discovery_debug", False),
             artifacts_path=str(execution_artifacts_path)
         )
+        
+        # Navigate to the base URL
+        try:
+            logger.info(f"[{execution_id}] Navigating to base URL: {request.base_url}")
+            await page.goto(request.base_url, wait_until="networkidle", timeout=30000)
+            await asyncio.sleep(2)  # Wait for page to fully load
+        except Exception as e:
+            logger.warning(f"[{execution_id}] Failed to navigate to base URL: {e}")
+            # Continue anyway - login might handle navigation
         
         # Login with provided credentials
         if request.username and request.password:
             try:
                 from app.services.login_executor import get_login_executor
                 login_executor = get_login_executor()
-                login_result = await login_executor.execute_login(
+                logger.info(f"[{execution_id}] Attempting login with username: {request.username}")
+                
+                # Use attempt_login method which requires base_url and artifacts_path
+                login_result = await login_executor.attempt_login(
                     page=page,
                     run_id=execution_id,
+                    base_url=request.base_url,
                     username=request.username,
                     password=request.password,
-                    auth_type=context.auth.type if context.auth else "basic"
+                    artifacts_path=str(execution_artifacts_path)
                 )
-                if not login_result.get("success"):
-                    logger.warning(f"[{execution_id}] Login failed: {login_result.get('error')}")
+                
+                if login_result.get("status") != "success":
+                    error_msg = login_result.get("error_message", "Login failed")
+                    logger.warning(f"[{execution_id}] Login failed: {error_msg}")
+                    # Continue execution anyway - some tests might work without login
+                else:
+                    logger.info(f"[{execution_id}] Login successful")
             except Exception as e:
-                logger.warning(f"[{execution_id}] Login attempt failed: {e}")
+                logger.error(f"[{execution_id}] Login attempt failed: {e}", exc_info=True)
+                # Continue execution anyway
+        
+        # Create execution record in database first (with "running" status)
+        execution_run_id = None
+        try:
+            from app.database import get_db
+            from app.models.database import TestExecutionRun
+            
+            async for db in get_db():
+                try:
+                    exec_run = TestExecutionRun(
+                        execution_id=execution_id,
+                        discovery_run_id=run_id,
+                        execution_name=request.execution_name,
+                        description=request.description,
+                        environment=request.environment,
+                        auth_type=context.auth.type if context.auth else "basic",
+                        username=request.username,
+                        started_at=start_time,
+                        completed_at=None,
+                        total_tests=len(selected_tests),
+                        passed=0,
+                        failed=0,
+                        skipped=0,
+                        duration_seconds=0,
+                        status="running",
+                        execution_results=None,
+                        artifacts_path=str(execution_artifacts_path),
+                        headless=execution_headless
+                    )
+                    db.add(exec_run)
+                    await db.commit()
+                    execution_run_id = execution_id
+                    logger.info(f"[{execution_id}] Execution record created with 'running' status")
+                except Exception as db_error:
+                    await db.rollback()
+                    logger.warning(f"[{execution_id}] Failed to create initial execution record: {db_error}")
+                break
+        except Exception as db_error:
+            logger.warning(f"[{execution_id}] Database initialization failed (continuing anyway): {db_error}")
         
         # Execute tests
         test_executor = get_test_executor()
@@ -2944,35 +3097,69 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
         end_time = datetime.utcnow()
         duration = (end_time - start_time).total_seconds()
         
-        # Store execution in database
+        # Generate Allure-style HTML report
+        try:
+            from app.services.report_generator import get_report_generator
+            report_generator = get_report_generator()
+            allure_report_path = report_generator.generate_allure_report(
+                execution_id=execution_id,
+                execution_name=request.execution_name,
+                execution_result=execution_result,
+                artifacts_path=str(execution_artifacts_path),
+                base_url=request.base_url,
+                environment=request.environment
+            )
+            logger.info(f"[{execution_id}] Allure-style report generated: {allure_report_path}")
+        except Exception as e:
+            logger.warning(f"[{execution_id}] Failed to generate Allure report: {e}", exc_info=True)
+        
+        # Update execution in database (update existing record or create new one)
         try:
             from app.database import get_db
             from app.models.database import TestExecutionRun, TestExecutionResult
+            from sqlalchemy import select
             
             async for db in get_db():
                 try:
-                    # Create execution run record
-                    exec_run = TestExecutionRun(
-                        execution_id=execution_id,
-                        discovery_run_id=run_id,
-                        execution_name=request.execution_name,
-                        description=request.description,
-                        environment=request.environment,
-                        auth_type=context.auth.type if context.auth else "basic",
-                        username=request.username,  # In production, encrypt this
-                        started_at=start_time,
-                        completed_at=end_time,
-                        total_tests=len(selected_tests),
-                        passed=execution_result.get("report", {}).get("passed", 0),
-                        failed=execution_result.get("report", {}).get("failed", 0),
-                        skipped=execution_result.get("report", {}).get("skipped", 0),
-                        duration_seconds=duration,
-                        status="completed" if execution_result.get("report", {}).get("failed", 0) == 0 else "failed",
-                        execution_results=execution_result.get("report"),
-                        artifacts_path=str(execution_artifacts_path),
-                        headless=context.headless
+                    # Check if execution record already exists
+                    result = await db.execute(
+                        select(TestExecutionRun).where(TestExecutionRun.execution_id == execution_id)
                     )
-                    db.add(exec_run)
+                    exec_run = result.scalar_one_or_none()
+                    
+                    if exec_run:
+                        # Update existing record
+                        exec_run.completed_at = end_time
+                        exec_run.passed = execution_result.get("report", {}).get("passed", 0)
+                        exec_run.failed = execution_result.get("report", {}).get("failed", 0)
+                        exec_run.skipped = execution_result.get("report", {}).get("skipped", 0)
+                        exec_run.duration_seconds = duration
+                        exec_run.status = "completed" if execution_result.get("report", {}).get("failed", 0) == 0 else "failed"
+                        exec_run.execution_results = execution_result.get("report")
+                        logger.info(f"[{execution_id}] Updated execution record in database")
+                    else:
+                        # Create new record if it doesn't exist
+                        exec_run = TestExecutionRun(
+                            execution_id=execution_id,
+                            discovery_run_id=run_id,
+                            execution_name=request.execution_name,
+                            description=request.description,
+                            environment=request.environment,
+                            auth_type=context.auth.type if context.auth else "basic",
+                            username=request.username,  # In production, encrypt this
+                            started_at=start_time,
+                            completed_at=end_time,
+                            total_tests=len(selected_tests),
+                            passed=execution_result.get("report", {}).get("passed", 0),
+                            failed=execution_result.get("report", {}).get("failed", 0),
+                            skipped=execution_result.get("report", {}).get("skipped", 0),
+                            duration_seconds=duration,
+                            status="completed" if execution_result.get("report", {}).get("failed", 0) == 0 else "failed",
+                            execution_results=execution_result.get("report"),
+                            artifacts_path=str(execution_artifacts_path),
+                            headless=execution_headless
+                        )
+                        db.add(exec_run)
                     
                     # Store individual test results
                     for test_result in execution_result.get("report", {}).get("tests", []):
@@ -2980,13 +3167,13 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
                             execution_id=execution_id,
                             test_id=test_result.get("test_id", ""),
                             test_name=test_result.get("name", ""),
-                            test_type=test_result.get("test_type", ""),
+                            test_type=test_result.get("test_type", test_result.get("type", "")),
                             status=test_result.get("status", "failed"),
                             duration_ms=test_result.get("duration_ms", 0),
                             executed_at=start_time,
                             steps=test_result.get("steps", []),
                             error_message=test_result.get("error"),
-                            screenshot_path=test_result.get("evidence", [{}])[0].get("path") if test_result.get("evidence") else None,
+                            screenshot_path=test_result.get("evidence", [{}])[0].get("path") if test_result.get("evidence") and len(test_result.get("evidence", [])) > 0 else None,
                             evidence=test_result.get("evidence")
                         )
                         db.add(exec_result)
@@ -3061,6 +3248,89 @@ async def list_test_executions(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to list test executions: {str(e)}")
 
 
+@router.delete("/executions/{execution_id}", summary="Delete a test execution run")
+async def delete_test_execution(execution_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a test execution run and all its results."""
+    try:
+        from app.models.database import TestExecutionRun, TestExecutionResult
+        from sqlalchemy import select, delete
+        
+        # Get execution run
+        result = await db.execute(
+            select(TestExecutionRun).where(TestExecutionRun.execution_id == execution_id)
+        )
+        exec_run = result.scalar_one_or_none()
+        
+        if not exec_run:
+            raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found")
+        
+        # Delete test results first (foreign key constraint)
+        await db.execute(
+            delete(TestExecutionResult).where(TestExecutionResult.execution_id == execution_id)
+        )
+        
+        # Delete execution run
+        await db.execute(
+            delete(TestExecutionRun).where(TestExecutionRun.execution_id == execution_id)
+        )
+        
+        await db.commit()
+        
+        # Optionally delete artifacts directory
+        try:
+            if exec_run.artifacts_path:
+                artifacts_path = Path(exec_run.artifacts_path)
+                if artifacts_path.exists():
+                    import shutil
+                    shutil.rmtree(artifacts_path)
+                    logger.info(f"Deleted artifacts directory: {artifacts_path}")
+        except Exception as e:
+            logger.warning(f"Failed to delete artifacts directory: {e}")
+        
+        return {"message": f"Execution {execution_id} deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to delete test execution: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete test execution: {str(e)}")
+
+
+@router.get("/executions/{execution_id}/status", summary="Get test execution status")
+async def get_execution_status(execution_id: str, db: AsyncSession = Depends(get_db)):
+    """Get current status of a test execution (for progress tracking)."""
+    try:
+        from app.models.database import TestExecutionRun
+        from sqlalchemy import select
+        
+        result = await db.execute(
+            select(TestExecutionRun).where(TestExecutionRun.execution_id == execution_id)
+        )
+        exec_run = result.scalar_one_or_none()
+        
+        if not exec_run:
+            raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found")
+        
+        return {
+            "execution_id": execution_id,
+            "status": exec_run.status,
+            "started_at": exec_run.started_at.isoformat() if exec_run.started_at else None,
+            "completed_at": exec_run.completed_at.isoformat() if exec_run.completed_at else None,
+            "total_tests": exec_run.total_tests,
+            "passed": exec_run.passed,
+            "failed": exec_run.failed,
+            "skipped": exec_run.skipped,
+            "duration_seconds": exec_run.duration_seconds,
+            "progress": (exec_run.passed + exec_run.failed + exec_run.skipped) / exec_run.total_tests * 100 if exec_run.total_tests > 0 else 0
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get execution status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get execution status: {str(e)}")
+
+
 @router.get("/executions/{execution_id}", summary="Get test execution details")
 async def get_test_execution(execution_id: str, db: AsyncSession = Depends(get_db)):
     """Get detailed test execution results."""
@@ -3083,6 +3353,14 @@ async def get_test_execution(execution_id: str, db: AsyncSession = Depends(get_d
         )
         test_results = results_query.scalars().all()
         
+        # Check for Allure report
+        allure_report_url = None
+        if exec_run.artifacts_path:
+            artifacts_dir = Path(exec_run.artifacts_path)
+            allure_report = artifacts_dir / "allure-report.html"
+            if allure_report.exists():
+                allure_report_url = f"/runs/executions/{execution_id}/allure-report"
+        
         return {
             "execution": {
                 "execution_id": exec_run.execution_id,
@@ -3098,7 +3376,8 @@ async def get_test_execution(execution_id: str, db: AsyncSession = Depends(get_d
                 "skipped": exec_run.skipped,
                 "duration_seconds": exec_run.duration_seconds,
                 "status": exec_run.status,
-                "execution_results": exec_run.execution_results
+                "execution_results": exec_run.execution_results,
+                "allure_report_url": allure_report_url
             },
             "test_results": [
                 {
@@ -3122,6 +3401,43 @@ async def get_test_execution(execution_id: str, db: AsyncSession = Depends(get_d
     except Exception as e:
         logger.error(f"Failed to get test execution: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get test execution: {str(e)}")
+
+
+@router.get("/executions/{execution_id}/allure-report", summary="Get Allure-style HTML report")
+async def get_allure_report(execution_id: str, db: AsyncSession = Depends(get_db)):
+    """Get Allure-style HTML report for test execution."""
+    try:
+        from app.models.database import TestExecutionRun
+        from sqlalchemy import select
+        from fastapi.responses import HTMLResponse
+        
+        result = await db.execute(
+            select(TestExecutionRun).where(TestExecutionRun.execution_id == execution_id)
+        )
+        exec_run = result.scalar_one_or_none()
+        
+        if not exec_run:
+            raise HTTPException(status_code=404, detail=f"Execution {execution_id} not found")
+        
+        if not exec_run.artifacts_path:
+            raise HTTPException(status_code=404, detail="Artifacts path not found")
+        
+        artifacts_dir = Path(exec_run.artifacts_path)
+        allure_report = artifacts_dir / "allure-report.html"
+        
+        if not allure_report.exists():
+            raise HTTPException(status_code=404, detail="Allure report not found. Report may still be generating.")
+        
+        with open(allure_report, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        
+        return HTMLResponse(content=html_content)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get Allure report: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get Allure report: {str(e)}")
 
 
 @router.get("/stats", summary="Get database statistics")

@@ -3108,8 +3108,22 @@
         }
 
         async function executeSelectedTests() {
+            console.log('executeSelectedTests called', { selectedCount: selectedTestCases.size, currentRunId });
+            
+            // Check if test cases are selected
+            if (selectedTestCases.size === 0) {
+                showMessage('Please select at least one test case to run', 'error');
+                return;
+            }
+            
+            // Check if run ID exists
+            if (!currentRunId) {
+                showMessage('No discovery run found. Please start a discovery run first.', 'error');
+                return;
+            }
+            
             // Open popup instead of executing directly
-            openTestExecutionModal();
+            await openTestExecutionModal();
         }
 
         function viewReport() {
@@ -3577,11 +3591,9 @@
                                     📊 Report
                                 </button>
                             ` : ''}
-                            ${!isCurrent ? `
-                                <button onclick="deleteRun('${run.run_id}')" class="btn-secondary btn-sm" style="min-width: 100px; color: var(--danger); border-color: var(--danger);" title="Delete this run permanently">
-                                    🗑️ Delete
-                                </button>
-                            ` : ''}
+                            <button onclick="deleteRun('${run.run_id}')" class="btn-secondary btn-sm" style="min-width: 100px; color: var(--danger); border-color: var(--danger);" title="${isCurrent ? 'Delete current run (will clear UI)' : 'Delete this run permanently'}">
+                                🗑️ Delete
+                            </button>
                         </div>
                     </div>
                 `;
@@ -3602,6 +3614,17 @@
 
                 const data = await response.json();
                 displayTestExecutionHistory(data.executions || []);
+                
+                // Poll for status updates on running executions
+                const runningExecutions = (data.executions || []).filter(e => e.status === 'running' || !e.completed_at);
+                if (runningExecutions.length > 0) {
+                    // Poll status every 2 seconds for running executions
+                    setTimeout(() => {
+                        runningExecutions.forEach(exec => {
+                            pollExecutionStatus(exec.execution_id);
+                        });
+                    }, 2000);
+                }
             } catch (error) {
                 console.error('Failed to load test execution history:', error);
                 container.innerHTML = `
@@ -3610,6 +3633,46 @@
                         <p style="font-size: 14px; margin-top: 8px;">${error.message}</p>
                     </div>
                 `;
+            }
+        }
+        
+        async function pollExecutionStatus(executionId) {
+            try {
+                const response = await fetch(`${API_BASE}/runs/executions/${executionId}/status`);
+                if (!response.ok) return;
+                
+                const status = await response.json();
+                
+                // Update the UI if execution is still running
+                if (status.status === 'running' || !status.completed_at) {
+                    // Reload history to show updated status
+                    setTimeout(() => loadTestExecutionHistory(), 2000);
+                }
+            } catch (error) {
+                console.error(`Failed to poll status for ${executionId}:`, error);
+            }
+        }
+        
+        async function deleteExecution(executionId) {
+            if (!confirm(`Are you sure you want to delete execution ${executionId}? This action cannot be undone.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/runs/executions/${executionId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to delete execution');
+                }
+                
+                showMessage('Execution deleted successfully', 'success');
+                loadTestExecutionHistory();
+            } catch (error) {
+                console.error('Failed to delete execution:', error);
+                showMessage(`Failed to delete execution: ${error.message}`, 'error');
             }
         }
 
@@ -3685,10 +3748,16 @@
                                 <div>🕐 Started: ${startDate}</div>
                                 <div>⏱️ Duration: ${duration}</div>
                                 ${exec.discovery_run_id ? `<div>🔗 Discovery: <span style="font-family: monospace; color: var(--primary); cursor: pointer;" onclick="loadRun('${exec.discovery_run_id}')">${exec.discovery_run_id}</span></div>` : ''}
+                                ${exec.environment ? `<div>🌍 Environment: ${exec.environment}</div>` : ''}
                             </div>
-                            <button onclick="viewExecutionReport('${exec.execution_id}')" style="padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;">
-                                📊 View Report
-                            </button>
+                            <div style="display: flex; gap: 8px;">
+                                <button onclick="viewExecutionReport('${exec.execution_id}')" style="padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;">
+                                    📊 Allure Report
+                                </button>
+                                <button onclick="deleteExecution('${exec.execution_id}')" style="padding: 8px 16px; background: var(--danger); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;" title="Delete this execution">
+                                    🗑️ Delete
+                                </button>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -3697,12 +3766,30 @@
             container.innerHTML = html;
         }
 
-        function viewExecutionReport(executionId) {
-            // Switch to execution history tab
-            switchAppTab('execution-history');
-            showMessage(`Viewing execution report: ${executionId}`, 'info');
-            // Refresh to show the selected execution
-            loadTestExecutionHistory();
+        async function viewExecutionReport(executionId) {
+            try {
+                // First, get execution details to check for Allure report
+                const response = await fetch(`${API_BASE}/runs/executions/${executionId}`);
+                if (!response.ok) throw new Error('Failed to load execution details');
+                
+                const data = await response.json();
+                const allureUrl = data.execution?.allure_report_url;
+                
+                if (allureUrl) {
+                    // Open Allure report in new window
+                    window.open(`${API_BASE}${allureUrl}`, '_blank');
+                    showMessage('Opening Allure report in new window...', 'success');
+                } else {
+                    // Fallback: show execution details
+                    showMessage('Allure report not available yet. Execution may still be running.', 'info');
+                    // Switch to execution history tab
+                    switchAppTab('execution-history');
+                    loadTestExecutionHistory();
+                }
+            } catch (error) {
+                console.error('Failed to view execution report:', error);
+                showMessage(`Failed to load execution report: ${error.message}`, 'error');
+            }
         }
 
         function loadRun(runId) {
@@ -3745,14 +3832,13 @@
         }
 
         async function deleteRun(runId) {
-            // Prevent deleting current run
-            if (runId === currentRunId) {
-                showMessage('Cannot delete the current active run', 'error');
-                return;
-            }
+            // Warn if deleting current run
+            const isCurrent = runId === currentRunId;
+            const warningMessage = isCurrent 
+                ? `⚠️ WARNING: You are about to delete the CURRENT active run (${runId}).\n\nThis will:\n- Delete all discovery data, test cases, reports, and screenshots\n- Clear the current run from the UI\n- Remove all database records\n\nThis action cannot be undone.\n\nAre you sure you want to continue?`
+                : `Are you sure you want to permanently delete run ${runId}?\n\nThis will delete:\n- All discovery data, test cases, reports, and screenshots\n- All database records\n- All files in the run directory\n\nThis action cannot be undone.`;
 
-            // Confirm deletion
-            if (!confirm(`Are you sure you want to permanently delete run ${runId}?\n\nThis will delete all discovery data, test cases, reports, and screenshots.\n\nThis action cannot be undone.`)) {
+            if (!confirm(warningMessage)) {
                 return;
             }
 
@@ -3771,16 +3857,25 @@
                 const data = await response.json();
 
                 showMessage(
-                    `Run deleted successfully: ${data.run_info.files_deleted} files (${data.run_info.size_deleted_mb} MB)`,
+                    `✅ Run deleted successfully: ${data.run_info.files_deleted} files (${data.run_info.size_deleted_mb} MB)`,
                     'success'
                 );
+
+                // If deleting current run, clear it
+                if (isCurrent) {
+                    currentRunId = null;
+                    localStorage.removeItem('currentRunId');
+                    updateCurrentRunIndicator();
+                    resetTestCasesView();
+                    resetLiveProgressView();
+                }
 
                 // Refresh run history to show updated list
                 loadRunHistory();
 
             } catch (error) {
                 console.error('Failed to delete run:', error);
-                showMessage(`Failed to delete run: ${error.message}`, 'error');
+                showMessage(`❌ Failed to delete run: ${error.message}`, 'error');
             }
         }
 
@@ -3984,20 +4079,7 @@
             document.querySelectorAll('.test-case-checkbox').forEach(cb => cb.checked = false);
         }
 
-        function executeSelectedTests() {
-            const selectedTests = Array.from(document.querySelectorAll('.test-case-checkbox:checked'))
-                .map(cb => cb.dataset.testId);
-
-            if (selectedTests.length === 0) {
-                showMessage('Please select at least one test to execute', 'error');
-                return;
-            }
-
-            showMessage(`Executing ${selectedTests.length} test(s)...`, 'success');
-            console.log('Executing tests:', selectedTests);
-
-            // TODO: Implement test execution
-        }
+        // Removed duplicate executeSelectedTests - using the one at line 3110
 
         function showTestCaseDetails(testCaseId) {
             console.log('Showing details for test:', testCaseId);
@@ -4401,10 +4483,21 @@
 
         <!-- Test Execution Popup Modal -->
         <div id="test_execution_modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; align-items: center; justify-content: center;">
-            <div style="background: white; border-radius: 12px; padding: 24px; max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);" onclick="event.stopPropagation()">
+            <div style="background: white; border-radius: 12px; padding: 24px; max-width: 800px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);" onclick="event.stopPropagation()">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <h2 style="font-size: 20px; font-weight: 700; color: var(--text-primary); margin: 0;">🚀 Execute Test Cases</h2>
                     <button onclick="closeTestExecutionModal()" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--text-secondary); padding: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">&times;</button>
+                </div>
+                
+                <!-- Selected Test Cases Summary -->
+                <div id="selected_test_cases_summary" style="margin-bottom: 24px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h3 style="font-size: 16px; font-weight: 600; color: var(--text-primary); margin: 0;">📋 Selected Test Cases</h3>
+                        <span id="selected_count_badge" style="padding: 4px 12px; background: var(--primary); color: white; border-radius: 12px; font-size: 12px; font-weight: 600;">0 selected</span>
+                    </div>
+                    <div id="selected_test_cases_list" style="max-height: 200px; overflow-y: auto;">
+                        <p style="color: var(--text-secondary); font-size: 14px; margin: 0;">Loading test case details...</p>
+                    </div>
                 </div>
                 
                 <form id="test_execution_form" onsubmit="submitTestExecution(event)">
@@ -4419,6 +4512,14 @@
                     </div>
                     
                     <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Application URL *</label>
+                        <input type="url" id="execution_base_url" required placeholder="https://your-app.example.com" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">
+                            Base URL of the application to test. Pre-filled from discovery run if available.
+                        </p>
+                    </div>
+                    
+                    <div style="margin-bottom: 16px;">
                         <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Environment</label>
                         <select id="execution_environment" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
                             <option value="staging">Staging</option>
@@ -4426,6 +4527,17 @@
                             <option value="prod">Production</option>
                             <option value="qa">QA</option>
                         </select>
+                    </div>
+                    
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Browser Mode *</label>
+                        <select id="execution_headless" required style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
+                            <option value="true">Headless (No UI - Faster)</option>
+                            <option value="false">UI Mode (Visible Browser - For Debugging)</option>
+                        </select>
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">
+                            <strong>Headless:</strong> Runs faster, no browser window. <strong>UI Mode:</strong> Shows browser window for debugging.
+                        </p>
                     </div>
                     
                     <div style="margin-bottom: 20px; padding: 16px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border);">
@@ -4459,22 +4571,179 @@
         // Test Execution Modal Functions
         let pendingTestCaseIds = [];
         
-        function openTestExecutionModal() {
+        async function openTestExecutionModal() {
             if (selectedTestCases.size === 0 || !currentRunId) {
                 showMessage('Please select at least one test case to run', 'error');
                 return;
             }
             
+            // Check if modal element exists
+            const modal = document.getElementById('test_execution_modal');
+            if (!modal) {
+                console.error('Test execution modal not found in DOM');
+                showMessage('Error: Test execution modal not found', 'error');
+                return;
+            }
+            
+            console.log('Opening test execution modal', { 
+                selectedCount: selectedTestCases.size, 
+                pendingIds: Array.from(selectedTestCases),
+                modalExists: !!modal 
+            });
+            
             pendingTestCaseIds = Array.from(selectedTestCases);
-            document.getElementById('test_execution_modal').style.display = 'flex';
+            
+            // Show modal
+            modal.style.display = 'flex';
+            modal.style.alignItems = 'center';
+            modal.style.justifyContent = 'center';
             
             // Set default execution name
             const now = new Date();
             const dateStr = now.toISOString().split('T')[0];
-            document.getElementById('execution_name').value = `Test Run - ${dateStr} ${now.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})}`;
+            const nameInput = document.getElementById('execution_name');
+            if (nameInput) {
+                nameInput.value = `Test Run - ${dateStr} ${now.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})}`;
+            }
             
-            // Load credentials from discovery run
-            loadDiscoveryCredentials();
+            // Update selected count badge
+            const countBadge = document.getElementById('selected_count_badge');
+            if (countBadge) {
+                countBadge.textContent = `${pendingTestCaseIds.length} selected`;
+            }
+            
+            // Set default headless mode (use discovery run's headless setting if available)
+            const headlessSelect = document.getElementById('execution_headless');
+            if (headlessSelect) {
+                // Default to headless=true (faster)
+                headlessSelect.value = 'true';
+            }
+            
+            // Load base URL and credentials from discovery run
+            await loadDiscoveryRunDetails();
+            
+            // Load and display selected test case details
+            await loadSelectedTestCasesDetails();
+            
+            // Note: loadDiscoveryCredentials is now called from loadDiscoveryRunDetails
+        }
+        
+        async function loadSelectedTestCasesDetails() {
+            const listContainer = document.getElementById('selected_test_cases_list');
+            if (!listContainer || !currentRunId) return;
+            
+            listContainer.innerHTML = '<p style="color: var(--text-secondary); font-size: 14px; margin: 0;">Loading test case details...</p>';
+            
+            try {
+                // Load test cases from test_cases.json
+                const response = await fetch(`${API_BASE}/runs/${currentRunId}/test-cases`);
+                if (!response.ok) {
+                    throw new Error('Failed to load test cases');
+                }
+                
+                const testCasesData = await response.json();
+                const allTestCases = [];
+                
+                // Flatten all test cases from scenarios
+                if (testCasesData.scenarios && Array.isArray(testCasesData.scenarios)) {
+                    testCasesData.scenarios.forEach(scenario => {
+                        if (scenario.test_cases && Array.isArray(scenario.test_cases)) {
+                            scenario.test_cases.forEach(tc => {
+                                allTestCases.push({
+                                    ...tc,
+                                    scenario_name: scenario.scenario_name || 'Unknown Scenario'
+                                });
+                            });
+                        }
+                    });
+                }
+                
+                // Filter to only selected test cases
+                const selectedDetails = [];
+                pendingTestCaseIds.forEach(testCaseId => {
+                    // Test ID might be in format: scenario_X_Y or just the ID
+                    const found = allTestCases.find(tc => {
+                        const tcId = tc.id || tc.test_id;
+                        // Check if testCaseId matches tc.id, or if it's in format scenario_X_Y
+                        return tcId === testCaseId || 
+                               testCaseId.endsWith(`_${tcId}`) ||
+                               testCaseId === `${tc.scenario_name}_${tcId}`;
+                    });
+                    
+                    if (found) {
+                        selectedDetails.push(found);
+                    } else {
+                        // If not found, create a basic entry
+                        selectedDetails.push({
+                            id: testCaseId,
+                            name: testCaseId,
+                            type: 'unknown',
+                            priority: 'medium',
+                            scenario_name: 'Unknown',
+                            steps: []
+                        });
+                    }
+                });
+                
+                // Display selected test cases
+                if (selectedDetails.length === 0) {
+                    listContainer.innerHTML = '<p style="color: var(--text-secondary); font-size: 14px; margin: 0;">No test case details found.</p>';
+                    return;
+                }
+                
+                let html = '<div style="display: flex; flex-direction: column; gap: 12px;">';
+                
+                selectedDetails.forEach((tc, idx) => {
+                    const statusColors = {
+                        'passed': { bg: '#d1fae5', color: '#065f46', icon: '✅' },
+                        'failed': { bg: '#fee2e2', color: '#991b1b', icon: '❌' },
+                        'pending': { bg: '#fef3c7', color: '#92400e', icon: '⏸️' },
+                        'running': { bg: '#dbeafe', color: '#1e40af', icon: '⏳' }
+                    };
+                    const status = tc.status || 'pending';
+                    const statusStyle = statusColors[status] || statusColors['pending'];
+                    const priorityColor = tc.priority === 'high' ? '#ef4444' : tc.priority === 'medium' ? '#f59e0b' : '#3b82f6';
+                    
+                    html += `
+                        <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
+                                <div style="flex: 1;">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap;">
+                                        <span style="font-weight: 600; color: var(--text-primary); font-size: 14px;">${tc.name || tc.test_name || tc.id || 'Unnamed Test'}</span>
+                                        <span style="padding: 2px 8px; background: ${statusStyle.bg}; color: ${statusStyle.color}; border-radius: 8px; font-size: 10px; font-weight: 600;">
+                                            ${statusStyle.icon} ${status.toUpperCase()}
+                                        </span>
+                                        <span style="padding: 2px 8px; background: ${priorityColor}22; color: ${priorityColor}; border-radius: 8px; font-size: 10px; font-weight: 600;">
+                                            ${(tc.priority || 'medium').toUpperCase()}
+                                        </span>
+                                    </div>
+                                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;">
+                                        <strong>ID:</strong> ${tc.id || tc.test_id || 'N/A'} | 
+                                        <strong>Type:</strong> ${(tc.type || tc.test_type || 'unknown').replace(/_/g, ' ')} | 
+                                        <strong>Scenario:</strong> ${tc.scenario_name || 'Unknown'}
+                                    </div>
+                                    ${tc.description ? `<div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;">${tc.description}</div>` : ''}
+                                    ${tc.steps && tc.steps.length > 0 ? `
+                                        <details style="margin-top: 8px;">
+                                            <summary style="font-size: 12px; color: var(--primary); cursor: pointer; font-weight: 600;">View Steps (${tc.steps.length})</summary>
+                                            <ol style="margin: 8px 0 0 16px; padding-left: 8px; font-size: 11px; color: var(--text-secondary); line-height: 1.6;">
+                                                ${tc.steps.map((step, stepIdx) => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
+                                            </ol>
+                                        </details>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                listContainer.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Failed to load test case details:', error);
+                listContainer.innerHTML = `<p style="color: #dc2626; font-size: 14px; margin: 0;">Error loading test case details: ${error.message}</p>`;
+            }
         }
         
         function closeTestExecutionModal() {
@@ -4482,7 +4751,8 @@
             pendingTestCaseIds = [];
         }
         
-        async function loadDiscoveryCredentials() {
+        async function loadDiscoveryRunDetails() {
+            const baseUrlInput = document.getElementById('execution_base_url');
             const statusEl = document.getElementById('credentials_status');
             const infoEl = document.getElementById('credentials_info');
             const inputsDiv = document.getElementById('credentials_inputs');
@@ -4494,11 +4764,16 @@
             statusEl.style.color = '#1e40af';
             
             try {
-                // Get discovery run status to check for credentials
+                // Get discovery run status to check for base URL and credentials
                 const response = await fetch(`${API_BASE}/runs/${currentRunId}/status`);
                 if (!response.ok) throw new Error('Failed to load run status');
                 
                 const data = await response.json();
+                
+                // Pre-fill base URL from discovery run
+                if (data.base_url && baseUrlInput) {
+                    baseUrlInput.value = data.base_url;
+                }
                 
                 // Check if credentials exist in discovery run
                 if (data.auth && data.auth.username) {
@@ -4552,13 +4827,77 @@
             submitBtn.textContent = '⏳ Starting...';
             
             try {
+                // Extract actual test case IDs from the selected test cases
+                // Load test cases to get the actual IDs
+                let actualTestIds = pendingTestCaseIds;
+                
+                try {
+                    const response = await fetch(`${API_BASE}/runs/${currentRunId}/test-cases`);
+                    if (response.ok) {
+                        const testCasesData = await response.json();
+                        const allTestCases = [];
+                        
+                        // Flatten all test cases from scenarios
+                        if (testCasesData.scenarios && Array.isArray(testCasesData.scenarios)) {
+                            testCasesData.scenarios.forEach(scenario => {
+                                if (scenario.test_cases && Array.isArray(scenario.test_cases)) {
+                                    scenario.test_cases.forEach(tc => {
+                                        allTestCases.push(tc);
+                                    });
+                                }
+                            });
+                        }
+                        
+                        // Map selected IDs to actual test case IDs
+                        actualTestIds = [];
+                        pendingTestCaseIds.forEach(testCaseId => {
+                            // Try to find matching test case
+                            const found = allTestCases.find(tc => {
+                                const tcId = tc.id || tc.test_id;
+                                // Check various formats
+                                return tcId === testCaseId || 
+                                       testCaseId.endsWith(`_${tcId}`) ||
+                                       testCaseId === `${tc.scenario_name}_${tcId}` ||
+                                       testCaseId.includes(tcId);
+                            });
+                            
+                            if (found) {
+                                // Use the actual ID from the test case
+                                actualTestIds.push(found.id || found.test_id || testCaseId);
+                            } else {
+                                // Fallback: try to extract ID from format scenario_X_Y or feature_name_test_id
+                                const parts = testCaseId.split('_');
+                                if (parts.length > 1) {
+                                    // Try last part as ID
+                                    actualTestIds.push(parts[parts.length - 1]);
+                                } else {
+                                    actualTestIds.push(testCaseId);
+                                }
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Could not load test cases for ID mapping, using original IDs:', e);
+                    // Use original IDs, backend will try to match them
+                }
+                
+                const baseUrlInput = document.getElementById('execution_base_url');
+                if (!baseUrlInput || !baseUrlInput.value.trim()) {
+                    showMessage('Please provide the application URL', 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '▶️ Start Execution';
+                    return;
+                }
+                
                 const executionData = {
-                    test_case_ids: pendingTestCaseIds,
+                    test_case_ids: actualTestIds,
                     execution_name: document.getElementById('execution_name').value,
                     description: document.getElementById('execution_description').value,
+                    base_url: baseUrlInput.value.trim(),
                     environment: document.getElementById('execution_environment').value,
                     username: document.getElementById('execution_username').value,
-                    password: document.getElementById('execution_password').value
+                    password: document.getElementById('execution_password').value,
+                    headless: document.getElementById('execution_headless').value === 'true'
                 };
                 
                 const response = await fetch(`${API_BASE}/runs/${currentRunId}/execute-tests`, {
