@@ -2919,7 +2919,46 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
         # Find selected test cases
         all_test_cases = []
         for scenario in test_cases_data.get("scenarios", []):
-            all_test_cases.extend(scenario.get("test_cases", []))
+            scenario_tests = scenario.get("test_cases", [])
+            for test in scenario_tests:
+                # Log test details for debugging
+                test_id = test.get("id", "N/A")
+                steps = test.get("steps", [])
+                steps_count = len(steps)
+                if steps_count > 0:
+                    # Show first few steps with their action types
+                    step_preview = []
+                    for s in steps[:3]:
+                        if isinstance(s, str):
+                            # String step - extract action
+                            step_lower = s.lower()
+                            if "navigate" in step_lower:
+                                step_preview.append(f"navigate: {s[:40]}")
+                            elif "count" in step_lower:
+                                step_preview.append(f"count: {s[:40]}")
+                            elif "enter" in step_lower or "fill" in step_lower:
+                                step_preview.append(f"fill: {s[:40]}")
+                            elif "wait" in step_lower:
+                                step_preview.append(f"wait: {s[:40]}")
+                            elif "verify" in step_lower:
+                                step_preview.append(f"verify: {s[:40]}")
+                            elif "clear" in step_lower:
+                                step_preview.append(f"clear: {s[:40]}")
+                            else:
+                                step_preview.append(f"other: {s[:40]}")
+                        elif isinstance(s, dict):
+                            # Dict step (TestStep format)
+                            action = s.get('action', 'unknown')
+                            selector = s.get('selector', '')[:20] if s.get('selector') else ''
+                            step_preview.append(f"{action}: {selector}")
+                        else:
+                            step_preview.append(str(s)[:50])
+                    logger.info(f"[{execution_id}] Test {test_id} has {steps_count} steps. First steps: {step_preview}")
+                else:
+                    logger.warning(f"[{execution_id}] Test {test_id} has NO steps in test_cases.json - will try to load from discovery")
+            all_test_cases.extend(scenario_tests)
+        
+        logger.info(f"[{execution_id}] Loaded {len(all_test_cases)} total test cases from test_cases.json")
         
         # Filter by selected IDs
         selected_tests = []
@@ -2992,7 +3031,110 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
         execution_artifacts_path = Path(context.artifacts_path) / "executions" / execution_id
         execution_artifacts_path.mkdir(parents=True, exist_ok=True)
         
-        # Create a test plan from selected tests
+        # Load discovery data to get steps if test cases don't have them
+        discovery_file = Path(context.artifacts_path) / "discovery.json"
+        discovery_data = {}
+        if discovery_file.exists():
+            try:
+                with open(discovery_file, "r") as f:
+                    discovery_data = json.load(f)
+                logger.info(f"[{execution_id}] Loaded discovery data with {len(discovery_data.get('pages', []))} pages")
+            except Exception as e:
+                logger.warning(f"[{execution_id}] Failed to load discovery.json: {e}")
+        
+        # Enhance test cases with steps from discovery if missing
+        # IMPORTANT: Steps should already be in test_cases.json - only load from discovery if missing
+        tests_with_steps = 0
+        tests_without_steps = 0
+        for test in selected_tests:
+            if test.get("steps") and len(test.get("steps", [])) > 0:
+                tests_with_steps += 1
+                logger.info(f"[{execution_id}] Test {test.get('id')} already has {len(test.get('steps', []))} steps from test_cases.json - using them")
+            else:
+                tests_without_steps += 1
+                logger.warning(f"[{execution_id}] Test case {test.get('id')} has no steps in test_cases.json, attempting to load from discovery data")
+                
+                # Try to find steps from discovery data based on test name or page
+                test_name = test.get("name", "").lower()
+                test_page_url = test.get("page_url") or test.get("url")
+                
+                # Look for matching page in discovery
+                if discovery_data.get("pages"):
+                    for page in discovery_data.get("pages", []):
+                        page_url = page.get("url", "")
+                        if test_page_url and (test_page_url in page_url or page_url in test_page_url):
+                            # Found matching page - try to extract steps
+                            # Steps might be in page discovery trace or actions
+                            if page.get("discovery_steps"):
+                                test["steps"] = page.get("discovery_steps")
+                                logger.info(f"[{execution_id}] Loaded {len(test['steps'])} steps from discovery.steps for test {test.get('id')}")
+                            elif page.get("actions"):
+                                # Convert actions to steps
+                                test["steps"] = [{"action": "navigate", "target": page_url}] + [
+                                    {"action": action.get("type", "click"), "target": action.get("selector", "")}
+                                    for action in page.get("actions", [])[:5]  # Limit to first 5 actions
+                                ]
+                                logger.info(f"[{execution_id}] Created {len(test['steps'])} steps from page actions for test {test.get('id')}")
+                            elif page.get("forms"):
+                                # If page has forms, create steps to interact with forms
+                                forms = page.get("forms", [])[:1]  # Take first form
+                                if forms:
+                                    form = forms[0]
+                                    form_steps = [{"action": "navigate", "target": page_url}]
+                                    # Add form fill step if form has inputs
+                                    if form.get("inputs"):
+                                        form_steps.append({
+                                            "action": "fill_form",
+                                            "fields": [
+                                                {"name": inp.get("name"), "value": f"test_{inp.get('type', 'text')}", "type": inp.get("type", "text")}
+                                                for inp in form.get("inputs", [])[:3] if inp.get("name") and inp.get("type") != "hidden"
+                                            ]
+                                        })
+                                    test["steps"] = form_steps
+                                    logger.info(f"[{execution_id}] Created {len(test['steps'])} steps from page forms for test {test.get('id')}")
+                            break
+                
+                # Log if still no steps found
+                if not test.get("steps") or len(test.get("steps", [])) == 0:
+                    logger.warning(f"[{execution_id}] Could not find steps in discovery data for test {test.get('id')}. Test will be skipped during execution.")
+        
+        # Log test plan details
+        logger.info(f"[{execution_id}] ===== TEST PLAN SUMMARY =====")
+        logger.info(f"[{execution_id}] Total tests selected: {len(selected_tests)}")
+        logger.info(f"[{execution_id}] Tests with steps: {tests_with_steps}, Tests without steps: {tests_without_steps}")
+        total_steps = 0
+        for idx, test in enumerate(selected_tests):
+            steps = test.get("steps", [])
+            steps_count = len(steps)
+            total_steps += steps_count
+            if idx < 5:  # Log first 5 tests
+                step_types = []
+                for s in steps[:3]:
+                    if isinstance(s, str):
+                        # Extract action from string step
+                        if "navigate" in s.lower():
+                            step_types.append("navigate")
+                        elif "count" in s.lower():
+                            step_types.append("count")
+                        elif "enter" in s.lower() or "fill" in s.lower():
+                            step_types.append("enter")
+                        elif "wait" in s.lower():
+                            step_types.append("wait")
+                        elif "verify" in s.lower():
+                            step_types.append("verify")
+                        elif "clear" in s.lower():
+                            step_types.append("clear")
+                        else:
+                            step_types.append("other")
+                    elif isinstance(s, dict):
+                        step_types.append(s.get("action", "unknown"))
+                    else:
+                        step_types.append("unknown")
+                logger.info(f"[{execution_id}] Test {idx+1}: {test.get('id')} - {test.get('name')} - {steps_count} steps (types: {step_types})")
+        logger.info(f"[{execution_id}] Total steps to execute: {total_steps}")
+        if total_steps == 0:
+            logger.error(f"[{execution_id}] WARNING: No steps found in any test! Tests will be skipped.")
+        
         test_plan = {
             "test_intent": "selected_tests",
             "total_tests": len(selected_tests),
@@ -3046,6 +3188,9 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
                 logger.error(f"[{execution_id}] Login attempt failed: {e}", exc_info=True)
                 # Continue execution anyway
         
+        # Record execution start time BEFORE creating database record
+        execution_start_time = datetime.utcnow()
+        
         # Create execution record in database first (with "running" status)
         execution_run_id = None
         try:
@@ -3062,7 +3207,7 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
                         environment=request.environment,
                         auth_type=context.auth.type if context.auth else "basic",
                         username=request.username,
-                        started_at=start_time,
+                        started_at=execution_start_time,
                         completed_at=None,
                         total_tests=len(selected_tests),
                         passed=0,
@@ -3077,7 +3222,7 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
                     db.add(exec_run)
                     await db.commit()
                     execution_run_id = execution_id
-                    logger.info(f"[{execution_id}] Execution record created with 'running' status")
+                    logger.info(f"[{execution_id}] Execution record created with 'running' status at {execution_start_time}")
                 except Exception as db_error:
                     await db.rollback()
                     logger.warning(f"[{execution_id}] Failed to create initial execution record: {db_error}")
@@ -3086,18 +3231,58 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
             logger.warning(f"[{execution_id}] Database initialization failed (continuing anyway): {db_error}")
         
         # Execute tests
+        logger.info(f"[{execution_id}] ===== STARTING TEST EXECUTION =====")
+        logger.info(f"[{execution_id}] Test plan contains {len(test_plan.get('tests', []))} tests")
+        logger.info(f"[{execution_id}] Page URL before execution: {page.url}")
+        
         test_executor = get_test_executor()
-        start_time = datetime.utcnow()
-        execution_result = await test_executor.execute_tests(
-            page=page,
-            run_id=execution_id,
-            artifacts_path=str(execution_artifacts_path),
-            test_plan=test_plan
-        )
-        end_time = datetime.utcnow()
-        duration = (end_time - start_time).total_seconds()
+        test_execution_start_time = datetime.utcnow()
+        
+        try:
+            execution_result = await test_executor.execute_tests(
+                page=page,
+                run_id=execution_id,
+                artifacts_path=str(execution_artifacts_path),
+                test_plan=test_plan
+            )
+            
+            # Validate execution result
+            if not execution_result or not execution_result.get("report"):
+                logger.error(f"[{execution_id}] ERROR: Execution result is empty or missing report!")
+                raise ValueError("Test execution returned empty result")
+            
+            report = execution_result.get("report", {})
+            logger.info(f"[{execution_id}] Execution result: {report.get('passed', 0)} passed, {report.get('failed', 0)} failed, {len(report.get('tests', []))} test results")
+            
+        except Exception as exec_error:
+            logger.error(f"[{execution_id}] Test execution failed with exception: {exec_error}", exc_info=True)
+            # Create error result
+            execution_result = {
+                "report": {
+                    "run_id": execution_id,
+                    "status": "failed",
+                    "started_at": test_execution_start_time.isoformat() + "Z",
+                    "completed_at": datetime.utcnow().isoformat() + "Z",
+                    "total_tests": len(test_plan.get("tests", [])),
+                    "passed": 0,
+                    "failed": 1,
+                    "skipped": 0,
+                    "tests": [],
+                    "error": str(exec_error)[:500]
+                },
+                "next_state": "DONE",
+                "question": None,
+                "unsafe_deletes": None
+            }
+        
+        test_execution_end_time = datetime.utcnow()
+        execution_duration = (test_execution_end_time - test_execution_start_time).total_seconds()
+        total_duration = (test_execution_end_time - execution_start_time).total_seconds()
+        logger.info(f"[{execution_id}] Test execution duration: {execution_duration:.2f} seconds")
+        logger.info(f"[{execution_id}] Total execution duration (including setup): {total_duration:.2f} seconds")
         
         # Generate Allure-style HTML report
+        allure_report_path = None
         try:
             from app.services.report_generator import get_report_generator
             report_generator = get_report_generator()
@@ -3111,7 +3296,8 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
             )
             logger.info(f"[{execution_id}] Allure-style report generated: {allure_report_path}")
         except Exception as e:
-            logger.warning(f"[{execution_id}] Failed to generate Allure report: {e}", exc_info=True)
+            logger.error(f"[{execution_id}] Failed to generate Allure report: {e}", exc_info=True)
+            # Don't fail the whole execution if report generation fails
         
         # Update execution in database (update existing record or create new one)
         try:
@@ -3129,14 +3315,14 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
                     
                     if exec_run:
                         # Update existing record
-                        exec_run.completed_at = end_time
+                        exec_run.completed_at = test_execution_end_time
                         exec_run.passed = execution_result.get("report", {}).get("passed", 0)
                         exec_run.failed = execution_result.get("report", {}).get("failed", 0)
                         exec_run.skipped = execution_result.get("report", {}).get("skipped", 0)
-                        exec_run.duration_seconds = duration
+                        exec_run.duration_seconds = total_duration  # Use total duration including setup
                         exec_run.status = "completed" if execution_result.get("report", {}).get("failed", 0) == 0 else "failed"
                         exec_run.execution_results = execution_result.get("report")
-                        logger.info(f"[{execution_id}] Updated execution record in database")
+                        logger.info(f"[{execution_id}] Updated execution record in database: duration={total_duration:.2f}s, passed={exec_run.passed}, failed={exec_run.failed}, skipped={exec_run.skipped}")
                     else:
                         # Create new record if it doesn't exist
                         exec_run = TestExecutionRun(
@@ -3147,13 +3333,13 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
                             environment=request.environment,
                             auth_type=context.auth.type if context.auth else "basic",
                             username=request.username,  # In production, encrypt this
-                            started_at=start_time,
-                            completed_at=end_time,
+                            started_at=execution_start_time,
+                            completed_at=test_execution_end_time,
                             total_tests=len(selected_tests),
                             passed=execution_result.get("report", {}).get("passed", 0),
                             failed=execution_result.get("report", {}).get("failed", 0),
                             skipped=execution_result.get("report", {}).get("skipped", 0),
-                            duration_seconds=duration,
+                            duration_seconds=total_duration,
                             status="completed" if execution_result.get("report", {}).get("failed", 0) == 0 else "failed",
                             execution_results=execution_result.get("report"),
                             artifacts_path=str(execution_artifacts_path),
@@ -3353,13 +3539,33 @@ async def get_test_execution(execution_id: str, db: AsyncSession = Depends(get_d
         )
         test_results = results_query.scalars().all()
         
-        # Check for Allure report
+        # Check for report.json and execution artifacts
+        execution_details = {}
+        if exec_run.artifacts_path:
+            artifacts_dir = Path(exec_run.artifacts_path)
+            report_json = artifacts_dir / "report.json"
+            if report_json.exists():
+                try:
+                    with open(report_json, "r") as f:
+                        execution_details["report_json"] = json.load(f)
+                except Exception as e:
+                    logger.warning(f"[{execution_id}] Failed to load report.json: {e}")
+        
+        # Check for Allure report - try multiple possible locations
         allure_report_url = None
         if exec_run.artifacts_path:
             artifacts_dir = Path(exec_run.artifacts_path)
-            allure_report = artifacts_dir / "allure-report.html"
-            if allure_report.exists():
-                allure_report_url = f"/runs/executions/{execution_id}/allure-report"
+            # Try different possible report file names
+            possible_reports = [
+                artifacts_dir / "allure-report.html",
+                artifacts_dir / "report.html",
+                artifacts_dir / "allure_report.html"
+            ]
+            for report_path in possible_reports:
+                if report_path.exists():
+                    allure_report_url = f"/runs/executions/{execution_id}/allure-report"
+                    logger.info(f"[{execution_id}] Found report at: {report_path}")
+                    break
         
         return {
             "execution": {
@@ -3377,7 +3583,8 @@ async def get_test_execution(execution_id: str, db: AsyncSession = Depends(get_d
                 "duration_seconds": exec_run.duration_seconds,
                 "status": exec_run.status,
                 "execution_results": exec_run.execution_results,
-                "allure_report_url": allure_report_url
+                "allure_report_url": allure_report_url,
+                "execution_details": execution_details
             },
             "test_results": [
                 {
@@ -3423,12 +3630,53 @@ async def get_allure_report(execution_id: str, db: AsyncSession = Depends(get_db
             raise HTTPException(status_code=404, detail="Artifacts path not found")
         
         artifacts_dir = Path(exec_run.artifacts_path)
-        allure_report = artifacts_dir / "allure-report.html"
         
-        if not allure_report.exists():
-            raise HTTPException(status_code=404, detail="Allure report not found. Report may still be generating.")
+        # Try multiple possible report file names
+        possible_reports = [
+            artifacts_dir / "allure-report.html",
+            artifacts_dir / "report.html",
+            artifacts_dir / "allure_report.html",
+            artifacts_dir / "allure" / "index.html"
+        ]
         
-        with open(allure_report, "r", encoding="utf-8") as f:
+        report_path = None
+        for report_file in possible_reports:
+            if report_file.exists():
+                report_path = report_file
+                logger.info(f"[{execution_id}] Found report at: {report_path}")
+                break
+        
+        if not report_path:
+            # Try to generate report from report.json if it exists
+            report_json = artifacts_dir / "report.json"
+            if report_json.exists():
+                try:
+                    from app.services.report_generator import get_report_generator
+                    report_generator = get_report_generator()
+                    with open(report_json, "r") as f:
+                        report_data = json.load(f)
+                    
+                    # Generate report on the fly
+                    allure_report_path = report_generator.generate_allure_report(
+                        execution_id=execution_id,
+                        execution_name=exec_run.execution_name or "Test Execution",
+                        execution_result={"report": report_data},
+                        artifacts_path=str(artifacts_dir),
+                        base_url="",  # Not available in execution result
+                        environment=exec_run.environment or "staging"
+                    )
+                    report_path = Path(allure_report_path)
+                    logger.info(f"[{execution_id}] Generated report on-the-fly: {report_path}")
+                except Exception as gen_error:
+                    logger.error(f"[{execution_id}] Failed to generate report on-the-fly: {gen_error}", exc_info=True)
+            
+            if not report_path or not report_path.exists():
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Allure report not found. Execution status: {exec_run.status}. Report may still be generating or execution may have failed."
+                )
+        
+        with open(report_path, "r", encoding="utf-8") as f:
             html_content = f.read()
         
         return HTMLResponse(content=html_content)
