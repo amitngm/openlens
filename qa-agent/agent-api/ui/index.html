@@ -1284,6 +1284,61 @@
                             <input type="password" id="password" placeholder="Enter password">
                         </div>
 
+                        <!-- Document Upload Section -->
+                        <details style="margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--bg-secondary);">
+                            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+                                📎 Upload Requirements (PRD, Images, Documents)
+                            </summary>
+                            <div style="margin-top: 16px;">
+                                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+                                    Upload PRD documents, mockups, screenshots, or requirement files to help QA Buddy understand expected behavior and generate better test cases.
+                                </p>
+
+                                <!-- PRD/Documents Upload -->
+                                <div class="form-group" style="margin-bottom: 16px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; font-weight: 600;">
+                                        📄 PRD / Requirement Documents
+                                        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">(PDF, DOCX, TXT, MD)</span>
+                                    </label>
+                                    <input type="file" id="prd_upload" accept=".pdf,.docx,.doc,.txt,.md" multiple style="margin-top: 8px; padding: 8px; border: 2px dashed var(--border); border-radius: 6px; width: 100%; cursor: pointer;">
+                                    <div id="prd_files_list" style="margin-top: 8px; font-size: 13px; color: var(--text-secondary);"></div>
+                                </div>
+
+                                <!-- Images Upload -->
+                                <div class="form-group" style="margin-bottom: 16px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; font-weight: 600;">
+                                        🖼️ Mockups / Screenshots
+                                        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">(PNG, JPG, JPEG)</span>
+                                    </label>
+                                    <input type="file" id="images_upload" accept=".png,.jpg,.jpeg" multiple style="margin-top: 8px; padding: 8px; border: 2px dashed var(--border); border-radius: 6px; width: 100%; cursor: pointer;">
+                                    <div id="images_files_list" style="margin-top: 8px; font-size: 13px; color: var(--text-secondary);"></div>
+                                </div>
+
+                                <!-- Figma/Design Links -->
+                                <div class="form-group">
+                                    <label style="display: flex; align-items: center; gap: 8px; font-weight: 600;">
+                                        🎨 Figma / Design Links
+                                        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">(Optional)</span>
+                                    </label>
+                                    <input type="url" id="design_links" placeholder="https://figma.com/..." style="margin-top: 8px;">
+                                    <textarea id="design_links_additional" rows="2" placeholder="Additional design links (one per line)" style="margin-top: 8px; width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 14px;"></textarea>
+                                </div>
+
+                                <!-- Expected Behavior Notes -->
+                                <div class="form-group" style="margin-top: 16px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; font-weight: 600;">
+                                        📝 Expected Behavior / Notes
+                                        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 400;">(Optional)</span>
+                                    </label>
+                                    <textarea id="expected_behavior" rows="4" placeholder="Describe expected behavior, user flows, critical features to test, or any specific requirements..." style="margin-top: 8px; width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 6px; font-family: inherit; font-size: 14px;"></textarea>
+                                </div>
+
+                                <button onclick="clearUploads()" style="margin-top: 12px; padding: 8px 16px; background: var(--danger); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
+                                    🗑️ Clear All Uploads
+                                </button>
+                            </div>
+                        </details>
+
                         <!-- Advanced Discovery Settings -->
                         <details style="margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
                             <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary);">⚙️ Advanced Settings</summary>
@@ -1782,6 +1837,131 @@
             }
         }
 
+        // File upload handling
+        let uploadedPRDFiles = [];
+        let uploadedImageFiles = [];
+
+        // PRD/Document upload handler
+        document.getElementById('prd_upload').addEventListener('change', function(e) {
+            const files = Array.from(e.target.files);
+            uploadedPRDFiles = files;
+
+            const filesList = document.getElementById('prd_files_list');
+            if (files.length > 0) {
+                filesList.innerHTML = `<strong>📄 ${files.length} file(s) selected:</strong><br>` +
+                    files.map(f => `<span style="display: block; padding: 4px 0;">• ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>`).join('');
+                filesList.style.color = 'var(--success)';
+            } else {
+                filesList.innerHTML = '';
+            }
+        });
+
+        // Images upload handler
+        document.getElementById('images_upload').addEventListener('change', function(e) {
+            const files = Array.from(e.target.files);
+            uploadedImageFiles = files;
+
+            const filesList = document.getElementById('images_files_list');
+            if (files.length > 0) {
+                filesList.innerHTML = `<strong>🖼️ ${files.length} image(s) selected:</strong><br>` +
+                    files.map(f => `<span style="display: block; padding: 4px 0;">• ${f.name} (${(f.size / 1024).toFixed(1)} KB)</span>`).join('');
+                filesList.style.color = 'var(--success)';
+            } else {
+                filesList.innerHTML = '';
+            }
+        });
+
+        // Clear uploads function
+        function clearUploads() {
+            uploadedPRDFiles = [];
+            uploadedImageFiles = [];
+            document.getElementById('prd_upload').value = '';
+            document.getElementById('images_upload').value = '';
+            document.getElementById('design_links').value = '';
+            document.getElementById('design_links_additional').value = '';
+            document.getElementById('expected_behavior').value = '';
+            document.getElementById('prd_files_list').innerHTML = '';
+            document.getElementById('images_files_list').innerHTML = '';
+            showMessage('✅ Uploads cleared', 'info');
+        }
+
+        // Upload files to run
+        async function uploadRequirementFiles(runId) {
+            const uploadedData = {
+                prd_files: [],
+                image_files: [],
+                design_links: [],
+                expected_behavior: ''
+            };
+
+            try {
+                // Upload PRD files
+                if (uploadedPRDFiles.length > 0) {
+                    const formData = new FormData();
+                    uploadedPRDFiles.forEach(file => formData.append('files', file));
+
+                    const response = await fetch(`${API_BASE}/runs/${runId}/upload/documents`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        uploadedData.prd_files = data.uploaded_files || [];
+                        showMessage(`✅ Uploaded ${uploadedData.prd_files.length} PRD document(s)`, 'success');
+                    }
+                }
+
+                // Upload images
+                if (uploadedImageFiles.length > 0) {
+                    const formData = new FormData();
+                    uploadedImageFiles.forEach(file => formData.append('files', file));
+
+                    const response = await fetch(`${API_BASE}/runs/${runId}/upload/images`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        uploadedData.image_files = data.uploaded_files || [];
+                        showMessage(`✅ Uploaded ${uploadedData.image_files.length} image(s)`, 'success');
+                    }
+                }
+
+                // Collect design links
+                const designLink = document.getElementById('design_links').value.trim();
+                const additionalLinks = document.getElementById('design_links_additional').value.trim();
+
+                if (designLink) uploadedData.design_links.push(designLink);
+                if (additionalLinks) {
+                    uploadedData.design_links.push(...additionalLinks.split('\n').map(l => l.trim()).filter(l => l));
+                }
+
+                // Collect expected behavior
+                uploadedData.expected_behavior = document.getElementById('expected_behavior').value.trim();
+
+                // Send metadata to backend
+                if (uploadedData.design_links.length > 0 || uploadedData.expected_behavior) {
+                    await fetch(`${API_BASE}/runs/${runId}/metadata`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            design_links: uploadedData.design_links,
+                            expected_behavior: uploadedData.expected_behavior
+                        })
+                    });
+                }
+
+                return uploadedData;
+
+            } catch (error) {
+                console.error('Error uploading requirement files:', error);
+                showMessage(`⚠️ Error uploading files: ${error.message}`, 'warning');
+                return uploadedData;
+            }
+        }
+
         // Auth type change
         document.getElementById('auth_type').addEventListener('change', function() {
             document.getElementById('auth_fields').style.display = this.value === 'none' ? 'none' : 'block';
@@ -1852,10 +2032,19 @@
                 updateCurrentRunIndicator();
 
                 showMessage(`Run started: ${currentRunId}`, 'success');
+
+                // Upload requirement files if any
+                if (uploadedPRDFiles.length > 0 || uploadedImageFiles.length > 0 ||
+                    document.getElementById('design_links').value.trim() ||
+                    document.getElementById('expected_behavior').value.trim()) {
+                    showMessage('📎 Uploading requirement files...', 'info');
+                    await uploadRequirementFiles(currentRunId);
+                }
+
                 document.getElementById('status_card').classList.remove('hidden');
                 document.getElementById('free_text_card').classList.remove('hidden');
                 document.getElementById('stop_btn').classList.remove('hidden');
-                
+
                 // Load app in iframe immediately with base URL (but don't switch to app tab yet)
                 if (baseUrl) {
                     loadAppInIframe(baseUrl, data.current_url || baseUrl);

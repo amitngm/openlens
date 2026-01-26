@@ -2754,3 +2754,167 @@ async def get_database_stats(db: AsyncSession = Depends(get_db)):
     except Exception as e:
         logger.error(f"Failed to get database stats: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
+
+
+# =============================================================================
+# File Upload Endpoints
+# =============================================================================
+
+@router.post("/{run_id}/upload/documents", summary="Upload PRD/requirement documents")
+async def upload_documents(
+    run_id: str,
+    files: list[UploadFile] = File(...)
+):
+    """Upload PRD, requirement documents, or specifications."""
+    try:
+        run_context = _run_store.get_run(run_id)
+        if not run_context:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        artifacts_path = Path(run_context.artifacts_path)
+        uploads_dir = artifacts_path / "uploads" / "documents"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+
+        uploaded_files = []
+        for file in files:
+            # Validate file type
+            allowed_extensions = ['.pdf', '.docx', '.doc', '.txt', '.md']
+            file_ext = Path(file.filename).suffix.lower()
+            if file_ext not in allowed_extensions:
+                logger.warning(f"[{run_id}] Skipping unsupported file type: {file.filename}")
+                continue
+
+            # Save file
+            file_path = uploads_dir / file.filename
+            content = await file.read()
+            with open(file_path, "wb") as f:
+                f.write(content)
+
+            uploaded_files.append({
+                "filename": file.filename,
+                "size": len(content),
+                "path": str(file_path.relative_to(artifacts_path))
+            })
+
+            logger.info(f"[{run_id}] Uploaded document: {file.filename} ({len(content)} bytes)")
+
+        # Update run context
+        if not run_context.uploaded_documents:
+            run_context.uploaded_documents = []
+        run_context.uploaded_documents.extend(uploaded_files)
+        _run_store.save_run(run_id, run_context)
+
+        return {
+            "run_id": run_id,
+            "uploaded_files": uploaded_files,
+            "uploaded_count": len(uploaded_files),
+            "message": f"Successfully uploaded {len(uploaded_files)} document(s)"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to upload documents: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload documents: {str(e)}")
+
+
+@router.post("/{run_id}/upload/images", summary="Upload mockups/screenshots")
+async def upload_requirement_images(
+    run_id: str,
+    files: list[UploadFile] = File(...)
+):
+    """Upload mockups, screenshots, or UI design images."""
+    try:
+        run_context = _run_store.get_run(run_id)
+        if not run_context:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        artifacts_path = Path(run_context.artifacts_path)
+        uploads_dir = artifacts_path / "uploads" / "images"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+
+        uploaded_files = []
+        for file in files:
+            # Validate file type
+            allowed_extensions = ['.png', '.jpg', '.jpeg']
+            file_ext = Path(file.filename).suffix.lower()
+            if file_ext not in allowed_extensions:
+                logger.warning(f"[{run_id}] Skipping unsupported file type: {file.filename}")
+                continue
+
+            # Save file
+            file_path = uploads_dir / file.filename
+            content = await file.read()
+            with open(file_path, "wb") as f:
+                f.write(content)
+
+            uploaded_files.append({
+                "filename": file.filename,
+                "size": len(content),
+                "path": str(file_path.relative_to(artifacts_path))
+            })
+
+            logger.info(f"[{run_id}] Uploaded image: {file.filename} ({len(content)} bytes)")
+
+        # Update run context
+        if not run_context.uploaded_images:
+            run_context.uploaded_images = []
+        run_context.uploaded_images.extend(uploaded_files)
+        _run_store.save_run(run_id, run_context)
+
+        return {
+            "run_id": run_id,
+            "uploaded_files": uploaded_files,
+            "uploaded_count": len(uploaded_files),
+            "message": f"Successfully uploaded {len(uploaded_files)} image(s)"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to upload images: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to upload images: {str(e)}")
+
+
+class MetadataRequest(BaseModel):
+    """Metadata for uploaded requirements."""
+    design_links: Optional[list[str]] = Field(default=None, description="Figma/design links")
+    expected_behavior: Optional[str] = Field(default=None, description="Expected behavior notes")
+
+
+@router.post("/{run_id}/metadata", summary="Update run metadata")
+async def update_metadata(
+    run_id: str,
+    metadata: MetadataRequest
+):
+    """Update run metadata with design links and expected behavior."""
+    try:
+        run_context = _run_store.get_run(run_id)
+        if not run_context:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        artifacts_path = Path(run_context.artifacts_path)
+        metadata_file = artifacts_path / "requirement_metadata.json"
+
+        metadata_data = {
+            "design_links": metadata.design_links or [],
+            "expected_behavior": metadata.expected_behavior or "",
+            "updated_at": datetime.utcnow().isoformat() + "Z"
+        }
+
+        with open(metadata_file, "w") as f:
+            json.dump(metadata_data, f, indent=2)
+
+        logger.info(f"[{run_id}] Updated requirement metadata")
+
+        return {
+            "run_id": run_id,
+            "metadata": metadata_data,
+            "message": "Metadata updated successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Failed to update metadata: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update metadata: {str(e)}")
