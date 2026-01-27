@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc
 
 from app.models.run_context import RunContext, AuthConfig, Question, AnswerRequest
+from app.models.ai_config import AIConfig
 from app.database import get_db
 from app.models.run_state import RunState
 from app.services.run_store import RunStore

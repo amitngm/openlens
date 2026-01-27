@@ -1141,89 +1141,12 @@
                 <!-- Tabs -->
                 <div class="tabs">
                     <button class="tab active" onclick="switchTab('config')">⚙️ Configuration</button>
+                    <button class="tab" onclick="switchTab('capabilities')">✨ Capabilities</button>
                     <button class="tab" onclick="switchTab('discovery')">📊 Results</button>
                 </div>
 
                 <!-- Configuration Tab -->
                 <div id="tab-config" class="tab-content active">
-                    <!-- AI Capabilities Info Card -->
-                    <div class="card" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%); border: 2px solid rgba(99, 102, 241, 0.2); margin-bottom: 16px;">
-                        <div class="card-header" style="border-bottom: 1px solid rgba(99, 102, 241, 0.2);">
-                            <h2 class="card-title" style="color: var(--primary);">
-                                <span class="icon">✨</span> AI-Powered Capabilities
-                            </h2>
-                        </div>
-                        <div style="padding: 16px;">
-                            <p style="font-size: 14px; color: var(--text-primary); margin-bottom: 16px; line-height: 1.6;">
-                                <strong>QA Buddy now supports AI-powered test generation!</strong> Enable AI to get smarter, more comprehensive test cases.
-                            </p>
-                            
-                            <div style="display: grid; gap: 12px; margin-bottom: 16px;">
-                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
-                                    <span style="font-size: 18px;">🧠</span>
-                                    <div>
-                                        <strong style="font-size: 13px; color: var(--text-primary);">Contextual Understanding</strong>
-                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">AI understands page purpose and generates context-aware tests</p>
-                                    </div>
-                                </div>
-                                
-                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
-                                    <span style="font-size: 18px;">🎯</span>
-                                    <div>
-                                        <strong style="font-size: 13px; color: var(--text-primary);">Edge Case Detection</strong>
-                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Identifies edge cases like special characters, empty inputs, boundary conditions</p>
-                                    </div>
-                                </div>
-                                
-                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
-                                    <span style="font-size: 18px;">📊</span>
-                                    <div>
-                                        <strong style="font-size: 13px; color: var(--text-primary);">Better Test Coverage</strong>
-                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Generates 2-3x more comprehensive tests than rule-based alone</p>
-                                    </div>
-                                </div>
-                                
-                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
-                                    <span style="font-size: 18px;">🔄</span>
-                                    <div>
-                                        <strong style="font-size: 13px; color: var(--text-primary);">Workflow Understanding</strong>
-                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Creates end-to-end workflows (create → edit → delete sequences)</p>
-                                    </div>
-                                </div>
-                                
-                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
-                                    <span style="font-size: 18px;">💡</span>
-                                    <div>
-                                        <strong style="font-size: 13px; color: var(--text-primary);">Realistic Test Data</strong>
-                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Generates appropriate test data based on field types and context</p>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div style="padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 6px; border-left: 3px solid var(--info); margin-top: 12px;">
-                                <p style="font-size: 12px; color: var(--text-primary); margin: 0; line-height: 1.6;">
-                                    <strong>💡 Recommendation:</strong> Start with <strong>Hybrid mode</strong> + <strong>Ollama</strong> (free, local) for best results. Switch to OpenAI for even better quality if needed.
-                                </p>
-                            </div>
-                            
-                            <details style="margin-top: 12px;">
-                                <summary style="cursor: pointer; font-size: 12px; color: var(--primary); font-weight: 600; padding: 8px; background: rgba(99, 102, 241, 0.1); border-radius: 4px;">
-                                    📖 Learn More About AI Modes
-                                </summary>
-                                <div style="margin-top: 12px; padding: 12px; background: rgba(255,255,255,0.8); border-radius: 6px; font-size: 12px; line-height: 1.6;">
-                                    <p style="margin-bottom: 10px;"><strong>Normal Mode:</strong> Traditional rule-based generation. Fast, predictable, no AI required.</p>
-                                    <p style="margin-bottom: 10px;"><strong>Hybrid Mode:</strong> Combines rule-based tests with AI-generated tests. Best of both worlds - comprehensive coverage with reliability.</p>
-                                    <p style="margin-bottom: 10px;"><strong>AI-Powered Mode:</strong> Pure AI generation. Most comprehensive but requires model setup. Best for complex applications.</p>
-                                    <p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);"><strong>Providers:</strong></p>
-                                    <ul style="margin: 8px 0 0 20px; padding: 0;">
-                                        <li><strong>Ollama:</strong> Free, runs locally. Install from ollama.ai. Good quality, no API costs.</li>
-                                        <li><strong>OpenAI:</strong> Cloud-based, requires API key. Higher quality (GPT-4), faster responses, but costs money per use.</li>
-                                    </ul>
-                                </div>
-                            </details>
-                        </div>
-                    </div>
-                    
                     <div class="card">
                         <div class="card-header">
                             <h2 class="card-title"><span class="icon">⚙️</span> Run Configuration</h2>
@@ -1505,6 +1428,427 @@
                         <div style="display: flex; gap: 8px;">
                             <textarea id="free_text_input" placeholder="What should I test / check / skip?" rows="3" style="flex: 1;"></textarea>
                             <button onclick="submitFreeText()" style="align-self: flex-end;">Send</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Capabilities Tab -->
+                <div id="tab-capabilities" class="tab-content" style="display: none;">
+                    <!-- AI Capabilities Info Card -->
+                    <div class="card" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%); border: 2px solid rgba(99, 102, 241, 0.2); margin-bottom: 16px;">
+                        <div class="card-header" style="border-bottom: 1px solid rgba(99, 102, 241, 0.2);">
+                            <h2 class="card-title" style="color: var(--primary);">
+                                <span class="icon">✨</span> AI-Powered Capabilities
+                            </h2>
+                        </div>
+                        <div style="padding: 16px;">
+                            <p style="font-size: 14px; color: var(--text-primary); margin-bottom: 16px; line-height: 1.6;">
+                                <strong>QA Buddy now supports AI-powered test generation!</strong> Enable AI to get smarter, more comprehensive test cases.
+                            </p>
+                            
+                            <div style="display: grid; gap: 12px; margin-bottom: 16px;">
+                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
+                                    <span style="font-size: 18px;">🧠</span>
+                                    <div>
+                                        <strong style="font-size: 13px; color: var(--text-primary);">Contextual Understanding</strong>
+                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">AI understands page purpose and generates context-aware tests</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
+                                    <span style="font-size: 18px;">🎯</span>
+                                    <div>
+                                        <strong style="font-size: 13px; color: var(--text-primary);">Edge Case Detection</strong>
+                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Identifies edge cases like special characters, empty inputs, boundary conditions</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
+                                    <span style="font-size: 18px;">📊</span>
+                                    <div>
+                                        <strong style="font-size: 13px; color: var(--text-primary);">Better Test Coverage</strong>
+                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Generates 2-3x more comprehensive tests than rule-based alone</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
+                                    <span style="font-size: 18px;">🔄</span>
+                                    <div>
+                                        <strong style="font-size: 13px; color: var(--text-primary);">Workflow Understanding</strong>
+                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Creates end-to-end workflows (create → edit → delete sequences)</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
+                                    <span style="font-size: 18px;">💡</span>
+                                    <div>
+                                        <strong style="font-size: 13px; color: var(--text-primary);">Realistic Test Data</strong>
+                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Generates appropriate test data based on field types and context</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div style="padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 6px; border-left: 3px solid var(--info); margin-top: 12px;">
+                                <p style="font-size: 12px; color: var(--text-primary); margin: 0; line-height: 1.6;">
+                                    <strong>💡 Recommendation:</strong> Start with <strong>Hybrid mode</strong> + <strong>Ollama</strong> (free, local) for best results. Switch to OpenAI for even better quality if needed.
+                                </p>
+                            </div>
+                            
+                            <details style="margin-top: 12px;">
+                                <summary style="cursor: pointer; font-size: 12px; color: var(--primary); font-weight: 600; padding: 8px; background: rgba(99, 102, 241, 0.1); border-radius: 4px;">
+                                    📖 Learn More About AI Modes
+                                </summary>
+                                <div style="margin-top: 12px; padding: 12px; background: rgba(255,255,255,0.8); border-radius: 6px; font-size: 12px; line-height: 1.6;">
+                                    <p style="margin-bottom: 10px;"><strong>Normal Mode:</strong> Traditional rule-based generation. Fast, predictable, no AI required.</p>
+                                    <p style="margin-bottom: 10px;"><strong>Hybrid Mode:</strong> Combines rule-based tests with AI-generated tests. Best of both worlds - comprehensive coverage with reliability.</p>
+                                    <p style="margin-bottom: 10px;"><strong>AI-Powered Mode:</strong> Pure AI generation. Most comprehensive but requires model setup. Best for complex applications.</p>
+                                    <p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);"><strong>Providers:</strong></p>
+                                    <ul style="margin: 8px 0 0 20px; padding: 0;">
+                                        <li><strong>Ollama:</strong> Free, runs locally. Install from ollama.ai. Good quality, no API costs.</li>
+                                        <li><strong>OpenAI:</strong> Cloud-based, requires API key. Higher quality (GPT-4), faster responses, but costs money per use.</li>
+                                    </ul>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-bottom: 16px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%); border: 2px solid rgba(99, 102, 241, 0.2);">
+                        <div class="card-header">
+                            <h2 class="card-title" style="color: var(--primary);">
+                                <span class="icon">🚀</span> What Can QA Buddy Do?
+                            </h2>
+                        </div>
+                        <div style="padding: 20px;">
+                            <p style="font-size: 15px; color: var(--text-primary); margin-bottom: 20px; line-height: 1.7;">
+                                <strong>QA Buddy</strong> is an intelligent, AI-powered QA automation platform that automatically discovers your application, generates comprehensive test cases, and executes them with detailed reporting. Here's everything you can do:
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Core Features -->
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">🔍</span> 1. Intelligent Discovery</h2>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div style="display: grid; gap: 16px;">
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--primary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🌐 Automatic Page Discovery</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Automatically crawls your application, discovers all pages, navigation menus, and routes. Handles complex SPAs, dynamic content, and multi-level navigation.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--success); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">📋 Feature Detection</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Automatically detects tables, forms, search boxes, filters, pagination, buttons, modals, dropdowns, and all interactive elements on each page.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--info); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🔐 Smart Authentication</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Detects login pages, handles Keycloak and other authentication systems, validates sessions, and manages context/tenant selection.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--warning); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">📊 Real-Time Progress</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Watch discovery happen in real-time. See pages being discovered, features detected, and test cases generated as they happen.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Test Generation -->
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">✅</span> 2. Comprehensive Test Generation</h2>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div style="display: grid; gap: 16px;">
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--primary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🎯 Rule-Based Generation</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Generates test cases based on validation schemas: navigation tests, search tests, filter tests, pagination tests, form submission tests, CRUD operation tests.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--secondary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🤖 AI-Powered Generation (NEW)</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Uses AI models (Ollama or OpenAI) to generate intelligent test cases with edge cases, realistic test data, workflow understanding, and 2-3x more comprehensive coverage.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--success); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🔄 Hybrid Mode</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Combines rule-based and AI-generated tests for maximum coverage. Best of both worlds - reliability + intelligence.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--info); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">📝 Test Case Types</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Generates: Navigation tests, Search tests, Filter tests, Pagination tests, Form validation tests, CRUD tests, Table interaction tests, Error handling tests, Edge case tests.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Test Execution -->
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">🧪</span> 3. Test Execution & Reporting</h2>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div style="display: grid; gap: 16px;">
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--primary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">▶️ Execute Selected Tests</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Select specific test cases or run all. Execute in headless or UI mode. Tests run with proper authentication and context.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--success); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">📊 Allure-Style Reports</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Beautiful, detailed HTML reports with step-by-step execution flow, screenshots, network logs, UI observations, and failure reasons.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--info); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">📸 Evidence Collection</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Captures screenshots before/after each step, network API logs, UI observations, and detailed error information for debugging.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--warning); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">⏱️ Real-Time Status</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Monitor test execution in real-time. See current test, current step, progress percentage, and recent events as tests run.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--danger); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🔍 Failure Analysis</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Detailed failure reasons from both UI observations (element not found, validation issues) and network API errors (4xx/5xx responses).
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rich Input Support -->
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">📎</span> 4. Rich Input Support</h2>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div style="display: grid; gap: 16px;">
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--primary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🖼️ Image Analysis</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Upload screenshots/mockups. AI analyzes images to detect UI patterns, forms, tables, search boxes, filters, and workflows to guide discovery.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--success); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">📄 Document Analysis</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Upload PRD documents, requirements files (PDF, DOCX, TXT, MD). System extracts features, workflows, and acceptance criteria to guide test generation.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--info); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🎨 Design Links</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Provide Figma or design tool links. System can reference these for understanding expected UI behavior and generating appropriate tests.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Interactive Features -->
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">💬</span> 5. Interactive Features</h2>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div style="display: grid; gap: 16px;">
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--primary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">❓ Smart Questions</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        System asks intelligent questions when needed: login credentials, context/tenant selection, test intent (smoke, CRUD, module-based, exploratory).
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--success); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">💬 Free Text Commands</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Ask QA Buddy questions in natural language: "Test the search functionality", "Check pagination", "Verify all forms work", etc.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--info); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🎯 Test Selection</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Select individual test cases or scenarios. Use "Select All" / "Deselect All". Expand/collapse test cases to see details. Run only what you need.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- History & Management -->
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">📜</span> 6. History & Management</h2>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div style="display: grid; gap: 16px;">
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--primary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">📊 Discovery History</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        View all past discovery runs with details: pages discovered, test cases generated, duration, status. Delete old runs to clean up.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--success); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🧪 Test Execution History</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Track all test execution runs: passed/failed counts, duration, environment, execution name. Access Allure reports for each run.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--info); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🗑️ Cleanup</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Delete discovery runs and test execution runs. Clean up old artifacts and free up disk space.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Advanced Features -->
+                    <div class="card" style="margin-bottom: 16px;">
+                        <div class="card-header">
+                            <h2 class="card-title"><span class="icon">⚙️</span> 7. Advanced Features</h2>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div style="display: grid; gap: 16px;">
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--primary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🔧 Configurable Discovery</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Control discovery behavior: max pages, max forms per page, max table rows, max discovery time. Fine-tune for your application size.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--success); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🎭 Headless/UI Mode</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Run discovery and tests in headless mode (fast, no UI) or UI mode (see browser, debug visually). Choose based on your needs.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--info); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🌍 Multi-Environment</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Test across different environments: development, staging, production. Each run is tagged with environment for tracking.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--warning); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">📡 API Integration</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Full REST API for programmatic access. Start runs, check status, answer questions, get reports - all via API for CI/CD integration.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--secondary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary); font-size: 14px;">🔍 Debug Mode</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.6;">
+                                        Enable debug mode for detailed tracing: screenshots at each step, detailed logs, step-by-step execution traces for troubleshooting.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Start Guide -->
+                    <div class="card" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.1) 100%); border: 2px solid rgba(16, 185, 129, 0.2);">
+                        <div class="card-header" style="border-bottom: 1px solid rgba(16, 185, 129, 0.2);">
+                            <h2 class="card-title" style="color: var(--success);">
+                                <span class="icon">🚀</span> Quick Start Guide
+                            </h2>
+                        </div>
+                        <div style="padding: 20px;">
+                            <div style="display: grid; gap: 12px; font-size: 13px; line-height: 1.8;">
+                                <div style="display: flex; align-items: start; gap: 12px;">
+                                    <span style="background: var(--success); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0;">1</span>
+                                    <div>
+                                        <strong style="color: var(--text-primary);">Enter Base URL</strong>
+                                        <p style="color: var(--text-secondary); margin: 4px 0 0 0;">Enter your application's base URL (e.g., https://app.example.com)</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 12px;">
+                                    <span style="background: var(--success); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0;">2</span>
+                                    <div>
+                                        <strong style="color: var(--text-primary);">(Optional) Upload Requirements</strong>
+                                        <p style="color: var(--text-secondary); margin: 4px 0 0 0;">Upload PRD documents, screenshots, or design links to guide discovery</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 12px;">
+                                    <span style="background: var(--success); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0;">3</span>
+                                    <div>
+                                        <strong style="color: var(--text-primary);">(Optional) Enable AI</strong>
+                                        <p style="color: var(--text-secondary); margin: 4px 0 0 0;">Enable AI-powered test generation for smarter, more comprehensive tests</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 12px;">
+                                    <span style="background: var(--success); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0;">4</span>
+                                    <div>
+                                        <strong style="color: var(--text-primary);">Start Discovery</strong>
+                                        <p style="color: var(--text-secondary); margin: 4px 0 0 0;">Click "Start Discovery Run". Answer any questions (login, context selection)</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 12px;">
+                                    <span style="background: var(--success); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0;">5</span>
+                                    <div>
+                                        <strong style="color: var(--text-primary);">View Test Cases</strong>
+                                        <p style="color: var(--text-secondary); margin: 4px 0 0 0;">Watch test cases being generated in real-time. Select which ones to execute</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 12px;">
+                                    <span style="background: var(--success); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0;">6</span>
+                                    <div>
+                                        <strong style="color: var(--text-primary);">Execute Tests</strong>
+                                        <p style="color: var(--text-secondary); margin: 4px 0 0 0;">Select test cases and click "Run Selected Tests". Provide execution details and watch tests run</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 12px;">
+                                    <span style="background: var(--success); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0;">7</span>
+                                    <div>
+                                        <strong style="color: var(--text-primary);">View Reports</strong>
+                                        <p style="color: var(--text-secondary); margin: 4px 0 0 0;">Access Allure-style reports with detailed execution flow, screenshots, and failure analysis</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
