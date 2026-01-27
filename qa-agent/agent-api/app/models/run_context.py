@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.models.run_state import RunState
+from app.models.ai_config import AIConfig
 
 
 class AuthConfig(BaseModel):
@@ -96,6 +97,12 @@ class RunContext(BaseModel):
     uploaded_documents: Optional[list] = Field(None, description="Pre-uploaded document analysis results")
     test_phase: str = Field(default="phase1_get_operations", description="Test phase: phase1_get_operations or phase2_full_testing")
 
+    # AI configuration (optional)
+    ai_config: Optional[AIConfig] = Field(
+        default=None,
+        description="AI/LLM configuration for intelligent test generation"
+    )
+    
     # Discovery configuration overrides (optional)
     max_pages: Optional[int] = Field(None, description="Maximum pages to discover (default: 2000)")
     max_forms_per_page: Optional[int] = Field(None, description="Maximum forms to process per page (default: 50)")

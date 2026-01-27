@@ -149,22 +149,149 @@ class TestDataGenerator:
         }
 
         return data_map.get(rule.assertion_type, {})
+    
+    def _convert_ai_to_test_cases(
+        self,
+        ai_test_cases: List[Dict[str, Any]],
+        page_info: Dict[str, Any],
+        run_id: str
+    ) -> List[TestCase]:
+        """Convert AI-generated test cases to TestCase objects."""
+        converted = []
+        for ai_tc in ai_test_cases:
+            try:
+                # Convert AI test case format to TestCase
+                test_id = ai_tc.get("id", f"TC_AI_{len(converted)+1:03d}")
+                test_name = ai_tc.get("name", "AI Generated Test")
+                
+                # Convert steps
+                steps = []
+                for step in ai_tc.get("steps", []):
+                    if isinstance(step, dict):
+                        action = step.get("action", "execute")
+                        target = step.get("target", "")
+                        value = step.get("value", "")
+                        description = step.get("description", "")
+                        
+                        # Create appropriate step based on action
+                        if action == "navigate":
+                            steps.append(create_navigation_step(target or page_info.get("url", "")))
+                        elif action == "fill" or action == "enter":
+                            steps.append(create_fill_step(target, value))
+                        elif action == "click":
+                            steps.append(create_click_step(target))
+                        elif action == "wait":
+                            wait_time = int(value) if value.isdigit() else 1000
+                            steps.append(create_wait_step(wait_time))
+                        elif action == "verify" or action == "assert":
+                            steps.append(create_assertion_step(target, description))
+                        else:
+                            # Generic step
+                            steps.append(TestStep(
+                                action=action,
+                                selector=target,
+                                description=description or f"{action} {target}"
+                            ))
+                    elif isinstance(step, str):
+                        # String step - create generic step
+                        steps.append(TestStep(
+                            action="execute",
+                            description=step
+                        ))
+                
+                # Create TestCase
+                test_case = TestCase(
+                    id=test_id,
+                    name=test_name,
+                    description=ai_tc.get("description", ""),
+                    test_type=ai_tc.get("type", "ui"),
+                    priority=ai_tc.get("priority", "medium"),
+                    steps=steps,
+                    expected_result=ai_tc.get("expected_result", "")
+                )
+                converted.append(test_case)
+            
+            except Exception as e:
+                logger.warning(f"[{run_id}] Failed to convert AI test case: {e}")
+                continue
+        
+        return converted
+    
+    async def _generate_ai_test_cases(
+        self,
+        page_info: Dict[str, Any],
+        run_id: str,
+        ai_mode: str,
+        rule_based_test_cases: List[TestCase]
+    ) -> List[TestCase]:
+        """Async helper to generate AI test cases."""
+        ai_test_cases = await self.ai_generator.generate_from_discovery(
+            discovery_data={},  # Can be enhanced to pass full discovery
+            page_info=page_info
+        )
+        
+        if ai_mode == "ai":
+            # AI-only mode: return only AI-generated test cases
+            logger.info(f"[{run_id}] AI mode: Using {len(ai_test_cases)} AI-generated test cases")
+            return self._convert_ai_to_test_cases(ai_test_cases, page_info, run_id)
+        else:
+            # Hybrid mode: merge rule-based and AI-generated
+            ai_test_cases_converted = self._convert_ai_to_test_cases(ai_test_cases, page_info, run_id)
+            merged = self._merge_test_cases(rule_based_test_cases, ai_test_cases_converted, run_id)
+            logger.info(f"[{run_id}] Hybrid mode: Merged {len(rule_based_test_cases)} rule-based + {len(ai_test_cases_converted)} AI = {len(merged)} total")
+            return merged
+    
+    def _merge_test_cases(
+        self,
+        rule_based: List[TestCase],
+        ai_generated: List[TestCase],
+        run_id: str
+    ) -> List[TestCase]:
+        """Merge rule-based and AI-generated test cases, removing duplicates."""
+        merged = list(rule_based)  # Start with rule-based
+        existing_ids = {tc.id for tc in rule_based}
+        existing_names = {tc.name.lower() for tc in rule_based}
+        
+        for ai_tc in ai_generated:
+            # Skip if duplicate ID or very similar name
+            if ai_tc.id in existing_ids:
+                logger.debug(f"[{run_id}] Skipping duplicate AI test case ID: {ai_tc.id}")
+                continue
+            
+            if ai_tc.name.lower() in existing_names:
+                logger.debug(f"[{run_id}] Skipping duplicate AI test case name: {ai_tc.name}")
+                continue
+            
+            # Add AI test case
+            merged.append(ai_tc)
+            existing_ids.add(ai_tc.id)
+            existing_names.add(ai_tc.name.lower())
+        
+        return merged
 
 
 class EnhancedTestCaseGenerator:
     """Generate comprehensive, executable test cases using validation schemas."""
 
-    def __init__(self):
+    def __init__(self, ai_generator=None):
+        """
+        Initialize test case generator.
+        
+        Args:
+            ai_generator: Optional AI test case generator for hybrid mode
+        """
         self.schema_registry = ValidationSchemaRegistry()
         self.selector_detector = SmartSelectorDetector()
         self.data_generator = TestDataGenerator()
+        self.ai_generator = ai_generator
         logger.info("EnhancedTestCaseGenerator initialized with validation schemas")
 
     def generate_test_cases_for_page(
         self,
         page_info: Dict[str, Any],
         run_id: str,
-        coverage_mode: str = "comprehensive"  # "comprehensive", "essential", "minimal"
+        coverage_mode: str = "comprehensive",  # "comprehensive", "essential", "minimal"
+        ai_mode: str = "normal"  # "normal", "ai", "hybrid"
     ) -> List[TestCase]:
         """Generate comprehensive test cases with full coverage for a page.
 
@@ -214,6 +341,56 @@ class EnhancedTestCaseGenerator:
         logger.info(
             f"[{run_id}] Generated {len(test_cases)} test cases for page {page_info.get('url', '')}"
         )
+
+        # AI enhancement in hybrid or AI-only mode
+        # Note: AI generation is async, but this method is sync for backward compatibility
+        # We handle async AI generation by running it in a new event loop if needed
+        if ai_mode in ["ai", "hybrid"] and self.ai_generator:
+            try:
+                import asyncio
+                import nest_asyncio
+                
+                # Try to use nest_asyncio to allow nested event loops
+                try:
+                    nest_asyncio.apply()
+                except (ImportError, AttributeError):
+                    # nest_asyncio not available, will handle differently
+                    pass
+                
+                # Try to get or create event loop
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # Running in async context - create task
+                        import concurrent.futures
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(
+                                lambda: asyncio.run(
+                                    self._generate_ai_test_cases(page_info, run_id, ai_mode, test_cases)
+                                )
+                            )
+                            ai_result = future.result(timeout=120)  # 2 minute timeout
+                            return ai_result
+                    else:
+                        # Loop exists but not running
+                        ai_result = loop.run_until_complete(
+                            self._generate_ai_test_cases(page_info, run_id, ai_mode, test_cases)
+                        )
+                        return ai_result
+                except RuntimeError:
+                    # No event loop, create new one
+                    ai_result = asyncio.run(
+                        self._generate_ai_test_cases(page_info, run_id, ai_mode, test_cases)
+                    )
+                    return ai_result
+            
+            except Exception as e:
+                logger.warning(f"[{run_id}] AI generation failed, falling back to rule-based: {e}")
+                # Fallback to rule-based on AI failure
+                if ai_mode == "ai":
+                    logger.error(f"[{run_id}] AI-only mode failed, returning empty list")
+                    return []
+                # In hybrid mode, continue with rule-based only
 
         return test_cases
 

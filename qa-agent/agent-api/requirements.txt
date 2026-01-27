@@ -24,3 +24,8 @@ alembic>=1.13.0
 
 # Type hints
 typing_extensions>=4.15.0
+
+# AI/LLM support (optional)
+aiohttp>=3.9.0  # For Ollama HTTP API
+openai>=1.0.0  # For OpenAI API (optional, install only if using OpenAI)
+nest-asyncio>=1.6.0  # For nested event loops (helps with async AI in sync contexts)

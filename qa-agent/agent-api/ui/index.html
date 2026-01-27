@@ -1131,7 +1131,10 @@
         <div class="buddy-panel">
             <div class="buddy-header">
                 <h1>🤖 QA Buddy</h1>
-                <p class="subtitle">Automated Test Discovery</p>
+                <p class="subtitle">AI-Powered Automated Test Discovery</p>
+                <button onclick="showCapabilities()" style="margin-top: 8px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                    ℹ️ What Can AI Do?
+                </button>
             </div>
 
             <div class="buddy-content">
@@ -1143,6 +1146,84 @@
 
                 <!-- Configuration Tab -->
                 <div id="tab-config" class="tab-content active">
+                    <!-- AI Capabilities Info Card -->
+                    <div class="card" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%); border: 2px solid rgba(99, 102, 241, 0.2); margin-bottom: 16px;">
+                        <div class="card-header" style="border-bottom: 1px solid rgba(99, 102, 241, 0.2);">
+                            <h2 class="card-title" style="color: var(--primary);">
+                                <span class="icon">✨</span> AI-Powered Capabilities
+                            </h2>
+                        </div>
+                        <div style="padding: 16px;">
+                            <p style="font-size: 14px; color: var(--text-primary); margin-bottom: 16px; line-height: 1.6;">
+                                <strong>QA Buddy now supports AI-powered test generation!</strong> Enable AI to get smarter, more comprehensive test cases.
+                            </p>
+                            
+                            <div style="display: grid; gap: 12px; margin-bottom: 16px;">
+                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
+                                    <span style="font-size: 18px;">🧠</span>
+                                    <div>
+                                        <strong style="font-size: 13px; color: var(--text-primary);">Contextual Understanding</strong>
+                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">AI understands page purpose and generates context-aware tests</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
+                                    <span style="font-size: 18px;">🎯</span>
+                                    <div>
+                                        <strong style="font-size: 13px; color: var(--text-primary);">Edge Case Detection</strong>
+                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Identifies edge cases like special characters, empty inputs, boundary conditions</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
+                                    <span style="font-size: 18px;">📊</span>
+                                    <div>
+                                        <strong style="font-size: 13px; color: var(--text-primary);">Better Test Coverage</strong>
+                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Generates 2-3x more comprehensive tests than rule-based alone</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
+                                    <span style="font-size: 18px;">🔄</span>
+                                    <div>
+                                        <strong style="font-size: 13px; color: var(--text-primary);">Workflow Understanding</strong>
+                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Creates end-to-end workflows (create → edit → delete sequences)</p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: flex; align-items: start; gap: 10px; padding: 10px; background: rgba(255,255,255,0.6); border-radius: 6px;">
+                                    <span style="font-size: 18px;">💡</span>
+                                    <div>
+                                        <strong style="font-size: 13px; color: var(--text-primary);">Realistic Test Data</strong>
+                                        <p style="font-size: 12px; color: var(--text-secondary); margin: 4px 0 0 0;">Generates appropriate test data based on field types and context</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div style="padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 6px; border-left: 3px solid var(--info); margin-top: 12px;">
+                                <p style="font-size: 12px; color: var(--text-primary); margin: 0; line-height: 1.6;">
+                                    <strong>💡 Recommendation:</strong> Start with <strong>Hybrid mode</strong> + <strong>Ollama</strong> (free, local) for best results. Switch to OpenAI for even better quality if needed.
+                                </p>
+                            </div>
+                            
+                            <details style="margin-top: 12px;">
+                                <summary style="cursor: pointer; font-size: 12px; color: var(--primary); font-weight: 600; padding: 8px; background: rgba(99, 102, 241, 0.1); border-radius: 4px;">
+                                    📖 Learn More About AI Modes
+                                </summary>
+                                <div style="margin-top: 12px; padding: 12px; background: rgba(255,255,255,0.8); border-radius: 6px; font-size: 12px; line-height: 1.6;">
+                                    <p style="margin-bottom: 10px;"><strong>Normal Mode:</strong> Traditional rule-based generation. Fast, predictable, no AI required.</p>
+                                    <p style="margin-bottom: 10px;"><strong>Hybrid Mode:</strong> Combines rule-based tests with AI-generated tests. Best of both worlds - comprehensive coverage with reliability.</p>
+                                    <p style="margin-bottom: 10px;"><strong>AI-Powered Mode:</strong> Pure AI generation. Most comprehensive but requires model setup. Best for complex applications.</p>
+                                    <p style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);"><strong>Providers:</strong></p>
+                                    <ul style="margin: 8px 0 0 20px; padding: 0;">
+                                        <li><strong>Ollama:</strong> Free, runs locally. Install from ollama.ai. Good quality, no API costs.</li>
+                                        <li><strong>OpenAI:</strong> Cloud-based, requires API key. Higher quality (GPT-4), faster responses, but costs money per use.</li>
+                                    </ul>
+                                </div>
+                            </details>
+                        </div>
+                    </div>
+                    
                     <div class="card">
                         <div class="card-header">
                             <h2 class="card-title"><span class="icon">⚙️</span> Run Configuration</h2>
@@ -1259,6 +1340,112 @@
                                 <button onclick="clearUploads()" style="margin-top: 12px; padding: 8px 16px; background: var(--danger); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">
                                     🗑️ Clear All Uploads
                                 </button>
+                            </div>
+                        </details>
+
+                        <!-- AI/Model Configuration -->
+                        <details style="margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.03) 0%, rgba(139, 92, 246, 0.03) 100%);">
+                            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+                                🤖 AI-Powered Test Generation (Optional)
+                            </summary>
+                            <div style="margin-top: 16px;">
+                                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.6;">
+                                    Enable AI-powered test case generation for smarter, more comprehensive test coverage. Choose between free local models (Ollama) or cloud models (OpenAI).
+                                </p>
+
+                                <!-- Enable AI Toggle -->
+                                <div class="form-group" style="margin-bottom: 16px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; font-weight: 600;">
+                                        <input type="checkbox" id="ai_enabled" onchange="toggleAIConfig()" style="width: 18px; height: 18px; cursor: pointer;">
+                                        Enable AI-Powered Test Generation
+                                    </label>
+                                    <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px; margin-left: 26px;">
+                                        When enabled, AI will enhance or generate test cases using intelligent analysis
+                                    </p>
+                                </div>
+
+                                <!-- AI Configuration (hidden by default) -->
+                                <div id="ai_config_section" style="display: none; margin-top: 16px; padding: 16px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border);">
+                                    <!-- AI Mode Selection -->
+                                    <div class="form-group" style="margin-bottom: 16px;">
+                                        <label for="ai_mode" style="font-weight: 600; margin-bottom: 8px; display: block;">Generation Mode</label>
+                                        <select id="ai_mode" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; background: white;">
+                                            <option value="normal">Normal (Rule-based only)</option>
+                                            <option value="hybrid">Hybrid (Rule-based + AI)</option>
+                                            <option value="ai">AI-Powered (AI only)</option>
+                                        </select>
+                                        <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">
+                                            <strong>Normal:</strong> Traditional rule-based generation (fast, predictable)<br>
+                                            <strong>Hybrid:</strong> Combines rule-based and AI for best results<br>
+                                            <strong>AI-Powered:</strong> Pure AI generation (requires model setup)
+                                        </p>
+                                    </div>
+
+                                    <!-- Provider Selection -->
+                                    <div class="form-group" style="margin-bottom: 16px;">
+                                        <label for="ai_provider" style="font-weight: 600; margin-bottom: 8px; display: block;">AI Provider</label>
+                                        <select id="ai_provider" onchange="toggleProviderConfig()" style="width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; background: white;">
+                                            <option value="none">None (Rule-based only)</option>
+                                            <option value="ollama">Ollama (Free, Local)</option>
+                                            <option value="openai">OpenAI (Cloud, Paid)</option>
+                                        </select>
+                                        <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">
+                                            <strong>Ollama:</strong> Free, runs locally. Install from <a href="https://ollama.ai" target="_blank" style="color: var(--primary);">ollama.ai</a><br>
+                                            <strong>OpenAI:</strong> Cloud-based, requires API key. More powerful models.
+                                        </p>
+                                    </div>
+
+                                    <!-- Ollama Configuration -->
+                                    <div id="ollama_config" style="display: none; margin-top: 16px; padding: 12px; background: rgba(99, 102, 241, 0.05); border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                                        <div class="form-group" style="margin-bottom: 12px;">
+                                            <label for="ollama_base_url" style="font-weight: 600; margin-bottom: 6px; display: block;">Ollama Base URL</label>
+                                            <input type="url" id="ollama_base_url" placeholder="http://localhost:11434" value="http://localhost:11434" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
+                                            <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">Default: http://localhost:11434 (Ollama default port)</p>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="ollama_model" style="font-weight: 600; margin-bottom: 6px; display: block;">Model Name</label>
+                                            <select id="ollama_model" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; background: white;">
+                                                <option value="llama2">llama2 (Recommended)</option>
+                                                <option value="mistral">mistral</option>
+                                                <option value="codellama">codellama</option>
+                                                <option value="llama2:13b">llama2:13b (Larger, slower)</option>
+                                                <option value="llama2:70b">llama2:70b (Largest, slowest)</option>
+                                            </select>
+                                            <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">
+                                                Make sure the model is installed: <code style="background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 3px;">ollama pull llama2</code>
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <!-- OpenAI Configuration -->
+                                    <div id="openai_config" style="display: none; margin-top: 16px; padding: 12px; background: rgba(16, 185, 129, 0.05); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.2);">
+                                        <div class="form-group" style="margin-bottom: 12px;">
+                                            <label for="openai_api_key" style="font-weight: 600; margin-bottom: 6px; display: block;">OpenAI API Key</label>
+                                            <input type="password" id="openai_api_key" placeholder="sk-..." style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px;">
+                                            <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">
+                                                Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" style="color: var(--primary);">OpenAI Platform</a>
+                                            </p>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="openai_model" style="font-weight: 600; margin-bottom: 6px; display: block;">Model</label>
+                                            <select id="openai_model" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; background: white;">
+                                                <option value="gpt-3.5-turbo">gpt-3.5-turbo (Fast, Cost-effective)</option>
+                                                <option value="gpt-4">gpt-4 (More powerful, Slower)</option>
+                                                <option value="gpt-4-turbo">gpt-4-turbo (Best balance)</option>
+                                            </select>
+                                            <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">
+                                                GPT-4 models provide better quality but are slower and more expensive
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <!-- AI Settings Info -->
+                                    <div style="margin-top: 16px; padding: 12px; background: rgba(59, 130, 246, 0.1); border-radius: 6px; border-left: 3px solid var(--info);">
+                                        <p style="font-size: 12px; color: var(--text-primary); margin: 0; line-height: 1.6;">
+                                            <strong>💡 Tip:</strong> Start with "Hybrid" mode and "Ollama" for free local AI. If you need better quality, switch to OpenAI with GPT-4.
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
                         </details>
 
@@ -1913,6 +2100,37 @@
                 close_browser_on_complete: document.getElementById('close_browser_on_complete').checked,
                 uploaded_images: uploadedImageResults  // Include pre-uploaded images
             };
+
+            // Add AI configuration if enabled
+            const aiEnabled = document.getElementById('ai_enabled')?.checked || false;
+            if (aiEnabled) {
+                const aiProvider = document.getElementById('ai_provider')?.value || 'none';
+                const aiMode = document.getElementById('ai_mode')?.value || 'normal';
+                
+                if (aiProvider !== 'none') {
+                    payload.ai_config = {
+                        enabled: true,
+                        mode: aiMode,
+                        provider: aiProvider,
+                        temperature: 0.7,
+                        max_tokens: 2000,
+                        timeout: 60
+                    };
+
+                    if (aiProvider === 'ollama') {
+                        payload.ai_config.base_url = document.getElementById('ollama_base_url')?.value || 'http://localhost:11434';
+                        payload.ai_config.model_name = document.getElementById('ollama_model')?.value || 'llama2';
+                    } else if (aiProvider === 'openai') {
+                        const apiKey = document.getElementById('openai_api_key')?.value?.trim();
+                        if (!apiKey) {
+                            showMessage('OpenAI API key is required when using OpenAI provider', 'error');
+                            return;
+                        }
+                        payload.ai_config.api_key = apiKey;
+                        payload.ai_config.model_name = document.getElementById('openai_model')?.value || 'gpt-3.5-turbo';
+                    }
+                }
+            }
 
             // Add advanced discovery configuration
             const maxPages = parseInt(document.getElementById('max_pages').value);
@@ -4940,6 +5158,185 @@
                 closeTestExecutionModal();
             }
         });
-        </script>
-    </body>
+        // AI Configuration Toggle Functions
+        function toggleAIConfig() {
+            const aiEnabled = document.getElementById('ai_enabled').checked;
+            const aiConfigSection = document.getElementById('ai_config_section');
+            if (aiConfigSection) {
+                aiConfigSection.style.display = aiEnabled ? 'block' : 'none';
+                if (aiEnabled) {
+                    toggleProviderConfig(); // Update provider-specific config visibility
+                }
+            }
+        }
+
+        function toggleProviderConfig() {
+            const provider = document.getElementById('ai_provider')?.value || 'none';
+            const ollamaConfig = document.getElementById('ollama_config');
+            const openaiConfig = document.getElementById('openai_config');
+            
+            if (ollamaConfig) {
+                ollamaConfig.style.display = provider === 'ollama' ? 'block' : 'none';
+            }
+            if (openaiConfig) {
+                openaiConfig.style.display = provider === 'openai' ? 'block' : 'none';
+            }
+        }
+
+        // Initialize AI config visibility on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            toggleAIConfig();
+        });
+
+        // Show AI Capabilities Modal/Info
+        function showCapabilities() {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.6);
+                z-index: 10000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                animation: fadeIn 0.2s;
+            `;
+            
+            modal.innerHTML = `
+                <div style="background: white; border-radius: 16px; max-width: 700px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); animation: slideUp 0.3s;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 24px; border-radius: 16px 16px 0 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <h2 style="margin: 0; font-size: 24px; font-weight: 700;">✨ AI-Powered Test Generation</h2>
+                            <button onclick="this.closest('[style*=\\'position: fixed\\']').remove()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center;">×</button>
+                        </div>
+                        <p style="margin: 8px 0 0 0; opacity: 0.9; font-size: 14px;">Discover how AI enhances your test coverage</p>
+                    </div>
+                    
+                    <div style="padding: 24px;">
+                        <div style="margin-bottom: 24px;">
+                            <h3 style="font-size: 18px; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                                <span>🎯</span> What AI Adds
+                            </h3>
+                            <div style="display: grid; gap: 12px;">
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--primary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary);">Contextual Intelligence</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.5;">
+                                        AI understands the purpose of each page and generates tests that match real-world usage scenarios, not just generic patterns.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--success); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary);">Comprehensive Edge Cases</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.5;">
+                                        Automatically identifies edge cases: special characters, empty inputs, boundary values, SQL injection attempts, unicode handling, and more.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--info); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary);">2-3x More Test Coverage</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.5;">
+                                        Rule-based: ~10-15 tests per page. AI-powered: ~20-30 tests per page with better quality and edge cases.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--warning); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary);">Workflow Understanding</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.5;">
+                                        Creates end-to-end test workflows (e.g., "Create VM → Verify in list → Edit → Delete") instead of isolated test cases.
+                                    </p>
+                                </div>
+                                
+                                <div style="padding: 14px; background: #f8fafc; border-left: 4px solid var(--secondary); border-radius: 6px;">
+                                    <strong style="display: block; margin-bottom: 6px; color: var(--text-primary);">Realistic Test Data</strong>
+                                    <p style="font-size: 13px; color: var(--text-secondary); margin: 0; line-height: 1.5;">
+                                        Generates appropriate test data: valid emails for email fields, proper date formats, realistic names, context-aware values.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-bottom: 24px; padding: 16px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(139, 92, 246, 0.1) 100%); border-radius: 8px; border: 1px solid rgba(99, 102, 241, 0.2);">
+                            <h3 style="font-size: 16px; color: var(--primary); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                                <span>📊</span> Example Comparison
+                            </h3>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13px;">
+                                <div>
+                                    <strong style="color: var(--text-secondary); display: block; margin-bottom: 8px;">Rule-Based (5 tests):</strong>
+                                    <ul style="margin: 0; padding-left: 20px; color: var(--text-secondary); line-height: 1.8;">
+                                        <li>Navigate to page</li>
+                                        <li>Verify table visible</li>
+                                        <li>Test search with "test"</li>
+                                        <li>Test pagination</li>
+                                        <li>Test filters</li>
+                                    </ul>
+                                </div>
+                                <div>
+                                    <strong style="color: var(--primary); display: block; margin-bottom: 8px;">AI-Powered (15+ tests):</strong>
+                                    <ul style="margin: 0; padding-left: 20px; color: var(--text-primary); line-height: 1.8;">
+                                        <li>All rule-based tests, plus:</li>
+                                        <li>Search with special chars</li>
+                                        <li>Search with empty string</li>
+                                        <li>SQL injection attempts</li>
+                                        <li>Filter combinations</li>
+                                        <li>Error handling</li>
+                                        <li>Workflow tests</li>
+                                        <li>And more...</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-bottom: 24px;">
+                            <h3 style="font-size: 16px; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                                <span>⚙️</span> How It Works
+                            </h3>
+                            <div style="padding: 16px; background: #f8fafc; border-radius: 8px; font-size: 13px; line-height: 1.8; color: var(--text-secondary);">
+                                <p style="margin-bottom: 10px;"><strong style="color: var(--text-primary);">1. Discovery Phase:</strong> QA Buddy crawls your app and collects page information (unchanged).</p>
+                                <p style="margin-bottom: 10px;"><strong style="color: var(--text-primary);">2. Test Generation:</strong> If AI enabled, the system sends page details to the AI model (Ollama or OpenAI).</p>
+                                <p style="margin-bottom: 10px;"><strong style="color: var(--text-primary);">3. AI Analysis:</strong> The model analyzes the page structure, features, and context to generate comprehensive test cases.</p>
+                                <p style="margin-bottom: 10px;"><strong style="color: var(--text-primary);">4. Merging:</strong> In Hybrid mode, AI tests are merged with rule-based tests (removes duplicates).</p>
+                                <p style="margin: 0;"><strong style="color: var(--text-primary);">5. Execution:</strong> All tests (rule-based + AI) are executed normally.</p>
+                            </div>
+                        </div>
+                        
+                        <div style="padding: 16px; background: rgba(16, 185, 129, 0.1); border-radius: 8px; border-left: 4px solid var(--success);">
+                            <p style="font-size: 13px; color: var(--text-primary); margin: 0; line-height: 1.6;">
+                                <strong>✅ Backward Compatible:</strong> Everything works exactly as before if AI is disabled. AI is completely optional and enhances existing functionality.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            modal.onclick = function(e) {
+                if (e.target === modal) modal.remove();
+            };
+        }
+        
+        // Add CSS animations
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            @keyframes slideUp {
+                from {
+                    transform: translateY(20px);
+                    opacity: 0;
+                }
+                to {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
 </html>

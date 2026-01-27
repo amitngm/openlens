@@ -53,6 +53,7 @@ class StartRunRequest(BaseModel):
     discovery_debug: Optional[bool] = Field(False, description="Enable discovery debug trace + screenshots")
     uploaded_images: Optional[list] = Field(None, description="Pre-uploaded image analysis results to guide discovery")
     uploaded_documents: Optional[list] = Field(None, description="Pre-uploaded document analysis results (PRD, requirements)")
+    ai_config: Optional[AIConfig] = Field(None, description="AI/LLM configuration for intelligent test generation (optional)")
     test_phase: Optional[str] = Field("phase1_get_operations", description="Test phase: phase1_get_operations or phase2_full_testing")
     close_browser_on_complete: Optional[bool] = Field(False, description="Close browser automatically when tests complete")
 
@@ -961,7 +962,8 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
             max_forms_per_page=request.max_forms_per_page,
             max_table_rows_to_click=request.max_table_rows_to_click,
             max_discovery_time_minutes=request.max_discovery_time_minutes,
-            close_browser_on_complete=bool(request.close_browser_on_complete) if request.close_browser_on_complete is not None else False
+            close_browser_on_complete=bool(request.close_browser_on_complete) if request.close_browser_on_complete is not None else False,
+            ai_config=request.ai_config  # Pass AI config to context
         )
         
         # Transition to OPEN_URL (opens URL in check_session)
@@ -1135,7 +1137,8 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
                                             image_hints=image_hints,
                                             document_analysis=document_analysis,
                                             phase=context.test_phase,
-                                            config_overrides=config_overrides if config_overrides else None
+                                            config_overrides=config_overrides if config_overrides else None,
+                                            ai_config=getattr(context, "ai_config", None)  # Pass AI config if available
                                         )
                                         
                                         # Store discovery summary in context
@@ -1737,6 +1740,7 @@ async def answer_question(
 
                                             discovery_runner = get_discovery_runner()
                                             discovery_result = await discovery_runner.run_discovery(
+                                                ai_config=getattr(context, "ai_config", None),
                                                 page=page,
                                                 run_id=run_id,
                                                 base_url=context.base_url,

@@ -7,6 +7,7 @@ from typing import Optional, Dict, List
 from datetime import datetime
 
 from app.models.run_context import RunContext, AuthConfig
+from app.models.ai_config import AIConfig
 from app.models.run_state import RunState
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,8 @@ class RunStore:
         max_forms_per_page: Optional[int] = None,
         max_table_rows_to_click: Optional[int] = None,
         max_discovery_time_minutes: Optional[int] = None,
-        close_browser_on_complete: bool = False
+        close_browser_on_complete: bool = False,
+        ai_config: Optional[AIConfig] = None
     ) -> RunContext:
         """
         Create a new run context.
@@ -76,6 +78,7 @@ class RunStore:
             max_table_rows_to_click=max_table_rows_to_click,
             max_discovery_time_minutes=max_discovery_time_minutes,
             close_browser_on_complete=close_browser_on_complete,
+            ai_config=ai_config,
             timestamps={RunState.START.value: datetime.utcnow().isoformat() + "Z"}
         )
         

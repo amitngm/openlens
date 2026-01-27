@@ -110,7 +110,8 @@ class DiscoveryRunner:
         self.config = config or DiscoveryConfig()
         self.live_validator = LiveValidator()  # Initialize live validator for real-time feature testing
         self.production_validator = ProductionValidator()  # Initialize production-grade validator
-        self.enhanced_test_generator = EnhancedTestCaseGenerator()  # Enhanced test case generator
+        # Enhanced test case generator - initialized without AI by default for backward compatibility
+        self.enhanced_test_generator = EnhancedTestCaseGenerator()  # Default: rule-based only
         self.coverage_engine = TestCoverageEngine()  # Test coverage engine
         self.coverage_analyzer = CoverageAnalyzer()  # Coverage quality analyzer
         self.event_writers: Dict[str, Any] = {}  # run_id -> file handle
@@ -859,8 +860,28 @@ class DiscoveryRunner:
         image_hints: Optional[List[Dict[str, Any]]] = None,
         document_analysis: Optional[Dict[str, Any]] = None,
         phase: str = "phase1_get_operations",
-        config_overrides: Optional[Dict[str, Any]] = None
+        config_overrides: Optional[Dict[str, Any]] = None,
+        ai_config: Optional[Any] = None  # AIConfig from RunContext
     ) -> Dict[str, Any]:
+        """
+        Run discovery with optional AI support.
+        
+        If ai_config is provided and enabled, test case generation will use AI.
+        Otherwise, uses rule-based generation (backward compatible).
+        """
+        # Initialize enhanced test generator with AI if configured
+        if ai_config and ai_config.enabled:
+            try:
+                from app.services.ai_service_factory import create_enhanced_test_case_generator
+                self.enhanced_test_generator = create_enhanced_test_case_generator(ai_config)
+                logger.info(f"[{run_id}] Using AI-enhanced test case generator (mode: {ai_config.mode})")
+            except Exception as e:
+                logger.warning(f"[{run_id}] Failed to initialize AI generator, using rule-based: {e}")
+                self.enhanced_test_generator = EnhancedTestCaseGenerator()  # Fallback to rule-based
+        else:
+            # Ensure we have a generator (backward compatibility)
+            if self.enhanced_test_generator is None:
+                self.enhanced_test_generator = EnhancedTestCaseGenerator()
         """
         Run intelligent discovery guided by uploaded images and documents.
 
@@ -1191,10 +1212,12 @@ class DiscoveryRunner:
                     from app.services.test_case_generator import get_test_case_generator
 
                     # Generate comprehensive test cases
+                    ai_mode = ai_config.mode if ai_config and ai_config.enabled else "normal"
                     page_test_cases = self.enhanced_test_generator.generate_test_cases_for_page(
                         page_info=page_info,
                         run_id=run_id,
-                        coverage_mode="comprehensive"
+                        coverage_mode="comprehensive",
+                        ai_mode=ai_mode
                     )
 
                     # Convert to legacy format for incremental saving and event emission
@@ -1457,11 +1480,13 @@ class DiscoveryRunner:
                         from app.services.test_case_generator import get_test_case_generator
 
                         # Generate comprehensive test cases
+                        ai_mode = ai_config.mode if ai_config and ai_config.enabled else "normal"
                         page_test_cases = self.enhanced_test_generator.generate_test_cases_for_page(
-                            page_info=page_info,
-                            run_id=run_id,
-                            coverage_mode="comprehensive"
-                        )
+                        page_info=page_info,
+                        run_id=run_id,
+                        coverage_mode="comprehensive",
+                        ai_mode=ai_mode
+                    )
 
                         # Convert to legacy format for incremental saving and event emission
                         test_gen = get_test_case_generator()
