@@ -945,20 +945,21 @@
     <div class="main-layout">
         <!-- Left Panel: Application UI -->
         <div class="app-panel">
-            <!-- Current Run Indicator -->
-            <div id="current_run_indicator" style="display: none; padding: 8px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
-                <span>🔵 Current Run: <span id="current_run_id_display" style="font-family: monospace; font-size: 13px;">-</span></span>
-                <button onclick="copyRunId()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600;">
-                    📋 Copy ID
-                </button>
+            <!-- Current Run Indicator (shows discovery ID + default details as soon as discovery starts) -->
+            <div id="current_run_indicator" style="display: none; padding: 10px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-size: 12px; font-weight: 600; flex-direction: column; gap: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>🔵 Discovery ID: <span id="current_run_id_display" style="font-family: monospace; font-size: 13px;">-</span></span>
+                    <button onclick="copyRunId()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600;">📋 Copy ID</button>
+                </div>
+                <div id="current_run_details" style="font-size: 11px; font-weight: 500; opacity: 0.95;">Base: — • In progress • 0 pages, 0 forms, 0 test cases</div>
             </div>
 
             <!-- App Panel Tabs -->
             <div class="app-tabs">
-                <button class="app-tab active" onclick="switchAppTab('testcases')">✅ Test Cases</button>
-                <button class="app-tab" onclick="switchAppTab('progress')">⏱️ Live Progress</button>
-                <button class="app-tab" onclick="switchAppTab('history')">📜 Discovery History</button>
-                <button class="app-tab" onclick="switchAppTab('execution-history')">🧪 Test Execution History</button>
+                <button class="app-tab active" data-view="testcases" onclick="switchAppTab('testcases')">✅ Test Cases</button>
+                <button class="app-tab" data-view="progress" onclick="switchAppTab('progress')">⏱️ Live Progress</button>
+                <button class="app-tab" data-view="history" onclick="switchAppTab('history')">📜 Discovery History</button>
+                <button class="app-tab" data-view="execution-history" onclick="switchAppTab('execution-history')">🧪 Test Execution History</button>
             </div>
 
             <!-- Application View (Hidden - Not Needed) -->
@@ -1016,6 +1017,9 @@
                                 <button onclick="deselectAllTestCases()" class="btn-secondary btn-sm" id="deselect_all_btn" style="display: none;">
                                     Deselect All
                                 </button>
+                                <button onclick="regenerateTestCases()" class="btn-secondary btn-sm" id="regenerate_tests_btn" style="display: none;" title="Regenerate test cases with executable steps from existing discovery (no re-discovery needed)">
+                                    🔄 Regenerate for execution
+                                </button>
                                 <button onclick="executeSelectedTests()" class="btn-success btn-sm" id="execute_tests_btn" style="display: none;">
                                     ▶️ Run Selected Tests
                                 </button>
@@ -1028,7 +1032,7 @@
                             <!-- Summary stats will be populated here -->
                         </div>
                     </div>
-                    <div id="testcases_list" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div id="testcases_list" style="display: flex; flex-direction: column; gap: 12px; min-height: 200px;">
                         <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px; border: 2px dashed var(--border);">
                             <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
                             <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">No test cases available yet</p>
@@ -1093,7 +1097,7 @@
                             </button>
                         </div>
                     </div>
-                    <div id="run_history_list" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div id="run_history_list" style="display: flex; flex-direction: column; gap: 12px; min-height: 200px;">
                         <div style="text-align: center; padding: 60px 40px; color: var(--text-secondary); background: white; border-radius: 12px; border: 2px dashed var(--border);">
                             <div style="font-size: 48px; margin-bottom: 16px;">📋</div>
                             <p style="font-size: 16px; margin-bottom: 8px; font-weight: 500;">Loading discovery history...</p>
@@ -2063,14 +2067,21 @@
         function switchAppTab(viewName) {
             document.querySelectorAll('.app-tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
-            event.target.classList.add('active');
-            document.getElementById(`${viewName}-view`).classList.add('active');
+            const tabBtn = document.querySelector(`.app-tab[data-view="${viewName}"]`);
+            if (tabBtn) tabBtn.classList.add('active');
+            const viewEl = document.getElementById(`${viewName}-view`);
+            if (viewEl) viewEl.classList.add('active');
             
-            // Load data when switching to specific views
+            // Load data when switching: show cached first for speed, then refresh if needed
             if (viewName === 'execution-history') {
                 loadTestExecutionHistory();
             } else if (viewName === 'history') {
-                loadRunHistory();
+                if (window._cachedRunList && window._cachedRunList.length >= 0) {
+                    displayRunHistory(window._cachedRunList);
+                    loadRunHistory(true);
+                } else {
+                    loadRunHistory();
+                }
             }
         }
 
@@ -2509,6 +2520,14 @@
             try {
                 showMessage('Starting run...', 'success');
                 document.getElementById('start_btn').disabled = true;
+                // Show discovery ID banner with default details immediately when discovery starts
+                updateCurrentRunIndicator({
+                    base_url: baseUrl,
+                    pages_count: 0,
+                    forms_count: 0,
+                    test_cases_count: 0,
+                    status: 'Starting…'
+                }, { pending: true });
 
                 const response = await fetch(`${API_BASE}/runs/start`, {
                     method: 'POST',
@@ -2521,7 +2540,31 @@
                 const data = await response.json();
                 currentRunId = data.run_id;
                 localStorage.setItem('currentRunId', currentRunId);
-                updateCurrentRunIndicator();
+                updateCurrentRunIndicator({
+                    base_url: baseUrl,
+                    pages_count: 0,
+                    forms_count: 0,
+                    test_cases_count: 0,
+                    status: 'In progress'
+                });
+
+                // Add to Discovery History immediately with default details
+                const newRun = {
+                    run_id: currentRunId,
+                    base_url: baseUrl,
+                    started_at: new Date().toISOString(),
+                    pages_count: 0,
+                    forms_count: 0,
+                    test_cases_count: 0,
+                    has_discovery: false,
+                    has_test_cases: false
+                };
+                window._cachedRunList = window._cachedRunList || [];
+                window._cachedRunList = [newRun, ...window._cachedRunList.filter(r => r.run_id !== currentRunId)];
+                const historyView = document.getElementById('history-view');
+                if (historyView && historyView.classList.contains('active')) {
+                    displayRunHistory(window._cachedRunList);
+                }
 
                 showMessage(`Run started: ${currentRunId}`, 'success');
 
@@ -2600,6 +2643,7 @@
             } catch (error) {
                 showMessage(`Failed to start run: ${error.message}`, 'error');
                 document.getElementById('start_btn').disabled = false;
+                updateCurrentRunIndicator(); // hide indicator when start fails
             }
         }
 
@@ -2711,27 +2755,42 @@
                         }
                         
                         // Update progress stats in real-time from events (works in headless mode too)
+                        let p = 0, f = 0, a = 0;
                         data.events.forEach(event => {
                             if (event.type === 'page_discovered') {
-                                // Update stats incrementally - this works even in headless mode
                                 const pagesCount = document.getElementById('app_progress_pages');
                                 const formsCount = document.getElementById('app_progress_forms');
                                 const actionsCount = document.getElementById('app_progress_actions');
                                 if (pagesCount) {
-                                    const current = parseInt(pagesCount.textContent) || 0;
-                                    // Increment page count for each page_discovered event
-                                    pagesCount.textContent = (current + 1);
+                                    p = parseInt(pagesCount.textContent) || 0;
+                                    pagesCount.textContent = p + 1;
+                                    p = p + 1;
                                 }
                                 if (formsCount && event.data.forms_count) {
-                                    const current = parseInt(formsCount.textContent) || 0;
-                                    formsCount.textContent = current + (event.data.forms_count || 0);
+                                    f = parseInt(formsCount.textContent) || 0;
+                                    formsCount.textContent = f + (event.data.forms_count || 0);
+                                    f = f + (event.data.forms_count || 0);
                                 }
                                 if (actionsCount && event.data.actions_count) {
-                                    const current = parseInt(actionsCount.textContent) || 0;
-                                    actionsCount.textContent = current + (event.data.actions_count || 0);
+                                    a = parseInt(actionsCount.textContent) || 0;
+                                    actionsCount.textContent = a + (event.data.actions_count || 0);
+                                    a = a + (event.data.actions_count || 0);
                                 }
                             }
                         });
+                        if (currentRunId && (p > 0 || f > 0 || a > 0)) {
+                            const pagesEl = document.getElementById('app_progress_pages');
+                            const formsEl = document.getElementById('app_progress_forms');
+                            const baseUrl = (document.getElementById('base_url') && document.getElementById('base_url').value) || '';
+                            const cached = (window._cachedRunList || []).find(r => r.run_id === currentRunId);
+                            updateCurrentRunIndicator({
+                                base_url: baseUrl || (cached && cached.base_url),
+                                pages_count: pagesEl ? parseInt(pagesEl.textContent) || 0 : p,
+                                forms_count: formsEl ? parseInt(formsEl.textContent) || 0 : f,
+                                test_cases_count: (window.testCasesData && window.testCasesData.total_test_cases) || (cached && cached.test_cases_count) || 0,
+                                status: 'In progress'
+                            });
+                        }
                     }
                 } catch (error) {
                     console.error('Events polling error:', error);
@@ -2901,7 +2960,7 @@
                                             <div style="font-size: 13px; color: var(--text-secondary);">
                                                 <strong>Steps:</strong>
                                                 <ol style="margin: 4px 0 0 0; padding-left: 20px;">
-                                                    ${tc.steps.map(step => `<li>${step}</li>`).join('')}
+                                                    ${tc.steps.map(step => `<li>${formatStepForDisplay(step)}</li>`).join('')}
                                                 </ol>
                                             </div>
                                         </div>
@@ -2969,8 +3028,18 @@
                 } else if (event.type === 'discovery_completed') {
                     updateDiscoveryStatus('completed', event.data);
                     updateDiscoveryStats(event.data);
+                    if (currentRunId) {
+                        const baseUrl = (document.getElementById('base_url') && document.getElementById('base_url').value) || '';
+                        const cached = (window._cachedRunList || []).find(r => r.run_id === currentRunId);
+                        updateCurrentRunIndicator({
+                            base_url: baseUrl || (cached && cached.base_url),
+                            pages_count: event.data.pages_count ?? event.data.pages_discovered ?? 0,
+                            forms_count: event.data.forms_count ?? 0,
+                            test_cases_count: (cached && cached.test_cases_count) || 0,
+                            status: 'Completed'
+                        });
+                    }
                     // Fetch test cases immediately when discovery completes
-                    // This will also update discovered features in Application tab via displayFeatures()
                     fetchAndDisplayFeatures();
                     fetchTestCases(); // Fetch generated test cases
                     checkReportAvailable();
@@ -3246,7 +3315,17 @@
                     actionsCount.textContent = data.api_endpoints_count;
                 }
             }
-            
+            if (currentRunId) {
+                const baseUrl = (document.getElementById('base_url') && document.getElementById('base_url').value) || '';
+                const cached = (window._cachedRunList || []).find(r => r.run_id === currentRunId);
+                updateCurrentRunIndicator({
+                    base_url: baseUrl || (cached && cached.base_url),
+                    pages_count: data.pages_count,
+                    forms_count: data.forms_count,
+                    test_cases_count: (window.testCasesData && window.testCasesData.total_test_cases) || (cached && cached.test_cases_count) || 0,
+                    status: 'In progress'
+                });
+            }
             console.log('Discovery stats updated:', {
                 pages: data.pages_count,
                 forms: data.forms_count,
@@ -3483,7 +3562,7 @@
                                                         <div style="font-size: 13px; color: var(--text-secondary);">
                                                             <strong style="color: var(--text-primary);">Steps:</strong>
                                                             <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.6;">
-                                                                ${tc.steps.map(step => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
+                                                                ${tc.steps.map(step => `<li style="margin-bottom: 4px;">${formatStepForDisplay(step)}</li>`).join('')}
                                                             </ol>
                                                         </div>
                                                     ` : ''}
@@ -3547,7 +3626,7 @@
                                                 <div style="font-size: 13px; color: var(--text-secondary);">
                                                     <strong style="color: var(--text-primary);">Steps:</strong>
                                                     <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.6;">
-                                                        ${tc.steps.map(step => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
+                                                        ${tc.steps.map(step => `<li style="margin-bottom: 4px;">${formatStepForDisplay(step)}</li>`).join('')}
                                                     </ol>
                                                 </div>
                                             ` : ''}
@@ -3566,6 +3645,7 @@
             if (totalTestCases > 0) {
                 document.getElementById('select_all_btn').style.display = 'inline-flex';
                 document.getElementById('deselect_all_btn').style.display = 'inline-flex';
+                document.getElementById('regenerate_tests_btn').style.display = 'inline-flex';
                 document.getElementById('execute_tests_btn').style.display = 'inline-flex';
                 updateExecuteButtonState();
             }
@@ -3666,6 +3746,28 @@
                     btn.textContent = '▶️ Run Selected Tests';
                     btn.disabled = true;
                 }
+            }
+        }
+
+        async function regenerateTestCases() {
+            if (!currentRunId) {
+                showMessage('No run loaded. Load or start a discovery run first.', 'error');
+                return;
+            }
+            const btn = document.getElementById('regenerate_tests_btn');
+            if (btn) { btn.disabled = true; btn.textContent = '⏳ Regenerating...'; }
+            try {
+                const res = await fetch(`${API_BASE}/runs/${currentRunId}/regenerate-test-cases`, { method: 'POST' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(data.detail || data.message || `HTTP ${res.status}`);
+                }
+                showMessage(data.message || `Regenerated ${data.regenerated || 0} test cases`, 'success');
+                await fetchTestCases();
+            } catch (e) {
+                showMessage('Regenerate failed: ' + (e.message || String(e)), 'error');
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = '🔄 Regenerate for execution'; }
             }
         }
 
@@ -4063,22 +4165,26 @@
             }
         }
 
-        async function loadRunHistory() {
+        async function loadRunHistory(silentRefresh) {
             const container = document.getElementById('run_history_list');
             if (!container) return;
 
-            container.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-secondary);"><p>Loading run history...</p></div>';
+            if (!silentRefresh) {
+                container.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-secondary); min-height: 120px;"><p>Loading run history...</p></div>';
+            }
 
             try {
                 const response = await fetch(`${API_BASE}/runs/list`);
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
                 const data = await response.json();
-                displayRunHistory(data.runs || []);
+                const runs = data.runs || [];
+                window._cachedRunList = runs;
+                displayRunHistory(runs);
             } catch (error) {
                 console.error('Failed to load run history:', error);
                 container.innerHTML = `
-                    <div style="text-align: center; padding: 40px; color: var(--danger);">
+                    <div style="text-align: center; padding: 40px; color: var(--danger); min-height: 120px;">
                         <p>❌ Failed to load run history</p>
                         <p style="font-size: 14px; margin-top: 8px;">${error.message}</p>
                     </div>
@@ -4354,43 +4460,43 @@
             }
         }
 
-        function loadRun(runId) {
+        async function loadRun(runId) {
+            if (window._loadRunInProgress) return;
+            window._loadRunInProgress = true;
             console.log(`🔄 Loading run: ${runId}`);
 
-            // Clear old data first
             resetTestCasesView();
             resetLiveProgressView();
             selectedTestCases.clear();
 
-            // Update run ID
             currentRunId = runId;
             localStorage.setItem('currentRunId', runId);
             updateCurrentRunIndicator();
 
-            // Reset event cursor for new run
             eventsCursor = 0;
             localStorage.setItem('eventsCursor_' + runId, '0');
 
-            // Update URL without reload
             const url = new URL(window.location);
             url.searchParams.set('run_id', runId);
             window.history.pushState({}, '', url);
 
-            // Switch to Test Cases tab
             switchAppTab('testcases');
+            const tcList = document.getElementById('testcases_list');
+            if (tcList) tcList.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-secondary); min-height: 140px;"><p>Loading test cases...</p></div>';
 
-            // Trigger initialization to load run data
-            initializePage();
-
+            try {
+                await fetchTestCases();
+                await fetchAndDisplayFeatures().catch(() => {});
+            } catch (e) {
+                console.warn('Load run fetch:', e);
+            }
+            window._loadRunInProgress = false;
             showMessage(`Loaded run: ${runId}`, 'success');
         }
 
-        function loadRunTestCases(runId) {
-            loadRun(runId);
-            // Wait a bit for data to load then switch to test cases
-            setTimeout(() => {
-                switchAppTab('testcases');
-            }, 500);
+        async function loadRunTestCases(runId) {
+            await loadRun(runId);
+            switchAppTab('testcases');
         }
 
         async function deleteRun(runId) {
@@ -4441,13 +4547,24 @@
             }
         }
 
-        function updateCurrentRunIndicator() {
+        function updateCurrentRunIndicator(details, options) {
             const indicator = document.getElementById('current_run_indicator');
             const display = document.getElementById('current_run_id_display');
+            const detailsEl = document.getElementById('current_run_details');
+            const pending = options && options.pending === true;
 
-            if (currentRunId) {
+            if (currentRunId || pending) {
                 indicator.style.display = 'flex';
-                display.textContent = currentRunId;
+                display.textContent = currentRunId || '…';
+                if (detailsEl) {
+                    const d = details || {};
+                    const base = (d.base_url) ? d.base_url.replace(/^https?:\/\//, '').slice(0, 40) : '—';
+                    const pages = (d.pages_count != null) ? d.pages_count : 0;
+                    const forms = (d.forms_count != null) ? d.forms_count : 0;
+                    const tests = (d.test_cases_count != null) ? d.test_cases_count : 0;
+                    const status = (d.status) ? d.status : (pending ? 'Starting…' : 'In progress');
+                    detailsEl.textContent = `Base: ${base}${base.length >= 40 ? '…' : ''} • ${status} • ${pages} pages, ${forms} forms, ${tests} test cases`;
+                }
             } else {
                 indicator.style.display = 'none';
             }
@@ -4487,11 +4604,13 @@
             // Hide action buttons
             const selectAllBtn = document.getElementById('select_all_btn');
             const deselectAllBtn = document.getElementById('deselect_all_btn');
+            const regenerateBtn = document.getElementById('regenerate_tests_btn');
             const executeBtn = document.getElementById('execute_tests_btn');
             const viewReportBtn = document.getElementById('view_report_btn');
 
             if (selectAllBtn) selectAllBtn.style.display = 'none';
             if (deselectAllBtn) deselectAllBtn.style.display = 'none';
+            if (regenerateBtn) regenerateBtn.style.display = 'none';
             if (executeBtn) executeBtn.style.display = 'none';
             if (viewReportBtn) viewReportBtn.style.display = 'none';
 
@@ -4514,6 +4633,18 @@
             `;
 
             console.log('✅ Live Progress view reset for new run');
+        }
+
+        function formatStepForDisplay(step) {
+            if (typeof step === 'string') return step;
+            if (step && typeof step === 'object' && step.description) return step.description;
+            if (step && typeof step === 'object') {
+                const a = step.action || '';
+                const t = step.target ? ' → ' + String(step.target).slice(0, 80) : '';
+                const x = step.text ? ' "' + step.text + '"' : '';
+                return (a + t + x).trim() || (step.selector ? a + ' selector' : JSON.stringify(step).slice(0, 80));
+            }
+            return String(step);
         }
 
         function displayTestCases(testCasesData) {
@@ -4705,7 +4836,7 @@
                             <div style="margin-bottom: 24px;">
                                 <div style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #111827;">📋 Test Steps</div>
                                 <ol style="margin: 0; padding-left: 20px; line-height: 1.8;">
-                                    ${testCase.steps ? testCase.steps.map(step => `<li style="margin-bottom: 8px; color: #374151;">${step}</li>`).join('') : '<li>No steps defined</li>'}
+                                    ${testCase.steps ? testCase.steps.map(step => `<li style="margin-bottom: 8px; color: #374151;">${formatStepForDisplay(step)}</li>`).join('') : '<li>No steps defined</li>'}
                                 </ol>
                             </div>
 
@@ -5060,6 +5191,7 @@
                     <div id="selected_test_cases_list" style="max-height: 200px; overflow-y: auto;">
                         <p style="color: var(--text-secondary); font-size: 14px; margin: 0;">Loading test case details...</p>
                     </div>
+                    <p id="execution_next_steps" style="font-size: 13px; color: var(--primary); margin: 12px 0 0 0; font-weight: 600;">Next: fill Application URL, credentials, and click Start Execution. Results → Test Execution History.</p>
                 </div>
                 
                 <form id="test_execution_form" onsubmit="submitTestExecution(event)">
@@ -5099,6 +5231,15 @@
                         </select>
                         <p style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">
                             <strong>Headless:</strong> Runs faster, no browser window. <strong>UI Mode:</strong> Shows browser window for debugging.
+                        </p>
+                    </div>
+                    <div style="margin-bottom: 16px;">
+                        <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text-primary); cursor: pointer;">
+                            <input type="checkbox" id="execution_keep_browser_open" checked style="width: 18px; height: 18px;">
+                            Keep browser window open after execution
+                        </label>
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 6px; margin-left: 26px;">
+                            When checked, the browser stays open after tests finish so you can inspect the final state. Uncheck to close the browser automatically.
                         </p>
                     </div>
                     
@@ -5289,7 +5430,7 @@
                                         <details style="margin-top: 8px;">
                                             <summary style="font-size: 12px; color: var(--primary); cursor: pointer; font-weight: 600;">View Steps (${tc.steps.length})</summary>
                                             <ol style="margin: 8px 0 0 16px; padding-left: 8px; font-size: 11px; color: var(--text-secondary); line-height: 1.6;">
-                                                ${tc.steps.map((step, stepIdx) => `<li style="margin-bottom: 4px;">${step}</li>`).join('')}
+                                                ${tc.steps.map((step, stepIdx) => `<li style="margin-bottom: 4px;">${formatStepForDisplay(step)}</li>`).join('')}
                                             </ol>
                                         </details>
                                     ` : ''}
@@ -5459,7 +5600,8 @@
                     environment: document.getElementById('execution_environment').value,
                     username: document.getElementById('execution_username').value,
                     password: document.getElementById('execution_password').value,
-                    headless: document.getElementById('execution_headless').value === 'true'
+                    headless: document.getElementById('execution_headless').value === 'true',
+                    keep_browser_open: document.getElementById('execution_keep_browser_open').checked
                 };
                 
                 const response = await fetch(`${API_BASE}/runs/${currentRunId}/execute-tests`, {

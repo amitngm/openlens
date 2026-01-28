@@ -46,7 +46,28 @@ class TestCaseGenerator:
         has_edit_action = self._has_action(page_info, "edit")
         has_delete_action = self._has_action(page_info, "delete")
 
-        # Generate test cases based on detected features
+        # Executable step helpers: test executor expects dict {action, target/text/selector/value} or URL in navigate string
+        # "description" is for UI display when step is shown in test case details
+        def nav_step():
+            if page_url:
+                return {"action": "navigate", "target": page_url, "description": f"Navigate to {page_name}"}
+            return f"Navigate to {page_url or page_name}"
+
+        def click_step(button_text: str):
+            return {"action": "click", "text": button_text, "description": f"Click '{button_text}'"}
+
+        def fill_step(selector: str, value: str):
+            return {"action": "fill", "selector": selector, "value": value, "description": f"Enter '{value}' in search/filter"}
+
+        def wait_step(seconds: float = 1):
+            return {"action": "wait", "duration": seconds, "description": f"Wait {seconds}s for page to load"}
+
+        create_btn_text = self._get_action_text(page_info, "create")
+        edit_btn_text = self._get_action_text(page_info, "edit")
+        delete_btn_text = self._get_action_text(page_info, "delete")
+        search_selector = "input[type='search'], input[placeholder*='Search' i], input[name='search']"
+
+        # Generate test cases with executable steps (dict steps run as-is by test executor)
 
         # Navigation test case (always)
         test_cases.append({
@@ -59,9 +80,9 @@ class TestCaseGenerator:
             "page_url": page_url,
             "page_name": page_name,
             "steps": [
-                f"Navigate to {page_url}",
+                nav_step(),
+                wait_step(1),
                 "Verify page loads successfully",
-                f"Verify page title contains '{page_name}'"
             ],
             "expected_result": "Page loads without errors"
         })
@@ -78,10 +99,10 @@ class TestCaseGenerator:
                 "page_url": page_url,
                 "page_name": page_name,
                 "steps": [
-                    f"Navigate to {page_name}",
+                    nav_step(),
+                    wait_step(1),
                     "Verify table is visible",
                     "Verify table headers are displayed",
-                    "Verify at least one row is visible (if data exists)"
                 ],
                 "expected_result": "Table displays with proper headers and data"
             })
@@ -98,12 +119,14 @@ class TestCaseGenerator:
                 "page_url": page_url,
                 "page_name": page_name,
                 "steps": [
-                    f"Navigate to {page_name}",
-                    "Click 'Next' button",
+                    nav_step(),
+                    wait_step(1),
+                    click_step("Next"),
+                    wait_step(1),
                     "Verify page 2 loads",
-                    "Verify different data is shown",
-                    "Click 'Previous' button",
-                    "Verify page 1 is restored"
+                    click_step("Previous"),
+                    wait_step(1),
+                    "Verify page 1 is restored",
                 ],
                 "expected_result": "Pagination navigates between pages correctly"
             })
@@ -120,11 +143,14 @@ class TestCaseGenerator:
                 "page_url": page_url,
                 "page_name": page_name,
                 "steps": [
-                    f"Navigate to {page_name}",
-                    "Enter search term in search box",
+                    nav_step(),
+                    wait_step(1),
+                    fill_step(search_selector, "test"),
+                    wait_step(1),
                     "Verify results are filtered",
-                    "Clear search",
-                    "Verify all results return"
+                    fill_step(search_selector, ""),
+                    wait_step(1),
+                    "Verify all results return",
                 ],
                 "expected_result": "Search filters results correctly"
             })
@@ -141,11 +167,11 @@ class TestCaseGenerator:
                 "page_url": page_url,
                 "page_name": page_name,
                 "steps": [
-                    f"Navigate to {page_name}",
+                    nav_step(),
+                    wait_step(1),
                     "Select a filter option",
+                    wait_step(1),
                     "Verify results are filtered",
-                    "Reset filters",
-                    "Verify all results return"
                 ],
                 "expected_result": "Filters apply and reset correctly"
             })
@@ -162,17 +188,17 @@ class TestCaseGenerator:
                 "page_url": page_url,
                 "page_name": page_name,
                 "steps": [
-                    f"Navigate to {page_name}",
+                    nav_step(),
+                    wait_step(1),
                     "Click on a sortable column header",
-                    "Verify data is sorted ascending",
-                    "Click again",
-                    "Verify data is sorted descending"
+                    wait_step(1),
+                    "Verify data is sorted",
                 ],
                 "expected_result": "Table sorts data correctly"
             })
 
         # Create action test cases
-        if has_create_action:
+        if has_create_action and create_btn_text:
             test_cases.append({
                 "id": f"TC_CREATE_{self._sanitize_id(page_name)}",
                 "name": f"Create New Item in {page_name}",
@@ -183,19 +209,20 @@ class TestCaseGenerator:
                 "page_url": page_url,
                 "page_name": page_name,
                 "steps": [
-                    f"Navigate to {page_name}",
-                    "Click Create button",
+                    nav_step(),
+                    wait_step(1),
+                    click_step(create_btn_text),
+                    wait_step(1),
                     "Verify create form opens",
-                    "Fill in required fields",
-                    "Submit form",
-                    "Verify success message",
-                    "Verify new item appears in listing"
+                    {"action": "submit", "selector": "button[type=submit], button:has-text('Submit'), button:has-text('Save')"},
+                    wait_step(1),
+                    "Verify success message or new item in listing",
                 ],
                 "expected_result": "New item is created successfully"
             })
 
         # Edit action test cases
-        if has_edit_action:
+        if has_edit_action and edit_btn_text:
             test_cases.append({
                 "id": f"TC_EDIT_{self._sanitize_id(page_name)}",
                 "name": f"Edit Item in {page_name}",
@@ -206,19 +233,20 @@ class TestCaseGenerator:
                 "page_url": page_url,
                 "page_name": page_name,
                 "steps": [
-                    f"Navigate to {page_name}",
-                    "Click Edit on an existing item",
+                    nav_step(),
+                    wait_step(1),
+                    click_step(edit_btn_text),
+                    wait_step(1),
                     "Verify edit form opens",
-                    "Modify a field",
-                    "Submit form",
-                    "Verify success message",
-                    "Verify changes are reflected"
+                    {"action": "submit", "selector": "button[type=submit], button:has-text('Save')"},
+                    wait_step(1),
+                    "Verify changes are reflected",
                 ],
                 "expected_result": "Item is updated successfully"
             })
 
         # Delete action test cases
-        if has_delete_action:
+        if has_delete_action and delete_btn_text:
             test_cases.append({
                 "id": f"TC_DELETE_{self._sanitize_id(page_name)}",
                 "name": f"Delete Item from {page_name}",
@@ -229,18 +257,31 @@ class TestCaseGenerator:
                 "page_url": page_url,
                 "page_name": page_name,
                 "steps": [
-                    f"Navigate to {page_name}",
-                    "Click Delete on an item",
+                    nav_step(),
+                    wait_step(1),
+                    click_step(delete_btn_text),
+                    wait_step(1),
                     "Verify confirmation dialog appears",
-                    "Confirm deletion",
-                    "Verify success message",
-                    "Verify item is removed from listing"
+                    click_step("Confirm"),
+                    wait_step(1),
+                    "Verify item is removed or success message",
                 ],
                 "expected_result": "Item is deleted successfully"
             })
 
-        # Form validation test cases
+        # Form validation test cases (use first form's fields for fill_form if available)
         if has_forms:
+            form_steps = [nav_step(), wait_step(1)]
+            forms = page_info.get("forms", [])
+            if forms and forms[0].get("fields"):
+                fields = [
+                    {"name": f.get("name"), "value": "test", "type": f.get("type", "text")}
+                    for f in forms[0].get("fields", [])[:5]
+                    if f.get("name") and (f.get("type") or "hidden").lower() != "hidden"
+                ]
+                if fields:
+                    form_steps.append({"action": "fill_form", "fields": fields})
+            form_steps.extend([{"action": "submit", "selector": "button[type=submit]"}, wait_step(1), "Verify form submits or validation appears"])
             test_cases.append({
                 "id": f"TC_FORM_VAL_{self._sanitize_id(page_name)}",
                 "name": f"Validate Form on {page_name}",
@@ -250,15 +291,7 @@ class TestCaseGenerator:
                 "status": "pending",
                 "page_url": page_url,
                 "page_name": page_name,
-                "steps": [
-                    f"Navigate to {page_name}",
-                    "Submit form without filling required fields",
-                    "Verify validation error messages appear",
-                    "Fill in fields with invalid data",
-                    "Verify specific field validation errors",
-                    "Fill in all fields correctly",
-                    "Verify form submits successfully"
-                ],
+                "steps": form_steps,
                 "expected_result": "Form validation prevents invalid submissions"
             })
 
@@ -442,6 +475,14 @@ class TestCaseGenerator:
             if action.get("tag", "").lower() == action_tag.lower():
                 return True
         return False
+
+    def _get_action_text(self, page_info: Dict, action_tag: str) -> str:
+        """Return button text for the first primary_action matching tag (create/edit/delete)."""
+        actions = page_info.get("primary_actions", [])
+        for action in actions:
+            if action.get("tag", "").lower() == action_tag.lower():
+                return (action.get("text") or "").strip()
+        return ""
 
     def _sanitize_id(self, name: str) -> str:
         """Sanitize name for use in test case ID."""

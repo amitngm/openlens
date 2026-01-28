@@ -744,16 +744,21 @@ async def _test_filters(page, run_id: str) -> Dict[str, Any]:
 # =============================================================================
 
 @router.get("/list", summary="List all discovery runs")
-async def list_runs():
+async def list_runs(complete_only: bool = True):
     """
     List all discovery runs with their metadata.
+
+    Args:
+        complete_only: If True (default), only return runs that have discovery data
+                       (pages_count > 0 or test_cases_count > 0). Use False to include
+                       empty/incomplete runs.
 
     Returns:
         List of runs with basic metadata
     """
     try:
-        # Try relative path first (when running from agent-api/), then absolute path
-        data_dir = Path("data")
+        # Use same base path as run store so we list the same run dirs discovery uses
+        data_dir = Path(getattr(_run_store, "base_path", None) or "data")
         if not data_dir.exists():
             data_dir = Path("agent-api/data")
         if not data_dir.exists():
@@ -791,13 +796,21 @@ async def list_runs():
                         discovery_data = json.load(f)
                         run_info["started_at"] = discovery_data.get("started_at")
                         run_info["base_url"] = discovery_data.get("base_url")
-                        run_info["pages_count"] = len(discovery_data.get("pages", []))
+                        pages_list = discovery_data.get("pages", [])
+                        run_info["pages_count"] = len(pages_list)
 
-                        # Count forms
+                        # Count forms from pages
                         forms_count = 0
-                        for page in discovery_data.get("pages", []):
+                        for page in pages_list:
                             forms_count += len(page.get("forms", []))
                         run_info["forms_count"] = forms_count
+
+                        # Fallback: if "pages" is empty but summary exists (e.g. discovery saved summary only)
+                        if run_info["pages_count"] == 0 and run_info["forms_count"] == 0:
+                            summary = discovery_data.get("summary") or {}
+                            if summary:
+                                run_info["pages_count"] = int(summary.get("total_pages") or summary.get("pages_visited") or 0)
+                                run_info["forms_count"] = int(summary.get("forms_count") or 0)
                 except Exception as e:
                     logger.warning(f"Failed to load discovery for {run_id}: {e}")
 
@@ -809,6 +822,9 @@ async def list_runs():
                 except Exception as e:
                     logger.warning(f"Failed to load test cases for {run_id}: {e}")
 
+            # By default exclude empty/incomplete runs (0 pages, 0 test cases)
+            if complete_only and run_info["pages_count"] == 0 and run_info["test_cases_count"] == 0:
+                continue
             runs.append(run_info)
 
         return {"runs": runs}
@@ -2882,6 +2898,80 @@ async def get_test_cases(run_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to get test cases: {str(e)}")
 
 
+@router.post("/{run_id}/regenerate-test-cases", summary="Regenerate test cases from existing discovery")
+async def regenerate_test_cases(run_id: str):
+    """
+    Regenerate test cases from discovery.json for an existing run.
+    Use this to get executable steps (navigate/click/fill dict steps) without re-running discovery.
+    """
+    try:
+        context = _run_store.get_run(run_id)
+        if not context:
+            data_dir = Path("data") if Path("data").exists() else Path("agent-api/data")
+            run_dir = data_dir / run_id
+            if not run_dir.exists():
+                raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+            artifacts_path = str(run_dir)
+        else:
+            artifacts_path = context.artifacts_path
+
+        discovery_file = Path(artifacts_path) / "discovery.json"
+        if not discovery_file.exists():
+            raise HTTPException(status_code=404, detail="Discovery not found. Run discovery first.")
+
+        with open(discovery_file, "r") as f:
+            discovery_data = json.load(f)
+
+        pages = discovery_data.get("pages", [])
+        if not pages:
+            raise HTTPException(status_code=400, detail="Discovery has no pages.")
+
+        # Deduplicate only by exact URL string (same URL twice = one page). Do not normalize path/query
+        # so we preserve distinct pages like /item/1, /item/2, /search?q=a and avoid dropping count.
+        seen_exact_urls = set()
+        unique_pages = []
+        for p in pages:
+            url = (p.get("url") or "").strip()
+            if not url:
+                unique_pages.append(p)
+                continue
+            if url not in seen_exact_urls:
+                seen_exact_urls.add(url)
+                unique_pages.append(p)
+        pages = unique_pages
+        if len(unique_pages) < len(discovery_data.get("pages", [])):
+            logger.info(f"[{run_id}] Deduplicated pages (exact URL only): {len(discovery_data.get('pages', []))} -> {len(pages)}")
+
+        import hashlib
+        from app.services.test_case_generator import get_test_case_generator
+        test_gen = get_test_case_generator()
+        all_test_cases = []
+        for page in pages:
+            page_url = (page.get("url") or "").strip()
+            page_cases = test_gen.generate_test_cases_for_page(page_info=page, run_id=run_id)
+            # Make id unique per page URL so different URLs with same page_name don't collapse to one test
+            suffix = hashlib.md5(page_url.encode()).hexdigest()[:8] if page_url else ""
+            for tc in page_cases:
+                base_id = tc.get("id") or "tc"
+                tc["id"] = f"{base_id}_{suffix}" if suffix else base_id
+                all_test_cases.append(tc)
+
+        test_gen.save_test_cases(run_id, artifacts_path, all_test_cases)
+        logger.info(f"[{run_id}] Regenerated {len(all_test_cases)} test cases from {len(pages)} unique pages")
+
+        return {
+            "run_id": run_id,
+            "regenerated": len(all_test_cases),
+            "pages_used": len(pages),
+            "message": f"Regenerated {len(all_test_cases)} test cases (from {len(pages)} pages). Only exact-duplicate URLs were merged; each page URL keeps its own test cases.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[{run_id}] Regenerate test cases failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Regenerate failed: {str(e)}")
+
+
 class ExecuteTestCasesRequest(BaseModel):
     """Request to execute selected test cases."""
     test_case_ids: List[str] = Field(..., description="List of test case IDs to execute")
@@ -2892,6 +2982,7 @@ class ExecuteTestCasesRequest(BaseModel):
     username: str = Field(..., description="Username for authentication")
     password: str = Field(..., description="Password for authentication")
     headless: Optional[bool] = Field(True, description="Run browser in headless mode")
+    keep_browser_open: Optional[bool] = Field(True, description="Keep browser window open after execution (for debugging)")
 
 
 @router.post("/{run_id}/execute-tests", summary="Execute selected test cases")
@@ -3399,11 +3490,16 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
         except Exception as db_error:
             logger.warning(f"[{execution_id}] Database storage failed (continuing anyway): {db_error}")
         
-        # Close browser context
-        try:
-            await browser_manager.close_context(execution_id)
-        except:
-            pass
+        # Close browser context only when keep_browser_open is False (user wants window closed)
+        keep_open = getattr(request, "keep_browser_open", True)
+        if not keep_open:
+            try:
+                await browser_manager.close_context(execution_id)
+                logger.info(f"[{execution_id}] Browser closed after execution (keep_browser_open=False)")
+            except Exception:
+                pass
+        else:
+            logger.info(f"[{execution_id}] Browser left open (keep_browser_open=True)")
         
         return {
             "execution_id": execution_id,
