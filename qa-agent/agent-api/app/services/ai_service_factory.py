@@ -11,6 +11,53 @@ from app.models.ai_config import AIConfig
 logger = logging.getLogger(__name__)
 
 
+async def try_auto_detect_provider() -> Optional[AIConfig]:
+    """
+    Auto-detect available AI provider (Ollama → OpenAI → None).
+
+    Tries providers in order:
+    1. Ollama (free, local, private) at localhost:11434
+    2. OpenAI (requires API key in environment)
+    3. None (fallback to rule-based generation)
+
+    Returns:
+        AIConfig if provider detected, None otherwise
+    """
+    import os
+
+    # Try Ollama first (local, free)
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:11434/api/tags", timeout=2.0)
+            if response.status_code == 200:
+                logger.info("✅ Super Buddy: Auto-detected Ollama at localhost:11434")
+                return AIConfig(
+                    enabled=True,
+                    mode="hybrid",
+                    provider="ollama",
+                    base_url="http://localhost:11434",
+                    model_name="llama2"
+                )
+    except Exception as e:
+        logger.debug(f"Ollama not available at localhost:11434: {e}")
+
+    # Check for OpenAI API key
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        logger.info("✅ Super Buddy: Auto-detected OpenAI API key in environment")
+        return AIConfig(
+            enabled=True,
+            mode="hybrid",
+            provider="openai",
+            api_key=api_key,
+            model_name="gpt-3.5-turbo"
+        )
+
+    logger.info("ℹ️ Super Buddy: No AI provider detected, using rule-based generation (still comprehensive!)")
+    return None
+
+
 def create_enhanced_test_case_generator(ai_config: Optional[AIConfig] = None) -> EnhancedTestCaseGenerator:
     """
     Create EnhancedTestCaseGenerator with optional AI support.

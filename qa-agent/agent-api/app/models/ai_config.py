@@ -7,14 +7,14 @@ from pydantic import BaseModel, Field
 class AIConfig(BaseModel):
     """AI/LLM configuration for test generation."""
     
-    enabled: bool = Field(default=False, description="Enable AI-powered features")
+    enabled: bool = Field(default=True, description="Enable AI-powered features (Super Buddy mode)")
     mode: Literal["normal", "ai", "hybrid"] = Field(
-        default="normal", 
-        description="Generation mode: normal (rule-based), ai (AI-only), hybrid (both)"
+        default="hybrid",
+        description="Generation mode: normal (rule-based), ai (AI-only), hybrid (both - default for Super Buddy)"
     )
     provider: Literal["ollama", "openai", "none"] = Field(
-        default="none",
-        description="AI provider to use"
+        default="ollama",
+        description="AI provider to use (ollama=free local AI, openai=cloud API, none=rule-based only)"
     )
     model_name: str = Field(
         default="llama2",
