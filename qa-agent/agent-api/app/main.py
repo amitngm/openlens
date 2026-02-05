@@ -30,6 +30,18 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize database: {e}", exc_info=True)
         # Continue anyway - file-based storage will work
 
+    # Pre-check Playwright browsers
+    logger.info("Checking Playwright browsers...")
+    try:
+        from app.services.browser_manager import get_browser_manager
+        browser_manager = get_browser_manager()
+        await browser_manager.initialize()
+        # This will auto-install browsers if missing
+        logger.info("Playwright browsers ready")
+    except Exception as e:
+        logger.warning(f"Playwright browser check failed: {e}")
+        # Continue anyway - will be handled on first use
+
     yield
 
     # Shutdown

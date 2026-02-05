@@ -1,6 +1,9 @@
 """Browser manager for Playwright context management per run."""
 
 import logging
+import platform
+import subprocess
+import sys
 from typing import Optional, Dict
 from pathlib import Path
 
@@ -28,11 +31,70 @@ class BrowserManager:
         """Initialize Playwright."""
         if async_playwright is None:
             raise ImportError("playwright is not installed. Install with: pip install playwright && playwright install")
-        
+
         if self._playwright is None:
             self._playwright = await async_playwright().start()
             logger.info("Playwright initialized")
-    
+
+    async def _ensure_browsers_installed(self) -> bool:
+        """
+        Ensure Playwright browsers are installed.
+
+        Automatically installs browsers if they're missing.
+        Works across macOS, Linux, and Windows.
+
+        Returns:
+            bool: True if browsers are available, False if installation failed
+        """
+        try:
+            # Try to launch browser to check if it exists
+            test_browser = await self._playwright.chromium.launch(headless=True)
+            await test_browser.close()
+            logger.info("Playwright browsers already installed")
+            return True
+        except Exception as e:
+            error_msg = str(e)
+
+            # Check if error is about missing executable
+            if "Executable doesn't exist" in error_msg or "browserType.launch" in error_msg:
+                logger.warning("Playwright browsers not found, installing automatically...")
+
+                # Detect OS
+                os_type = platform.system()  # Returns: 'Darwin' (macOS), 'Linux', 'Windows'
+                logger.info(f"Detected OS: {os_type}")
+
+                try:
+                    # Run playwright install command
+                    # --with-deps flag installs system dependencies on Linux
+                    cmd = [sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"]
+
+                    logger.info(f"Running: {' '.join(cmd)}")
+
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=300  # 5 minutes timeout
+                    )
+
+                    if result.returncode == 0:
+                        logger.info("Playwright browsers installed successfully")
+                        logger.info(f"Installation output: {result.stdout}")
+                        return True
+                    else:
+                        logger.error(f"Playwright installation failed: {result.stderr}")
+                        return False
+
+                except subprocess.TimeoutExpired:
+                    logger.error("Playwright installation timed out after 5 minutes")
+                    return False
+                except Exception as install_error:
+                    logger.error(f"Failed to install Playwright browsers: {install_error}")
+                    return False
+            else:
+                # Different error, re-raise
+                raise
+
     async def get_or_create_context(
         self,
         run_id: str,
@@ -61,6 +123,15 @@ class BrowserManager:
         launch_headless = False if debug else headless
         launch_slow_mo = 200 if debug else slow_mo_ms
 
+        # Ensure browsers are installed (auto-install if missing)
+        if not await self._ensure_browsers_installed():
+            raise RuntimeError(
+                "Failed to install Playwright browsers automatically. "
+                f"Please run manually: python -m playwright install --with-deps chromium"
+            )
+
+        # Launch browser
+        logger.info(f"[{run_id}] Launching browser (headless={launch_headless})")
         browser = await self._playwright.chromium.launch(
             headless=launch_headless,
             slow_mo=launch_slow_mo
