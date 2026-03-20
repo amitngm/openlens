@@ -111,30 +111,52 @@ class DiscoverySummarizer:
             except:
                 screenshot_path = None
             
-            # Create question with counts in text
+            # Build a human-readable list of what was found
+            found_parts = [f"{summary['pages_count']} pages"]
+            if summary['forms_count'] > 0:
+                found_parts.append(f"{summary['forms_count']} forms")
+            if summary['potential_crud_actions_count'] > 0:
+                found_parts.append(f"{summary['potential_crud_actions_count']} create/edit actions")
+            found_summary = ", ".join(found_parts)
+
             question_text = (
-                f"Discovery complete. Found {summary['pages_count']} pages, "
-                f"{summary['forms_count']} forms, {summary['potential_crud_actions_count']} CRUD actions. "
-                f"What should I test now?"
+                f"I explored your app and found: {found_summary}. "
+                f"What would you like me to test?"
             )
-            
+
             question = Question(
                 id="test_intent",
                 type="select_one",
                 text=question_text,
                 options=[
-                    QuestionOption(id="smoke", label="smoke"),
-                    QuestionOption(id="crud_sanity", label="crud_sanity"),
-                    QuestionOption(id="module_based", label="module_based"),
-                    QuestionOption(id="exploratory_15m", label="exploratory_15m")
+                    QuestionOption(
+                        id="everything",
+                        label="🚀 Test everything",
+                        description="Navigate all pages + click every Create/Edit form and test submissions"
+                    ),
+                    QuestionOption(
+                        id="write_focus",
+                        label="📝 Forms & creation only",
+                        description="Focus on Create/Edit/Submit flows — fill forms, verify success & errors"
+                    ),
+                    QuestionOption(
+                        id="read_only",
+                        label="👁️ Read only",
+                        description="Navigation, search, filters, listings — no writes"
+                    ),
+                    QuestionOption(
+                        id="quick_smoke",
+                        label="⚡ Quick smoke",
+                        description="Just verify key pages load and respond correctly"
+                    ),
                 ],
                 screenshot_path=screenshot_path if screenshot_path and Path(screenshot_path).exists() else None
             )
-            
+
             return {
                 "summary": summary,
-                "next_state": RunState.DONE,  # Go directly to DONE, no interactive prompts
-                "question": None,  # No question needed
+                "next_state": RunState.WAIT_TEST_INTENT,
+                "question": question,
                 "screenshot_path": screenshot_path
             }
         
@@ -158,23 +180,22 @@ class DiscoverySummarizer:
             with open(summary_file, "w") as f:
                 json.dump(summary, f, indent=2)
             
-            # Create question
             question = Question(
                 id="test_intent",
                 type="select_one",
-                text="Discovery complete. What should I test now?",
+                text="Discovery complete. What would you like me to test?",
                 options=[
-                    QuestionOption(id="smoke", label="smoke"),
-                    QuestionOption(id="crud_sanity", label="crud_sanity"),
-                    QuestionOption(id="module_based", label="module_based"),
-                    QuestionOption(id="exploratory_15m", label="exploratory_15m")
+                    QuestionOption(id="everything", label="🚀 Test everything", description="Navigate all pages + test all Create/Edit forms"),
+                    QuestionOption(id="write_focus", label="📝 Forms & creation only", description="Focus on Create/Edit/Submit flows"),
+                    QuestionOption(id="read_only", label="👁️ Read only", description="Navigation, search, filters — no writes"),
+                    QuestionOption(id="quick_smoke", label="⚡ Quick smoke", description="Verify key pages load correctly"),
                 ]
             )
-            
+
             return {
                 "summary": summary,
-                "next_state": RunState.DONE,  # Go directly to DONE on error too
-                "question": None,  # No question needed
+                "next_state": RunState.WAIT_TEST_INTENT,
+                "question": question,
                 "screenshot_path": None
             }
 

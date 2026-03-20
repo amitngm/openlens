@@ -4229,6 +4229,12 @@ class DiscoveryRunner:
             # Scrape real data values for search/filter test generation
             scraped_data_samples = await self._scrape_real_data_from_page(page)
 
+            # Human-like: proactively click Create/Add/New buttons to discover hidden forms
+            create_forms = await self._explore_create_buttons(page, run_id, url)
+            if create_forms:
+                forms.extend(create_forms)
+                logger.info(f"[{run_id}] Found {len(create_forms)} additional form(s) via Create-button exploration on {url}")
+
             page_info = {
                 "url": url,
                 "nav_text": nav_text,
@@ -4376,6 +4382,189 @@ class DiscoveryRunner:
         
         return signature
     
+    async def _explore_create_buttons(self, page, run_id: str, page_url: str) -> List[Dict[str, Any]]:
+        """
+        Human-like exploration: find every visible Create/Add/New/+ button on the page,
+        click it, capture the form/modal that appears, then close it.
+        Returns a list of discovered form dicts (same shape as _get_forms_detailed).
+        """
+        discovered_forms: List[Dict[str, Any]] = []
+
+        # Keywords that indicate a "create" action
+        CREATE_KEYWORDS = ["create", "add", "new", "register", "invite", "import", "upload"]
+
+        # Selectors for clickable elements
+        CLICKABLE_SELECTORS = [
+            "button",
+            "[role='button']",
+            "a.btn", "a.button",
+            ".btn", ".button",
+        ]
+
+        seen_texts: set = set()
+
+        for sel in CLICKABLE_SELECTORS:
+            try:
+                elements = page.locator(sel)
+                count = await elements.count()
+                for i in range(min(count, 30)):
+                    try:
+                        el = elements.nth(i)
+                        # Only visible elements
+                        if not await el.is_visible():
+                            continue
+                        text = (await el.inner_text()).strip()
+                        if not text:
+                            # Try aria-label
+                            text = (await el.get_attribute("aria-label") or "").strip()
+                        if not text:
+                            continue
+
+                        text_lower = text.lower()
+                        # Must contain a create keyword; skip if already seen
+                        if not any(kw in text_lower for kw in CREATE_KEYWORDS):
+                            continue
+                        # Skip destructive/navigation buttons
+                        if any(bad in text_lower for bad in ["delete", "remove", "cancel", "close", "back", "logout"]):
+                            continue
+                        if text_lower in seen_texts:
+                            continue
+                        seen_texts.add(text_lower)
+
+                        logger.info(f"[{run_id}] 🖱️  Clicking create button: '{text}' on {page_url}")
+
+                        # Remember state before click
+                        url_before = page.url
+
+                        try:
+                            await el.click(timeout=3000)
+                        except Exception:
+                            continue
+
+                        # Wait briefly for any modal/drawer/form to appear
+                        await page.wait_for_timeout(1200)
+
+                        url_after = page.url
+                        navigated = (url_after != url_before)
+
+                        # --- Capture whatever appeared ---
+                        form_fields: List[Dict] = []
+
+                        # Approach A: a modal/dialog appeared
+                        modal_sel = "[role='dialog'], [role='alertdialog'], .modal, .drawer, .panel, .sheet, [data-modal]"
+                        modal = page.locator(modal_sel).first
+                        modal_visible = False
+                        try:
+                            modal_visible = await modal.is_visible()
+                        except Exception:
+                            pass
+
+                        if modal_visible:
+                            # Extract all input fields from the modal
+                            inputs = modal.locator("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea")
+                            inp_count = await inputs.count()
+                            for j in range(min(inp_count, 20)):
+                                try:
+                                    inp = inputs.nth(j)
+                                    field_info = {
+                                        "type": await inp.get_attribute("type") or await inp.evaluate("el => el.tagName.toLowerCase()"),
+                                        "name": await inp.get_attribute("name") or await inp.get_attribute("id") or "",
+                                        "placeholder": await inp.get_attribute("placeholder") or "",
+                                        "label": "",
+                                        "required": bool(await inp.get_attribute("required")),
+                                    }
+                                    # Try to find label text
+                                    try:
+                                        field_id = await inp.get_attribute("id")
+                                        if field_id:
+                                            lbl = modal.locator(f"label[for='{field_id}']")
+                                            if await lbl.count() > 0:
+                                                field_info["label"] = (await lbl.inner_text()).strip()
+                                    except Exception:
+                                        pass
+                                    form_fields.append(field_info)
+                                except Exception:
+                                    continue
+
+                            if form_fields:
+                                discovered_forms.append({
+                                    "trigger_text": text,
+                                    "trigger_type": "modal",
+                                    "source_url": page_url,
+                                    "method": "POST",
+                                    "fields": form_fields,
+                                    "field_count": len(form_fields),
+                                    "discovered_via": "create_button_click",
+                                })
+
+                            # Close the modal
+                            closed = False
+                            for close_sel in [
+                                "[aria-label*='close']", "[aria-label*='Close']",
+                                "button:has-text('Cancel')", "button:has-text('Close')",
+                                "button:has-text('×')", "button:has-text('✕')",
+                            ]:
+                                try:
+                                    btn = page.locator(close_sel).first
+                                    if await btn.is_visible():
+                                        await btn.click(timeout=2000)
+                                        closed = True
+                                        break
+                                except Exception:
+                                    continue
+                            if not closed:
+                                await page.keyboard.press("Escape")
+                            await page.wait_for_timeout(500)
+
+                        elif navigated:
+                            # Page navigated — a full-page form opened
+                            inputs = page.locator("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea")
+                            inp_count = await inputs.count()
+                            for j in range(min(inp_count, 20)):
+                                try:
+                                    inp = inputs.nth(j)
+                                    field_info = {
+                                        "type": await inp.get_attribute("type") or await inp.evaluate("el => el.tagName.toLowerCase()"),
+                                        "name": await inp.get_attribute("name") or await inp.get_attribute("id") or "",
+                                        "placeholder": await inp.get_attribute("placeholder") or "",
+                                        "label": "",
+                                        "required": bool(await inp.get_attribute("required")),
+                                    }
+                                    form_fields.append(field_info)
+                                except Exception:
+                                    continue
+
+                            if form_fields:
+                                discovered_forms.append({
+                                    "trigger_text": text,
+                                    "trigger_type": "page_navigation",
+                                    "source_url": page_url,
+                                    "target_url": url_after,
+                                    "method": "POST",
+                                    "fields": form_fields,
+                                    "field_count": len(form_fields),
+                                    "discovered_via": "create_button_click",
+                                })
+
+                            # Navigate back
+                            try:
+                                await page.go_back(timeout=4000)
+                                await page.wait_for_timeout(800)
+                            except Exception:
+                                try:
+                                    await page.goto(page_url, timeout=6000)
+                                    await page.wait_for_timeout(800)
+                                except Exception:
+                                    pass
+
+                    except Exception as btn_err:
+                        logger.debug(f"[{run_id}] Error exploring button: {btn_err}")
+                        continue
+            except Exception:
+                continue
+
+        return discovered_forms
+
     async def _get_primary_actions(self, page) -> List[Dict[str, Any]]:
         """Get primary action buttons (Create/Add/Edit/Delete)."""
         actions = []

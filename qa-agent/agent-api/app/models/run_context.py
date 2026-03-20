@@ -27,9 +27,10 @@ class AuthConfig(BaseModel):
 
 class QuestionOption(BaseModel):
     """Option for select_one question type."""
-    
+
     id: str = Field(..., description="Option identifier")
     label: str = Field(..., description="Display label for the option")
+    description: Optional[str] = Field(None, description="Short description shown below the label")
     
     class Config:
         json_schema_extra = {

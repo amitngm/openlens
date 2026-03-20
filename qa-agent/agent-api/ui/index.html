@@ -2138,31 +2138,15 @@
                             </div>
                         </details>
 
-                        <!-- Operations to Execute -->
+                        <!-- Test Mode — buddy asks after discovery -->
                         <div class="config-section" style="margin-top: 16px;">
-                            <label class="config-label" style="font-weight: 600; display: block; margin-bottom: 8px;">Operations to Execute</label>
-                            <div style="display: flex; gap: 16px; flex-wrap: wrap; padding: 10px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef;">
-                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
-                                    <input type="checkbox" id="op_read" checked disabled style="accent-color: #28a745;">
-                                    <span style="color: #28a745; font-weight: 500;">Read</span>
-                                    <small style="color: #6c757d;">(always on)</small>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
-                                    <input type="checkbox" id="op_create" onchange="updateOperations()">
-                                    <span>Create</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
-                                    <input type="checkbox" id="op_update" onchange="updateOperations()">
-                                    <span>Update</span>
-                                </label>
-                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
-                                    <input type="checkbox" id="op_delete" onchange="updateOperations()">
-                                    <span style="color: #dc3545;">Delete</span>
-                                </label>
+                            <label class="config-label" style="font-weight: 600; display: block; margin-bottom: 8px;">What to Test</label>
+                            <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: rgba(37,99,235,0.05); border-radius: 8px; border: 1px solid rgba(37,99,235,0.15);">
+                                <span style="font-size: 18px; line-height: 1;">🤖</span>
+                                <p style="margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+                                    Buddy will <strong style="color: var(--text-primary);">observe the UI like a human</strong> — it finds every button, form, and flow automatically. After discovery it will ask you exactly what to test (read-only, forms, everything).
+                                </p>
                             </div>
-                            <small style="color: #6c757d; font-size: 11px; display: block; margin-top: 4px;">
-                                Tests for all operations are always discovered. Only checked ones execute.
-                            </small>
                         </div>
 
                         <!-- Test Data Seeds -->
@@ -5749,10 +5733,21 @@
             if (question.type === 'select_one' && question.options) {
                 const options = document.createElement('div');
                 options.className = 'question-options';
+                options.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-top: 10px;';
                 question.options.forEach(option => {
                     const btn = document.createElement('button');
                     btn.className = 'option-button';
-                    btn.textContent = option.label || option.id;
+                    btn.style.cssText = 'display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 10px 14px; gap: 2px;';
+                    const labelEl = document.createElement('span');
+                    labelEl.style.cssText = 'font-weight: 600; font-size: 13px;';
+                    labelEl.textContent = option.label || option.id;
+                    btn.appendChild(labelEl);
+                    if (option.description) {
+                        const descEl = document.createElement('span');
+                        descEl.style.cssText = 'font-size: 11px; font-weight: 400; opacity: 0.7; line-height: 1.4;';
+                        descEl.textContent = option.description;
+                        btn.appendChild(descEl);
+                    }
                     btn.onclick = () => submitAnswer(question.id, option.id);
                     options.appendChild(btn);
                 });
@@ -5993,15 +5988,9 @@
         }
 
         function updateOperations() {
-            // Called when operation checkboxes change
-            const ops = {
-                read: true,  // always enabled
-                create: document.getElementById('op_create')?.checked || false,
-                update: document.getElementById('op_update')?.checked || false,
-                delete: document.getElementById('op_delete')?.checked || false
-            };
-            console.log('Operations updated:', ops);
-            return ops;
+            // Buddy determines what to test based on user's post-discovery answer
+            // Default: read-only until buddy asks and user confirms write operations
+            return { read: true, create: false, update: false, delete: false };
         }
 
         function getSeedData() {

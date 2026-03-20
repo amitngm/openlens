@@ -2000,23 +2000,43 @@ async def answer_question(
                     message = "Proceeding with existing session (context detection failed)"
         
         elif context.state == RunState.WAIT_TEST_INTENT:
-            # User selected test intent - build test plan
-            test_intent = request.answer.lower().strip()
-            
-            if test_intent not in ["smoke", "crud_sanity", "module_based", "exploratory_15m"]:
+            # User selected test intent - translate human choice to internal intent + ops
+            raw_answer = request.answer.lower().strip()
+
+            # Map human-friendly answers → (internal_intent, enabled_operations)
+            INTENT_MAP = {
+                # New human options
+                "everything":   ("exploratory_15m", {"read": True, "create": True, "update": True, "delete": False}),
+                "write_focus":  ("crud_sanity",     {"read": True, "create": True, "update": True, "delete": False}),
+                "read_only":    ("smoke",            {"read": True, "create": False, "update": False, "delete": False}),
+                "quick_smoke":  ("smoke",            {"read": True, "create": False, "update": False, "delete": False}),
+                # Legacy options (keep backward compat)
+                "smoke":            ("smoke",            {"read": True, "create": False, "update": False, "delete": False}),
+                "crud_sanity":      ("crud_sanity",      {"read": True, "create": True, "update": True, "delete": False}),
+                "module_based":     ("module_based",     {"read": True, "create": True, "update": True, "delete": False}),
+                "exploratory_15m":  ("exploratory_15m",  {"read": True, "create": True, "update": True, "delete": False}),
+            }
+
+            if raw_answer not in INTENT_MAP:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid test intent: {test_intent}. Expected: smoke, crud_sanity, module_based, or exploratory_15m"
+                    detail=f"Unknown test intent: '{raw_answer}'. Choose: everything, write_focus, read_only, quick_smoke"
                 )
-            
+
+            test_intent, auto_ops = INTENT_MAP[raw_answer]
+            logger.info(f"[{run_id}] Test intent '{raw_answer}' → '{test_intent}', ops={auto_ops}")
+
+            # Apply auto-detected operations (overrides any checkbox selection)
+            context = _run_store.update_run(run_id, enabled_operations=auto_ops)
+
             # Transition to TEST_PLAN_BUILD
             new_state = RunState.TEST_PLAN_BUILD
             context = _run_store.transition_state(run_id, new_state)
-            
+
             # Build test plan
             browser_manager = get_browser_manager()
             test_plan_builder = get_test_plan_builder()
-            
+
             try:
                 page = await browser_manager.get_page(
                     run_id,
