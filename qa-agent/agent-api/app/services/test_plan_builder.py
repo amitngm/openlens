@@ -20,7 +20,8 @@ class TestPlanBuilder:
         page,
         run_id: str,
         artifacts_path: str,
-        test_intent: str
+        test_intent: str,
+        app_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Build test plan based on user's selected intent.
@@ -41,21 +42,28 @@ class TestPlanBuilder:
         try:
             discovery_dir = Path(artifacts_path)
             discovery_file = discovery_dir / "discovery.json"
-            
+
             if not discovery_file.exists():
                 raise FileNotFoundError("discovery.json not found")
-            
+
             with open(discovery_file) as f:
                 discovery_data = json.load(f)
-            
+
             base_url = discovery_data.get("base_url", "")
             pages = discovery_data.get("pages", [])
             forms_found = discovery_data.get("forms_found", [])
             api_endpoints = discovery_data.get("api_endpoints", [])
-            
+
+            # Determine feature priorities based on app_type
+            # This influences which tests are generated and in what order
+            effective_app_type = app_type or "auto"
+            feature_priorities = self._get_feature_priorities(effective_app_type)
+            logger.info(f"[{run_id}] app_type={effective_app_type!r}, feature priorities: {feature_priorities}")
+
             test_plan = {
                 "run_id": run_id,
                 "test_intent": test_intent,
+                "app_type": effective_app_type,
                 "generated_at": None,
                 "total_tests": 0,
                 "tests": []
@@ -530,6 +538,49 @@ class TestPlanBuilder:
         """Get current timestamp in ISO format."""
         from datetime import datetime
         return datetime.utcnow().isoformat() + "Z"
+
+    def _get_feature_priorities(self, app_type: str) -> List[str]:
+        """Return an ordered list of feature types to prioritise for the given app type.
+
+        The order determines which test categories are generated first and which
+        modules receive the most coverage when tests are prioritised.
+        """
+        priority_map: Dict[str, List[str]] = {
+            "e_commerce": [
+                "search", "filter", "listing", "form", "modal",
+                "button_actions", "pagination", "navigation"
+            ],
+            "admin_panel": [
+                "listing", "form", "filter", "modal", "button_actions",
+                "search", "pagination", "navigation", "tabs"
+            ],
+            "saas_dashboard": [
+                "navigation", "tabs", "listing", "filter", "search",
+                "button_actions", "modal", "pagination"
+            ],
+            "cms": [
+                "form", "modal", "listing", "filter", "search",
+                "button_actions", "navigation", "tabs", "pagination"
+            ],
+            "crm": [
+                "listing", "search", "filter", "form", "modal",
+                "button_actions", "pagination", "navigation"
+            ],
+            "dev_tools": [
+                "listing", "search", "navigation", "tabs", "filter",
+                "button_actions", "modal", "form", "pagination"
+            ],
+            "web_app": [
+                "navigation", "search", "listing", "form", "filter",
+                "pagination", "modal", "tabs", "button_actions"
+            ],
+        }
+        # auto: balanced order covering all feature types
+        default = [
+            "listing", "search", "filter", "form", "navigation",
+            "pagination", "modal", "tabs", "button_actions"
+        ]
+        return priority_map.get(app_type, default)
 
 
 # Global test plan builder instance

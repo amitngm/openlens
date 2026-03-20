@@ -44,7 +44,8 @@ class RunStore:
         max_table_rows_to_click: Optional[int] = None,
         max_discovery_time_minutes: Optional[int] = None,
         close_browser_on_complete: bool = False,
-        ai_config: Optional[AIConfig] = None
+        ai_config: Optional[AIConfig] = None,
+        app_type: Optional[str] = None
     ) -> RunContext:
         """
         Create a new run context.
@@ -79,6 +80,7 @@ class RunStore:
             max_discovery_time_minutes=max_discovery_time_minutes,
             close_browser_on_complete=close_browser_on_complete,
             ai_config=ai_config,
+            app_type=app_type,
             timestamps={RunState.START.value: datetime.utcnow().isoformat() + "Z"}
         )
         

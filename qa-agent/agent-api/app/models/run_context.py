@@ -103,6 +103,15 @@ class RunContext(BaseModel):
         description="AI/LLM configuration for intelligent test generation"
     )
     
+    # App type hint for tailored test generation across any UI application
+    app_type: Optional[str] = Field(
+        None,
+        description=(
+            "Application type for tailored test generation. "
+            "E.g. 'web_app', 'e_commerce', 'admin_panel', 'saas_dashboard', 'cms', 'crm', 'dev_tools', 'auto'."
+        )
+    )
+
     # Discovery configuration overrides (optional)
     max_pages: Optional[int] = Field(None, description="Maximum pages to discover (default: 2000)")
     max_forms_per_page: Optional[int] = Field(None, description="Maximum forms to process per page (default: 50)")

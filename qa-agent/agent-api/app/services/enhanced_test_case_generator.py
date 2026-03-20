@@ -115,6 +115,27 @@ class SmartSelectorDetector:
 
             return "table, .table, .list-view, [role='table']"
 
+        elif feature_type == "form":
+            # Look for actual form elements discovered on the page
+            forms = page_info.get("forms", [])
+            if forms:
+                action = forms[0].get("action", "")
+                if action:
+                    return f"form[action='{action}']"
+            return "form, [role='form']"
+
+        elif feature_type == "modal":
+            return "[role='dialog'], .modal, .dialog, [aria-modal='true']"
+
+        elif feature_type == "navigation":
+            return "nav, aside, [role='navigation'], .sidebar, .navbar"
+
+        elif feature_type == "tabs":
+            return "[role='tablist'], .tabs, .nav-tabs"
+
+        elif feature_type == "button_actions":
+            return "button:not([disabled]), [role='button']:not([aria-disabled='true'])"
+
         return None
 
     def _get_fallback_selector(self, feature_type: str) -> Optional[str]:
@@ -123,7 +144,12 @@ class SmartSelectorDetector:
             "search": "input[type='search'], input[placeholder*='search' i]",
             "pagination": ".pagination, [role='navigation']",
             "filter": "select[name*='filter'], .filter-controls",
-            "listing": "table, [role='table'], .list-view"
+            "listing": "table, [role='table'], .list-view",
+            "form": "form, [role='form']",
+            "modal": "[role='dialog'], .modal, .dialog",
+            "navigation": "nav, aside, [role='navigation']",
+            "tabs": "[role='tablist'], .tabs, .nav-tabs",
+            "button_actions": "button:not([disabled])",
         }
         return fallback_map.get(feature_type)
 
@@ -395,26 +421,75 @@ class EnhancedTestCaseGenerator:
         return test_cases
 
     def _detect_all_features(self, page_info: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-        """Detect all features present on the page."""
-        detected = {}
+        """Detect all features present on the page.
 
+        Uses both legacy heuristics (primary_actions, forms, tables) and the
+        richer ``ui_features`` dict produced by DiscoveryRunner._detect_ui_features().
+        """
+        detected = {}
         page_sig = page_info.get("page_signature", {})
 
-        # Detect search
+        # ── Legacy heuristics (always run for backward compatibility) ──────────
         if self._has_search(page_sig, page_info):
             detected["search"] = {"detected": True, "confidence": "high"}
 
-        # Detect pagination
         if self._has_pagination(page_sig, page_info):
             detected["pagination"] = {"detected": True, "confidence": "high"}
 
-        # Detect filters
         if self._has_filters(page_sig, page_info):
             detected["filter"] = {"detected": True, "confidence": "high"}
 
-        # Detect listing/table
         if self._has_listing(page_sig, page_info):
             detected["listing"] = {"detected": True, "confidence": "high"}
+
+        # ── Rich feature detection from _detect_ui_features() ─────────────────
+        # discovery_runner stores per-page ui_features in page_info["ui_features"]
+        ui_features: Dict[str, Any] = page_info.get("ui_features", {})
+
+        # Tabs
+        if ui_features.get("tabs", {}).get("detected"):
+            tabs_info = ui_features["tabs"]
+            detected["tabs"] = {
+                "detected": True,
+                "confidence": "high",
+                "count": tabs_info.get("count", 0),
+                "tab_labels": tabs_info.get("tab_labels", [])
+            }
+
+        # Modals / dialogs
+        if ui_features.get("modal", {}).get("detected"):
+            detected["modal"] = {
+                "detected": True,
+                "confidence": "high",
+                "trigger_count": ui_features["modal"].get("trigger_count", 0)
+            }
+
+        # Navigation menus
+        if ui_features.get("navigation", {}).get("detected"):
+            detected["navigation"] = {"detected": True, "confidence": "high"}
+
+        # Form validation (only if page_info has actual forms; avoids false positives)
+        if ui_features.get("form", {}).get("detected") or (
+            not detected.get("form") and page_info.get("forms") and len(page_info["forms"]) > 0
+        ):
+            form_info = ui_features.get("form", {})
+            detected["form"] = {
+                "detected": True,
+                "confidence": "high",
+                "required_fields": form_info.get("required_fields", 0),
+                "email_fields": form_info.get("email_fields", 0),
+                "password_fields": form_info.get("password_fields", 0)
+            }
+
+        # Button actions
+        if ui_features.get("button_actions", {}).get("detected"):
+            btn_info = ui_features["button_actions"]
+            detected["button_actions"] = {
+                "detected": True,
+                "confidence": "medium",
+                "clickable": btn_info.get("clickable", 0),
+                "disabled": btn_info.get("disabled", 0)
+            }
 
         return detected
 

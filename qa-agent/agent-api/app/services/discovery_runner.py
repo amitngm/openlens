@@ -3845,6 +3845,122 @@ class DiscoveryRunner:
         except Exception as e:
             logger.warning(f"[{run_id}] Error discovering clickable elements: {e}")
     
+    async def _detect_ui_features(self, page) -> Dict[str, Any]:
+        """
+        Detect additional UI features on a page for comprehensive test coverage.
+
+        Detects: tabs, modals, date pickers, file uploads, notifications,
+        form validation, button actions, and navigation elements.
+
+        Returns a dict of detected feature types mapped to their details.
+        """
+        features: Dict[str, Any] = {}
+
+        # --- Tab panels ---
+        try:
+            tab_count = await page.locator("[role='tablist'], .tabs, .nav-tabs, .tab-list").count()
+            if tab_count > 0:
+                tabs = []
+                tab_items = page.locator("[role='tab'], .tab-button, .nav-tabs .nav-link")
+                n = await tab_items.count()
+                for i in range(min(n, 20)):
+                    try:
+                        txt = (await tab_items.nth(i).inner_text()).strip()
+                        if txt:
+                            tabs.append(txt)
+                    except Exception:
+                        pass
+                features["tabs"] = {"detected": True, "tab_labels": tabs, "count": len(tabs)}
+        except Exception:
+            pass
+
+        # --- Modals / Dialogs ---
+        try:
+            modal_triggers = await page.locator(
+                "button[data-toggle='modal'], [data-bs-toggle='modal'], "
+                "button[aria-haspopup='dialog'], .open-modal"
+            ).count()
+            if modal_triggers > 0:
+                features["modal"] = {"detected": True, "trigger_count": modal_triggers}
+        except Exception:
+            pass
+
+        # --- Date pickers ---
+        try:
+            date_inputs = await page.locator(
+                "input[type='date'], input[type='datetime-local'], "
+                ".datepicker, .date-picker, [class*='datepicker']"
+            ).count()
+            if date_inputs > 0:
+                features["date_picker"] = {"detected": True, "count": date_inputs}
+        except Exception:
+            pass
+
+        # --- File upload ---
+        try:
+            file_inputs = await page.locator("input[type='file']").count()
+            if file_inputs > 0:
+                features["file_upload"] = {"detected": True, "count": file_inputs}
+        except Exception:
+            pass
+
+        # --- Notifications / Alerts ---
+        try:
+            notification_count = await page.locator(
+                "[role='alert'], .alert, .notification, .toast, .snackbar, [class*='notification']"
+            ).count()
+            if notification_count > 0:
+                features["notification"] = {"detected": True, "count": notification_count}
+        except Exception:
+            pass
+
+        # --- Forms with validation ---
+        try:
+            required_fields = await page.locator("input[required], select[required], textarea[required]").count()
+            email_fields = await page.locator("input[type='email']").count()
+            password_fields = await page.locator("input[type='password']").count()
+            if required_fields > 0 or email_fields > 0:
+                features["form"] = {
+                    "detected": True,
+                    "required_fields": required_fields,
+                    "email_fields": email_fields,
+                    "password_fields": password_fields
+                }
+        except Exception:
+            pass
+
+        # --- Navigation elements ---
+        try:
+            nav_count = await page.locator("nav, aside, [role='navigation'], .sidebar, .navbar").count()
+            if nav_count > 0:
+                features["navigation"] = {"detected": True}
+        except Exception:
+            pass
+
+        # --- Button actions ---
+        try:
+            action_buttons = await page.locator("button:not([disabled]), [role='button']:not([aria-disabled='true'])").count()
+            disabled_buttons = await page.locator("button[disabled], [aria-disabled='true']").count()
+            if action_buttons > 0:
+                features["button_actions"] = {
+                    "detected": True,
+                    "clickable": action_buttons,
+                    "disabled": disabled_buttons
+                }
+        except Exception:
+            pass
+
+        # --- Multi-select / Checkbox groups ---
+        try:
+            checkboxes = await page.locator("input[type='checkbox']").count()
+            radios = await page.locator("input[type='radio']").count()
+            if checkboxes > 2 or radios > 1:
+                features["checkbox_group"] = {"detected": True, "checkboxes": checkboxes, "radios": radios}
+        except Exception:
+            pass
+
+        return features
+
     async def _analyze_page_enhanced(
         self,
         page,
@@ -3858,19 +3974,22 @@ class DiscoveryRunner:
         """Enhanced page analysis with detailed form/field inspection."""
         try:
             title = await page.title()
-            
+
             # Get page signature (heading/breadcrumb)
             page_signature = await self._get_page_signature(page)
-            
+
             # Get primary actions
             primary_actions = await self._get_primary_actions(page)
-            
+
             # Get forms with detailed field info
             forms = await self._get_forms_detailed(page, url)
-            
+
             # Get tables
             tables = await self._get_tables(page)
-            
+
+            # Detect additional UI features for comprehensive test generation
+            ui_features = await self._detect_ui_features(page)
+
             page_info = {
                 "url": url,
                 "nav_text": nav_text,
@@ -3878,7 +3997,8 @@ class DiscoveryRunner:
                 "page_signature": page_signature,
                 "primary_actions": primary_actions,
                 "forms": forms,
-                "tables": tables
+                "tables": tables,
+                "ui_features": ui_features
             }
             
             # Screenshot

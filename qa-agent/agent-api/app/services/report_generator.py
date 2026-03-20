@@ -235,36 +235,173 @@ class ReportGenerator:
             crud_count = discovery_summary.get("potential_crud_actions_count", 0)
             errors_count = discovery_summary.get("network_errors_count", 0)
             slow_count = discovery_summary.get("slow_requests_count", 0)
-            
+
+            # Build detected features badges
+            detected_features = discovery_summary.get("detected_features", {})
+            feature_badges_html = ""
+            feature_display_names = {
+                "search": "Search",
+                "pagination": "Pagination",
+                "filter": "Filters",
+                "listing": "Tables/Lists",
+                "form": "Forms",
+                "modal": "Modals",
+                "navigation": "Navigation",
+                "tabs": "Tabs",
+                "button_actions": "Buttons",
+                "date_picker": "Date Pickers",
+                "file_upload": "File Upload",
+                "notification": "Notifications",
+                "checkbox_group": "Checkboxes",
+            }
+            for feat_key, feat_label in feature_display_names.items():
+                if feat_key in detected_features:
+                    feature_badges_html += f'<span class="badge bg-info text-dark me-1">{feat_label}</span>'
+
             discovery_html = f"""
             <div class="card mb-4">
-                <div class="card-header">
-                    <h5>Discovery Summary</h5>
+                <div class="card-header bg-light">
+                    <h5 class="mb-0">Discovery Summary</h5>
                 </div>
                 <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-3">
-                            <strong>Pages:</strong> {pages_count}
+                    <div class="row g-3 mb-3">
+                        <div class="col-6 col-md-2">
+                            <div class="border rounded p-2 text-center">
+                                <div class="fs-4 fw-bold text-primary">{pages_count}</div>
+                                <div class="small text-muted">Pages</div>
+                            </div>
                         </div>
-                        <div class="col-md-3">
-                            <strong>Forms:</strong> {forms_count}
+                        <div class="col-6 col-md-2">
+                            <div class="border rounded p-2 text-center">
+                                <div class="fs-4 fw-bold text-info">{forms_count}</div>
+                                <div class="small text-muted">Forms</div>
+                            </div>
                         </div>
-                        <div class="col-md-3">
-                            <strong>CRUD Actions:</strong> {crud_count}
+                        <div class="col-6 col-md-2">
+                            <div class="border rounded p-2 text-center">
+                                <div class="fs-4 fw-bold text-secondary">{crud_count}</div>
+                                <div class="small text-muted">CRUD Actions</div>
+                            </div>
                         </div>
-                        <div class="col-md-3">
-                            <strong>Network Errors:</strong> {errors_count}
+                        <div class="col-6 col-md-2">
+                            <div class="border rounded p-2 text-center">
+                                <div class="fs-4 fw-bold {'text-danger' if errors_count > 0 else 'text-success'}">{errors_count}</div>
+                                <div class="small text-muted">Network Errors</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <div class="border rounded p-2 text-center">
+                                <div class="fs-4 fw-bold {'text-warning' if slow_count > 0 else 'text-success'}">{slow_count}</div>
+                                <div class="small text-muted">Slow Requests</div>
+                            </div>
                         </div>
                     </div>
-                    <div class="row mt-2">
+                    {f'<div><strong>Detected UI Features:</strong> <span class="ms-2">{feature_badges_html}</span></div>' if feature_badges_html else ''}
+                </div>
+            </div>
+            """
+
+        # Coverage section HTML
+        coverage_html = ""
+        coverage_data = report_data.get("coverage", {})
+        if coverage_data:
+            overall_pct = coverage_data.get("overall_coverage_percentage", 0)
+            coverage_color = "success" if overall_pct >= 80 else "warning" if overall_pct >= 50 else "danger"
+            req_met = coverage_data.get("requirements_met", True)
+
+            # Feature coverage rows
+            feature_rows_html = ""
+            for feat_type, feat_cov in coverage_data.get("feature_coverage", {}).items():
+                feat_pct = feat_cov.get("coverage_percentage", 0)
+                feat_color = "success" if feat_pct >= 80 else "warning" if feat_pct >= 50 else "danger"
+                actual = feat_cov.get("actual_total", 0)
+                expected = feat_cov.get("expected_total", 0)
+                feature_rows_html += f"""
+                <tr>
+                    <td>{feat_type.replace('_', ' ').title()}</td>
+                    <td>
+                        <div class="progress" style="height:18px;">
+                            <div class="progress-bar bg-{feat_color}" role="progressbar"
+                                style="width:{min(feat_pct, 100):.0f}%">{feat_pct:.0f}%</div>
+                        </div>
+                    </td>
+                    <td class="text-center">{actual} / {expected}</td>
+                    <td>{'<span class="text-success">&#10003;</span>' if feat_cov.get("requirements_met") else '<span class="text-danger">&#10007;</span>'}</td>
+                </tr>"""
+
+            # Category coverage
+            cat_rows_html = ""
+            for cat, cat_cov in coverage_data.get("category_coverage", {}).items():
+                if cat_cov.get("expected", 0) > 0:
+                    cat_pct = cat_cov.get("percentage", 0)
+                    cat_color = "success" if cat_pct >= 70 else "warning" if cat_pct >= 40 else "danger"
+                    cat_rows_html += f"""
+                    <tr>
+                        <td>{cat.capitalize()}</td>
+                        <td>
+                            <div class="progress" style="height:18px;">
+                                <div class="progress-bar bg-{cat_color}" role="progressbar"
+                                    style="width:{min(cat_pct, 100):.0f}%">{cat_pct:.0f}%</div>
+                            </div>
+                        </td>
+                        <td class="text-center">{cat_cov.get("actual", 0)} / {cat_cov.get("expected", 0)}</td>
+                    </tr>"""
+
+            # Recommendations
+            recs_html = ""
+            for rec in coverage_data.get("recommendations", [])[:5]:
+                icon = "&#9888;" if "CRITICAL" in rec else "&#9432;"
+                recs_html += f'<li class="list-group-item">{icon} {rec}</li>'
+
+            coverage_html = f"""
+            <div class="card mb-4">
+                <div class="card-header bg-light d-flex align-items-center justify-content-between">
+                    <h5 class="mb-0">Test Coverage</h5>
+                    <span class="badge bg-{coverage_color} fs-6">{overall_pct:.1f}% Overall</span>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <div class="progress mb-2" style="height:30px;">
+                                <div class="progress-bar bg-{coverage_color} fs-6" role="progressbar"
+                                    style="width:{min(overall_pct, 100):.0f}%">{overall_pct:.1f}%</div>
+                            </div>
+                            <div class="small text-muted">
+                                Requirements Met: {'<span class="text-success fw-bold">YES</span>' if req_met else '<span class="text-danger fw-bold">NO</span>'}
+                                &nbsp;|&nbsp;
+                                Total: {coverage_data.get("summary", {}).get("total_actual_tests", 0)} /
+                                {coverage_data.get("summary", {}).get("total_expected_tests", 0)} tests
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Feature Coverage</h6>
+                            <table class="table table-sm table-bordered">
+                                <thead class="table-light">
+                                    <tr><th>Feature</th><th>Coverage</th><th>Tests</th><th>Req.</th></tr>
+                                </thead>
+                                <tbody>{feature_rows_html if feature_rows_html else '<tr><td colspan="4" class="text-muted text-center">No feature data</td></tr>'}</tbody>
+                            </table>
+                        </div>
                         <div class="col-md-3">
-                            <strong>Slow Requests:</strong> {slow_count}
+                            <h6>By Category</h6>
+                            <table class="table table-sm table-bordered">
+                                <thead class="table-light">
+                                    <tr><th>Category</th><th>Coverage</th><th>Count</th></tr>
+                                </thead>
+                                <tbody>{cat_rows_html if cat_rows_html else '<tr><td colspan="3" class="text-muted text-center">N/A</td></tr>'}</tbody>
+                            </table>
+                        </div>
+                        <div class="col-md-3">
+                            <h6>Recommendations</h6>
+                            <ul class="list-group list-group-flush small">{recs_html if recs_html else '<li class="list-group-item text-muted">All coverage targets met.</li>'}</ul>
                         </div>
                     </div>
                 </div>
             </div>
             """
-        
+
         # Generate full HTML
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -345,13 +482,15 @@ class ReportGenerator:
         </div>
         
         {discovery_html}
-        
+
+        {coverage_html}
+
         <div class="card">
-            <div class="card-header">
-                <h5>Test Results</h5>
+            <div class="card-header bg-light">
+                <h5 class="mb-0">Test Results</h5>
             </div>
             <div class="card-body">
-                {tests_html if tests_html else "<p>No tests executed.</p>"}
+                {tests_html if tests_html else "<p class='text-muted'>No tests executed.</p>"}
             </div>
         </div>
     </div>

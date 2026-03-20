@@ -1,9 +1,13 @@
 # QA Buddy Dependencies
 # Core web framework
 fastapi==0.128.0
-uvicorn==0.40.0
+# NOTE: uvicorn 0.40+ requires Python >=3.10. This project currently supports
+# running on Python 3.9 (common default on some macOS setups), so we pin to the
+# latest uvicorn version that still supports Python 3.9.
+uvicorn==0.39.0
 pydantic==2.12.5
-python-multipart==0.0.21
+# 0.0.21+ requires Python >=3.10
+python-multipart==0.0.20
 
 # Browser automation
 playwright==1.57.0

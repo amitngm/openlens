@@ -4,7 +4,7 @@ import logging
 import platform
 import subprocess
 import sys
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from pathlib import Path
 
 try:
@@ -26,6 +26,7 @@ class BrowserManager:
         self._contexts: Dict[str, BrowserContext] = {}
         self._pages: Dict[str, Page] = {}
         self._playwright = None
+        self._browser_engine_by_run: Dict[str, str] = {}
     
     async def initialize(self):
         """Initialize Playwright."""
@@ -47,8 +48,11 @@ class BrowserManager:
             bool: True if browsers are available, False if installation failed
         """
         try:
-            # Try to launch browser to check if it exists
-            test_browser = await self._playwright.chromium.launch(headless=True)
+            # macOS + recent Playwright may choose "chromium_headless_shell" for headless Chromium.
+            # On some macOS setups this binary can crash (SIGSEGV). Use Firefox for the
+            # smoke-test so runs aren't blocked by the headless shell path.
+            test_engine = "firefox" if platform.system() == "Darwin" else "chromium"
+            test_browser = await getattr(self._playwright, test_engine).launch(headless=True)
             await test_browser.close()
             logger.info("Playwright browsers already installed")
             return True
@@ -131,11 +135,53 @@ class BrowserManager:
             )
 
         # Launch browser
-        logger.info(f"[{run_id}] Launching browser (headless={launch_headless})")
-        browser = await self._playwright.chromium.launch(
-            headless=launch_headless,
-            slow_mo=launch_slow_mo
+        # Prefer Chromium for headed/debug runs. On macOS, headless Chromium may route to
+        # "chromium_headless_shell" which can crash on some machines, so use Firefox for headless.
+        is_macos = platform.system() == "Darwin"
+
+        # If you want the run to open *Google Chrome* specifically, Playwright supports
+        # this via the "chrome" channel (uses the locally installed Chrome).
+        # We'll prefer Chrome for headed/debug runs (so you can watch it),
+        # and also try it for headless if available.
+        engine = "chromium"
+        launch_kwargs: Dict[str, Any] = {
+            "headless": launch_headless,
+            "slow_mo": launch_slow_mo,
+        }
+
+        if is_macos:
+            # Prefer using installed Google Chrome.
+            launch_kwargs["channel"] = "chrome"
+
+            # On some macOS setups, Playwright's default headless Chromium shell can crash.
+            # Using the Chrome channel avoids that in many cases; if it still fails, we'll fall back.
+            if launch_headless:
+                engine = "chromium"
+
+        logger.info(
+            f"[{run_id}] Launching browser engine={engine} "
+            f"(headless={launch_headless}, channel={launch_kwargs.get('channel')})"
         )
+
+        try:
+            browser = await getattr(self._playwright, engine).launch(**launch_kwargs)
+        except Exception:
+            # Fallback: try the other engine once to keep the run moving.
+            fallback = "firefox" if engine == "chromium" else "chromium"
+            logger.warning(
+                f"[{run_id}] Failed launching engine={engine} (channel={launch_kwargs.get('channel')}). "
+                f"Falling back to {fallback}.",
+                exc_info=True,
+            )
+
+            # If falling back to firefox, drop chrome-specific kwargs.
+            if fallback == "firefox":
+                launch_kwargs.pop("channel", None)
+
+            browser = await getattr(self._playwright, fallback).launch(**launch_kwargs)
+            engine = fallback
+
+        self._browser_engine_by_run[run_id] = engine
         self._browsers[run_id] = browser
 
         context_kwargs = {

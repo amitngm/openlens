@@ -76,6 +76,16 @@ class DiscoverySummarizer:
             slow_requests = network_stats.get("slow_requests", [])
             slow_requests_count = len(slow_requests)
             
+            # Aggregate ui_features across all discovered pages
+            aggregated_features: Dict[str, Any] = {}
+            for page_entry in pages:
+                page_ui_feats = page_entry.get("ui_features", {})
+                for feat_key, feat_val in page_ui_feats.items():
+                    if feat_val.get("detected"):
+                        if feat_key not in aggregated_features:
+                            aggregated_features[feat_key] = {"detected": True, "page_count": 0}
+                        aggregated_features[feat_key]["page_count"] += 1
+
             # Build summary
             summary = {
                 "pages_count": len(pages),
@@ -83,14 +93,15 @@ class DiscoverySummarizer:
                 "forms_count": len(forms_found),
                 "potential_crud_actions_count": potential_crud_actions,
                 "network_errors_count": network_errors_count,
-                "slow_requests_count": slow_requests_count
+                "slow_requests_count": slow_requests_count,
+                "detected_features": aggregated_features,
             }
-            
+
             # Save summary to JSON file
             summary_file = discovery_dir / "discovery_summary.json"
             with open(summary_file, "w") as f:
                 json.dump(summary, f, indent=2)
-            
+
             logger.info(f"[{run_id}] Discovery summary generated: {summary}")
             
             # Capture screenshot
@@ -136,7 +147,8 @@ class DiscoverySummarizer:
                 "forms_count": 0,
                 "potential_crud_actions_count": 0,
                 "network_errors_count": 0,
-                "slow_requests_count": 0
+                "slow_requests_count": 0,
+                "detected_features": {},
             }
             
             # Save default summary

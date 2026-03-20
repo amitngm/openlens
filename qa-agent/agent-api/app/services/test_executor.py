@@ -212,13 +212,81 @@ class TestExecutor:
             # Finalize report
             report["status"] = "completed" if report["failed"] == 0 else "failed"
             report["completed_at"] = datetime.utcnow().isoformat() + "Z"
-            
+
             # Validate report
             if len(report["tests"]) == 0:
                 logger.error(f"[{run_id}] ERROR: No test results in report! Expected {total_tests} tests")
                 report["status"] = "failed"
                 report["error"] = f"No tests were executed. Expected {total_tests} tests but got 0 results."
-            
+
+            # ── Calculate test coverage and embed in report ──────────────────
+            try:
+                from app.services.coverage_engine import TestCoverageEngine, CoverageAnalyzer
+                from app.models.test_case_models import TestCase
+
+                # Load generated test cases from discovery (if available)
+                generated_test_cases: List[TestCase] = []
+                discovery_file = artifacts_dir / "discovery.json"
+                if discovery_file.exists():
+                    with open(discovery_file) as _df:
+                        discovery_data = json.load(_df)
+                    # Build minimal TestCase stubs from the executed tests for coverage
+                    for t in report["tests"]:
+                        try:
+                            severity = t.get("severity", "medium")
+                            tc = TestCase(
+                                id=t.get("test_id", t.get("id", "")),
+                                name=t.get("name", ""),
+                                description="",
+                                feature_type=t.get("feature_type", "listing"),
+                                test_category=t.get("test_category", "positive"),
+                                severity=severity,
+                                priority=severity,
+                                steps=[],
+                                validation_rule_id=t.get("validation_rule_id", ""),
+                                expected_result="",
+                                assertion_type="visible",
+                                page_url=t.get("page_url", ""),
+                                page_name=t.get("page_name", ""),
+                            )
+                            tc.status = t.get("status", "skipped")
+                            generated_test_cases.append(tc)
+                        except Exception:
+                            pass
+
+                    # Build detected_features map from discovery pages
+                    detected_features_map: Dict[str, Any] = {}
+                    for p in discovery_data.get("pages", []):
+                        for feat_key, feat_val in p.get("ui_features", {}).items():
+                            if feat_val.get("detected") and feat_key not in detected_features_map:
+                                detected_features_map[feat_key] = feat_val
+                    # Also add legacy features (search/pagination/filter/listing from tables/forms)
+                    if discovery_data.get("forms_found"):
+                        detected_features_map.setdefault("form", {"detected": True})
+                        detected_features_map.setdefault("listing", {"detected": True})
+
+                    coverage_engine = TestCoverageEngine()
+                    coverage_report = coverage_engine.calculate_coverage(
+                        detected_features=detected_features_map,
+                        generated_tests=generated_test_cases
+                    )
+
+                    quality_analyzer = CoverageAnalyzer()
+                    quality_report = quality_analyzer.analyze_test_quality(generated_test_cases)
+
+                    report["coverage"] = coverage_report
+                    report["test_quality"] = {
+                        "score": quality_report.get("quality_score", 0),
+                        "issues": quality_report.get("issues", [])[:10],
+                    }
+                    logger.info(
+                        f"[{run_id}] Coverage calculated: "
+                        f"{coverage_report.get('overall_coverage_percentage', 0):.1f}% overall"
+                    )
+
+            except Exception as _cov_err:
+                logger.warning(f"[{run_id}] Coverage calculation skipped: {_cov_err}")
+
             # Save report to JSON file
             report_file = artifacts_dir / "report.json"
             with open(report_file, "w") as f:

@@ -58,6 +58,19 @@ class StartRunRequest(BaseModel):
     test_phase: Optional[str] = Field("phase1_get_operations", description="Test phase: phase1_get_operations or phase2_full_testing")
     close_browser_on_complete: Optional[bool] = Field(False, description="Close browser automatically when tests complete")
 
+    # App type hint - helps tailor discovery and test generation for any UI application
+    app_type: Optional[str] = Field(
+        None,
+        description=(
+            "Application type hint for tailored test generation. "
+            "Options: 'web_app' (generic SPA/MPA), 'e_commerce' (shop/cart/checkout), "
+            "'admin_panel' (CRUD admin dashboards), 'saas_dashboard' (analytics/metrics), "
+            "'cms' (content management), 'crm' (customer management), "
+            "'dev_tools' (developer/technical tools), 'auto' (auto-detect, default)."
+        ),
+        examples=["web_app", "e_commerce", "admin_panel", "saas_dashboard", "cms", "crm", "dev_tools", "auto"]
+    )
+
     # Discovery configuration overrides (optional)
     max_pages: Optional[int] = Field(None, description="Maximum pages to discover (default: 2000)")
     max_forms_per_page: Optional[int] = Field(None, description="Maximum forms to process per page (default: 50)")
@@ -980,7 +993,8 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
             max_table_rows_to_click=request.max_table_rows_to_click,
             max_discovery_time_minutes=request.max_discovery_time_minutes,
             close_browser_on_complete=bool(request.close_browser_on_complete) if request.close_browser_on_complete is not None else False,
-            ai_config=request.ai_config  # Pass AI config to context
+            ai_config=request.ai_config,
+            app_type=request.app_type or "auto"
         )
         
         # Transition to OPEN_URL (opens URL in check_session)
@@ -1995,7 +2009,8 @@ async def answer_question(
                     page=page,
                     run_id=run_id,
                     artifacts_path=context.artifacts_path,
-                    test_intent=test_intent
+                    test_intent=test_intent,
+                    app_type=getattr(context, "app_type", None)
                 )
                 
                 # If module_based and multiple modules, ask for module selection

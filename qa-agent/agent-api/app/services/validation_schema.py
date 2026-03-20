@@ -49,6 +49,11 @@ class ValidationSchemaRegistry:
         self.register_schema(PAGINATION_VALIDATION_SCHEMA)
         self.register_schema(FILTER_VALIDATION_SCHEMA)
         self.register_schema(LISTING_VALIDATION_SCHEMA)
+        self.register_schema(FORM_VALIDATION_SCHEMA)
+        self.register_schema(MODAL_VALIDATION_SCHEMA)
+        self.register_schema(NAVIGATION_VALIDATION_SCHEMA)
+        self.register_schema(TABS_VALIDATION_SCHEMA)
+        self.register_schema(BUTTON_ACTIONS_SCHEMA)
         logger.info(f"Loaded {len(self._schemas)} default validation schemas")
 
     def register_schema(self, schema: FeatureValidationSchema):
@@ -928,6 +933,696 @@ LISTING_VALIDATION_SCHEMA = FeatureValidationSchema(
 
 
 # =============================================================================
+# FORM VALIDATION SCHEMA - Generic form field validation testing
+# =============================================================================
+
+FORM_VALIDATION_SCHEMA = FeatureValidationSchema(
+    feature_type="form",
+    display_name="Form Validation",
+    description="Comprehensive form field validation covering required fields, input types, and submission flows",
+    detection_strategy={
+        "selectors": ["form", "[role='form']", "form input", "form textarea", "form select"],
+        "keywords": ["form", "submit", "input", "field", "required"]
+    },
+    validation_rules=[
+        # POSITIVE TESTS
+        ValidationRule(
+            id="form_visible_and_accessible",
+            name="Form is visible and accessible",
+            category="positive",
+            severity="critical",
+            selector_strategy="css",
+            selector="form, [role='form']",
+            test_data=None,
+            expected_behavior="Form renders correctly with all fields visible",
+            assertion_type="visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["form", "ui", "accessibility"]
+        ),
+        ValidationRule(
+            id="form_submit_valid_data",
+            name="Form submits successfully with valid data",
+            category="positive",
+            severity="critical",
+            selector_strategy="css",
+            selector="form button[type='submit'], form button:has-text('Submit'), form button:has-text('Save')",
+            test_data={"fill_required_fields": True},
+            expected_behavior="Form submits without errors and shows success feedback",
+            assertion_type="no_error",
+            assertion_value=None,
+            preconditions=["navigate_to_page", "fill_required_fields"],
+            postconditions=["reset_form"],
+            tags=["form", "submit", "core-functionality"]
+        ),
+        ValidationRule(
+            id="form_labels_present",
+            name="All form fields have labels or placeholders",
+            category="positive",
+            severity="high",
+            selector_strategy="css",
+            selector="form label, form input[placeholder], form textarea[placeholder]",
+            test_data=None,
+            expected_behavior="Every input field is labeled for accessibility",
+            assertion_type="visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["form", "accessibility", "labels"]
+        ),
+
+        # NEGATIVE TESTS
+        ValidationRule(
+            id="form_required_field_validation",
+            name="Required fields show error when empty on submit",
+            category="negative",
+            severity="critical",
+            selector_strategy="css",
+            selector="form button[type='submit'], form button:has-text('Submit')",
+            test_data={"leave_required_fields_empty": True},
+            expected_behavior="Validation errors shown for empty required fields",
+            assertion_type="text_contains",
+            assertion_value="required",
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["form", "validation", "required"]
+        ),
+        ValidationRule(
+            id="form_invalid_email_validation",
+            name="Invalid email format shows validation error",
+            category="negative",
+            severity="high",
+            selector_strategy="css",
+            selector="input[type='email'], input[name*='email' i]",
+            test_data={"email": "not-a-valid-email"},
+            expected_behavior="Invalid email shows format error message",
+            assertion_type="has_validation_error",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["form", "validation", "email"]
+        ),
+
+        # EDGE CASES
+        ValidationRule(
+            id="form_special_chars_in_text_fields",
+            name="Text fields handle special characters",
+            category="edge",
+            severity="medium",
+            selector_strategy="css",
+            selector="form input[type='text'], form textarea",
+            test_data={"text": "<script>alert('xss')</script>"},
+            expected_behavior="Special characters handled safely without XSS",
+            assertion_type="no_error",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=["reset_form"],
+            tags=["form", "security", "xss"]
+        ),
+        ValidationRule(
+            id="form_tab_key_navigation",
+            name="Tab key navigates between form fields",
+            category="edge",
+            severity="medium",
+            selector_strategy="css",
+            selector="form input:first-of-type",
+            test_data=None,
+            expected_behavior="Tab key moves focus through fields in logical order",
+            assertion_type="focus_moves",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["form", "keyboard", "accessibility"]
+        ),
+
+        # BOUNDARY TESTS
+        ValidationRule(
+            id="form_max_length_field",
+            name="Fields respect maxlength attribute",
+            category="boundary",
+            severity="medium",
+            selector_strategy="css",
+            selector="form input[maxlength], form textarea[maxlength]",
+            test_data={"text": "a" * 1000},
+            expected_behavior="Input truncated at maxlength, no errors",
+            assertion_type="no_error",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=["reset_form"],
+            tags=["form", "boundary", "maxlength"]
+        ),
+    ],
+    coverage_requirements={
+        "min_positive_tests": 2,
+        "min_negative_tests": 2,
+        "min_edge_tests": 1,
+        "min_boundary_tests": 1
+    }
+)
+
+
+# =============================================================================
+# MODAL/DIALOG VALIDATION SCHEMA - Modal and dialog interaction testing
+# =============================================================================
+
+MODAL_VALIDATION_SCHEMA = FeatureValidationSchema(
+    feature_type="modal",
+    display_name="Modal/Dialog Interactions",
+    description="Comprehensive modal and dialog validation covering open/close, content, and accessibility",
+    detection_strategy={
+        "selectors": ["[role='dialog']", ".modal", ".dialog", "[aria-modal='true']", ".drawer"],
+        "keywords": ["modal", "dialog", "popup", "overlay", "drawer"]
+    },
+    validation_rules=[
+        # POSITIVE TESTS
+        ValidationRule(
+            id="modal_opens_on_trigger",
+            name="Modal opens when trigger is clicked",
+            category="positive",
+            severity="critical",
+            selector_strategy="css",
+            selector="[data-toggle='modal'], button[aria-haspopup='dialog'], .open-modal",
+            test_data=None,
+            expected_behavior="Modal appears after clicking trigger button",
+            assertion_type="visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page"],
+            postconditions=["close_modal"],
+            tags=["modal", "trigger", "core-functionality"]
+        ),
+        ValidationRule(
+            id="modal_closes_on_x_button",
+            name="Modal closes when close button clicked",
+            category="positive",
+            severity="critical",
+            selector_strategy="css",
+            selector="[role='dialog'] button[aria-label*='close' i], .modal .close, .modal-close",
+            test_data=None,
+            expected_behavior="Modal dismisses when close (X) button clicked",
+            assertion_type="not_visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page", "open_modal"],
+            postconditions=[],
+            tags=["modal", "close", "core-functionality"]
+        ),
+        ValidationRule(
+            id="modal_closes_on_escape",
+            name="Modal closes when Escape key pressed",
+            category="positive",
+            severity="high",
+            selector_strategy="css",
+            selector="[role='dialog'], .modal",
+            test_data={"key": "Escape"},
+            expected_behavior="Modal dismisses when Escape key is pressed",
+            assertion_type="not_visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page", "open_modal"],
+            postconditions=[],
+            tags=["modal", "keyboard", "accessibility"]
+        ),
+
+        # NEGATIVE TESTS
+        ValidationRule(
+            id="modal_backdrop_prevents_interaction",
+            name="Modal backdrop blocks background interaction",
+            category="negative",
+            severity="high",
+            selector_strategy="css",
+            selector=".modal-backdrop, [data-modal-backdrop]",
+            test_data=None,
+            expected_behavior="Background content is not interactive while modal is open",
+            assertion_type="visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page", "open_modal"],
+            postconditions=["close_modal"],
+            tags=["modal", "backdrop", "ux"]
+        ),
+
+        # EDGE CASES
+        ValidationRule(
+            id="modal_focus_trap",
+            name="Focus is trapped inside modal",
+            category="edge",
+            severity="high",
+            selector_strategy="css",
+            selector="[role='dialog']",
+            test_data=None,
+            expected_behavior="Tab key cycles through modal elements only",
+            assertion_type="focus_trapped",
+            assertion_value=None,
+            preconditions=["navigate_to_page", "open_modal"],
+            postconditions=["close_modal"],
+            tags=["modal", "focus", "accessibility"]
+        ),
+        ValidationRule(
+            id="modal_scroll_when_content_long",
+            name="Modal scrolls for long content",
+            category="edge",
+            severity="medium",
+            selector_strategy="css",
+            selector="[role='dialog'] .modal-body, .modal .modal-content",
+            test_data=None,
+            expected_behavior="Modal content scrollable when exceeding viewport",
+            assertion_type="scrollable",
+            assertion_value=True,
+            preconditions=["navigate_to_page", "open_modal_with_long_content"],
+            postconditions=["close_modal"],
+            tags=["modal", "scroll", "ux"]
+        ),
+
+        # BOUNDARY TESTS
+        ValidationRule(
+            id="modal_stack_multiple",
+            name="Multiple modals stack correctly",
+            category="boundary",
+            severity="medium",
+            selector_strategy="css",
+            selector="[role='dialog']",
+            test_data=None,
+            expected_behavior="Nested modals stack and dismiss in correct order",
+            assertion_type="no_error",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["modal", "stacking", "edge-case"]
+        ),
+    ],
+    coverage_requirements={
+        "min_positive_tests": 2,
+        "min_negative_tests": 1,
+        "min_edge_tests": 1,
+        "min_boundary_tests": 1
+    }
+)
+
+
+# =============================================================================
+# NAVIGATION VALIDATION SCHEMA - App navigation and routing testing
+# =============================================================================
+
+NAVIGATION_VALIDATION_SCHEMA = FeatureValidationSchema(
+    feature_type="navigation",
+    display_name="Navigation & Routing",
+    description="Comprehensive navigation validation covering menus, routing, breadcrumbs, and state preservation",
+    detection_strategy={
+        "selectors": ["nav", "aside", "[role='navigation']", ".sidebar", ".navbar", ".menu"],
+        "keywords": ["navigation", "menu", "sidebar", "navbar", "breadcrumb", "routing"]
+    },
+    validation_rules=[
+        # POSITIVE TESTS
+        ValidationRule(
+            id="navigation_menu_visible",
+            name="Navigation menu is visible",
+            category="positive",
+            severity="critical",
+            selector_strategy="css",
+            selector="nav, aside, [role='navigation'], .sidebar, .navbar",
+            test_data=None,
+            expected_behavior="Navigation menu renders and is accessible",
+            assertion_type="visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["navigation", "ui"]
+        ),
+        ValidationRule(
+            id="navigation_links_work",
+            name="Navigation links navigate to correct pages",
+            category="positive",
+            severity="critical",
+            selector_strategy="css",
+            selector="nav a, .sidebar a, .navbar a, [role='navigation'] a",
+            test_data=None,
+            expected_behavior="Clicking nav links changes page/view without errors",
+            assertion_type="url_changed",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["navigation", "routing", "core-functionality"]
+        ),
+        ValidationRule(
+            id="navigation_active_state",
+            name="Current page highlighted in navigation",
+            category="positive",
+            severity="high",
+            selector_strategy="css",
+            selector="nav a.active, .sidebar a.active, [aria-current='page']",
+            test_data=None,
+            expected_behavior="Current page/section is visually highlighted in nav",
+            assertion_type="visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["navigation", "active-state", "ux"]
+        ),
+
+        # NEGATIVE TESTS
+        ValidationRule(
+            id="navigation_404_handling",
+            name="Invalid route shows proper 404 or redirect",
+            category="negative",
+            severity="high",
+            selector_strategy="css",
+            selector="body",
+            test_data={"url": "/nonexistent-route-xyz"},
+            expected_behavior="Invalid URL shows 404 page or redirects gracefully",
+            assertion_type="no_error",
+            assertion_value=None,
+            preconditions=["navigate_to_invalid_url"],
+            postconditions=["navigate_to_home"],
+            tags=["navigation", "404", "error-handling"]
+        ),
+
+        # EDGE CASES
+        ValidationRule(
+            id="navigation_breadcrumb_correct",
+            name="Breadcrumbs reflect current location",
+            category="edge",
+            severity="medium",
+            selector_strategy="css",
+            selector=".breadcrumb, [aria-label='breadcrumb'], nav[aria-label='breadcrumb']",
+            test_data=None,
+            expected_behavior="Breadcrumb trail shows correct hierarchy of pages",
+            assertion_type="text_contains",
+            assertion_value=None,
+            preconditions=["navigate_to_nested_page"],
+            postconditions=[],
+            tags=["navigation", "breadcrumb", "ux"]
+        ),
+        ValidationRule(
+            id="navigation_back_button_works",
+            name="Browser back button navigates correctly",
+            category="edge",
+            severity="high",
+            selector_strategy="css",
+            selector="body",
+            test_data=None,
+            expected_behavior="Browser back button returns to previous page with state intact",
+            assertion_type="url_changed",
+            assertion_value=None,
+            preconditions=["navigate_to_page", "navigate_to_sub_page"],
+            postconditions=[],
+            tags=["navigation", "history", "browser"]
+        ),
+        ValidationRule(
+            id="navigation_keyboard_accessible",
+            name="Navigation is keyboard accessible",
+            category="edge",
+            severity="medium",
+            selector_strategy="css",
+            selector="nav a, .sidebar a",
+            test_data=None,
+            expected_behavior="All nav items reachable via keyboard Tab/Enter",
+            assertion_type="focusable",
+            assertion_value=True,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["navigation", "keyboard", "accessibility"]
+        ),
+
+        # BOUNDARY TESTS
+        ValidationRule(
+            id="navigation_deep_nested_menu",
+            name="Deep nested menu items accessible",
+            category="boundary",
+            severity="medium",
+            selector_strategy="css",
+            selector=".submenu, .sub-menu, [role='menu'] [role='menu']",
+            test_data=None,
+            expected_behavior="Multi-level menus expand and navigate correctly",
+            assertion_type="no_error",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["navigation", "nested", "submenu"]
+        ),
+    ],
+    coverage_requirements={
+        "min_positive_tests": 2,
+        "min_negative_tests": 1,
+        "min_edge_tests": 2,
+        "min_boundary_tests": 1
+    }
+)
+
+
+# =============================================================================
+# TABS VALIDATION SCHEMA - Tab panel testing
+# =============================================================================
+
+TABS_VALIDATION_SCHEMA = FeatureValidationSchema(
+    feature_type="tabs",
+    display_name="Tab Panels",
+    description="Comprehensive tab validation covering switching, content loading, and state management",
+    detection_strategy={
+        "selectors": ["[role='tablist']", "[role='tab']", ".tabs", ".tab-panel", ".nav-tabs"],
+        "keywords": ["tabs", "tab", "panel", "tablist"]
+    },
+    validation_rules=[
+        # POSITIVE TESTS
+        ValidationRule(
+            id="tabs_visible",
+            name="Tab list is visible",
+            category="positive",
+            severity="critical",
+            selector_strategy="css",
+            selector="[role='tablist'], .tabs, .nav-tabs",
+            test_data=None,
+            expected_behavior="Tab list renders with all tabs visible",
+            assertion_type="visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["tabs", "ui"]
+        ),
+        ValidationRule(
+            id="tabs_switch_content",
+            name="Clicking tab shows correct panel content",
+            category="positive",
+            severity="critical",
+            selector_strategy="css",
+            selector="[role='tab'], .tab-button, .nav-tabs .nav-link",
+            test_data=None,
+            expected_behavior="Clicking a tab displays corresponding panel content",
+            assertion_type="content_changed",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["tabs", "switching", "core-functionality"]
+        ),
+        ValidationRule(
+            id="tabs_active_state_shown",
+            name="Active tab is visually distinguished",
+            category="positive",
+            severity="high",
+            selector_strategy="css",
+            selector="[role='tab'][aria-selected='true'], .tab-button.active, .nav-link.active",
+            test_data=None,
+            expected_behavior="Active tab visually distinguished from inactive tabs",
+            assertion_type="visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["tabs", "active-state", "ux"]
+        ),
+
+        # NEGATIVE TESTS
+        ValidationRule(
+            id="tabs_disabled_tab_not_clickable",
+            name="Disabled tabs are not interactive",
+            category="negative",
+            severity="medium",
+            selector_strategy="css",
+            selector="[role='tab'][aria-disabled='true'], .tab-button:disabled",
+            test_data=None,
+            expected_behavior="Disabled tabs cannot be clicked or focused",
+            assertion_type="not_clickable",
+            assertion_value=True,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["tabs", "disabled", "accessibility"]
+        ),
+
+        # EDGE CASES
+        ValidationRule(
+            id="tabs_keyboard_navigation",
+            name="Arrow keys navigate between tabs",
+            category="edge",
+            severity="medium",
+            selector_strategy="css",
+            selector="[role='tab']",
+            test_data={"key": "ArrowRight"},
+            expected_behavior="Arrow keys cycle through tabs according to ARIA pattern",
+            assertion_type="focus_moved",
+            assertion_value=None,
+            preconditions=["navigate_to_page", "focus_first_tab"],
+            postconditions=[],
+            tags=["tabs", "keyboard", "accessibility"]
+        ),
+        ValidationRule(
+            id="tabs_url_reflects_active_tab",
+            name="URL or state reflects active tab",
+            category="edge",
+            severity="low",
+            selector_strategy="css",
+            selector="[role='tab']",
+            test_data=None,
+            expected_behavior="Tab state persisted in URL hash or query param for deep linking",
+            assertion_type="no_error",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["tabs", "url", "deep-link"]
+        ),
+
+        # BOUNDARY TESTS
+        ValidationRule(
+            id="tabs_many_tabs_overflow",
+            name="Many tabs handled with scroll or overflow menu",
+            category="boundary",
+            severity="low",
+            selector_strategy="css",
+            selector="[role='tablist']",
+            test_data=None,
+            expected_behavior="Overflow tabs accessible via scroll or dropdown",
+            assertion_type="no_error",
+            assertion_value=None,
+            preconditions=["navigate_to_page_with_many_tabs"],
+            postconditions=[],
+            tags=["tabs", "overflow", "ux"]
+        ),
+    ],
+    coverage_requirements={
+        "min_positive_tests": 2,
+        "min_negative_tests": 1,
+        "min_edge_tests": 1,
+        "min_boundary_tests": 1
+    }
+)
+
+
+# =============================================================================
+# BUTTON ACTIONS VALIDATION SCHEMA - Button state and interaction testing
+# =============================================================================
+
+BUTTON_ACTIONS_SCHEMA = FeatureValidationSchema(
+    feature_type="button_actions",
+    display_name="Button Actions",
+    description="Comprehensive button validation covering states, interactions, and accessibility",
+    detection_strategy={
+        "selectors": ["button", "[role='button']", "input[type='button']", "input[type='submit']"],
+        "keywords": ["button", "action", "submit", "cancel", "save", "create", "edit"]
+    },
+    validation_rules=[
+        # POSITIVE TESTS
+        ValidationRule(
+            id="button_clickable",
+            name="Primary action buttons are clickable",
+            category="positive",
+            severity="critical",
+            selector_strategy="css",
+            selector="button:not([disabled]), [role='button']:not([aria-disabled='true'])",
+            test_data=None,
+            expected_behavior="Buttons respond to click events and trigger actions",
+            assertion_type="no_error",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["button", "click", "core-functionality"]
+        ),
+        ValidationRule(
+            id="button_visual_feedback",
+            name="Buttons show hover/focus visual feedback",
+            category="positive",
+            severity="medium",
+            selector_strategy="css",
+            selector="button:not([disabled])",
+            test_data=None,
+            expected_behavior="Buttons show hover state and focus ring for accessibility",
+            assertion_type="has_hover_style",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["button", "ux", "accessibility"]
+        ),
+
+        # NEGATIVE TESTS
+        ValidationRule(
+            id="button_disabled_not_clickable",
+            name="Disabled buttons cannot be clicked",
+            category="negative",
+            severity="high",
+            selector_strategy="css",
+            selector="button[disabled], [aria-disabled='true']",
+            test_data=None,
+            expected_behavior="Disabled buttons do not trigger actions",
+            assertion_type="not_clickable",
+            assertion_value=True,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["button", "disabled", "state"]
+        ),
+
+        # EDGE CASES
+        ValidationRule(
+            id="button_loading_state",
+            name="Buttons show loading state during async operations",
+            category="edge",
+            severity="medium",
+            selector_strategy="css",
+            selector="button.loading, button[aria-busy='true'], button .spinner",
+            test_data=None,
+            expected_behavior="Buttons show loading indicator during async operations and prevent double-click",
+            assertion_type="visible",
+            assertion_value=True,
+            preconditions=["navigate_to_page", "trigger_async_action"],
+            postconditions=[],
+            tags=["button", "loading", "async"]
+        ),
+        ValidationRule(
+            id="button_keyboard_activation",
+            name="Buttons activated by Enter/Space key",
+            category="edge",
+            severity="medium",
+            selector_strategy="css",
+            selector="button, [role='button']",
+            test_data={"key": "Enter"},
+            expected_behavior="Enter and Space keys activate focused buttons",
+            assertion_type="no_error",
+            assertion_value=None,
+            preconditions=["navigate_to_page", "focus_button"],
+            postconditions=[],
+            tags=["button", "keyboard", "accessibility"]
+        ),
+
+        # BOUNDARY TESTS
+        ValidationRule(
+            id="button_double_click_prevention",
+            name="Double-clicking submit button prevented",
+            category="boundary",
+            severity="high",
+            selector_strategy="css",
+            selector="button[type='submit'], form button",
+            test_data={"clicks": 2, "rapid": True},
+            expected_behavior="Rapid double-click does not submit form twice",
+            assertion_type="single_submission",
+            assertion_value=None,
+            preconditions=["navigate_to_page"],
+            postconditions=[],
+            tags=["button", "double-click", "prevention"]
+        ),
+    ],
+    coverage_requirements={
+        "min_positive_tests": 1,
+        "min_negative_tests": 1,
+        "min_edge_tests": 1,
+        "min_boundary_tests": 1
+    }
+)
+
+
+# =============================================================================
 # MODULE EXPORTS
 # =============================================================================
 
@@ -938,5 +1633,10 @@ __all__ = [
     "SEARCH_VALIDATION_SCHEMA",
     "PAGINATION_VALIDATION_SCHEMA",
     "FILTER_VALIDATION_SCHEMA",
-    "LISTING_VALIDATION_SCHEMA"
+    "LISTING_VALIDATION_SCHEMA",
+    "FORM_VALIDATION_SCHEMA",
+    "MODAL_VALIDATION_SCHEMA",
+    "NAVIGATION_VALIDATION_SCHEMA",
+    "TABS_VALIDATION_SCHEMA",
+    "BUTTON_ACTIONS_SCHEMA",
 ]
