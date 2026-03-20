@@ -15,56 +15,62 @@
         }
 
         :root {
-            /* — Accent / Brand */
-            --primary: #3b82f6;
-            --primary-dark: #2563eb;
-            --primary-light: #60a5fa;
-            --secondary: #8b5cf6;
-            --success: #10b981;
+            /* ── Brand / Accent ── */
+            --primary:       #7c3aed;
+            --primary-dark:  #6d28d9;
+            --primary-light: #a78bfa;
+            --primary-glow:  rgba(124, 58, 237, 0.18);
+            --secondary:     #4f46e5;
+            --success:       #10b981;
             --success-light: #34d399;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --info: #06b6d4;
+            --danger:        #f43f5e;
+            --warning:       #f59e0b;
+            --info:          #3b82f6;
 
-            /* — Light panel (left) */
-            --bg-primary: #ffffff;
-            --bg-secondary: #f0f4f8;
-            --bg-tertiary: #e8eef5;
-            --bg-dark: #0d1117;
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --text-tertiary: #94a3b8;
-            --border: #dde3ec;
-            --border-light: #edf2f7;
+            /* ── Zinc Dark Scale ── */
+            --bg-base:       #09090b;   /* zinc-950 — deepest */
+            --bg-primary:    #111113;   /* zinc-900 — panel bg */
+            --bg-secondary:  #16161a;   /* zinc-850 — card bg  */
+            --bg-tertiary:   #1c1c21;   /* zinc-800 — elevated */
+            --bg-hover:      #27272a;   /* zinc-700 — hover    */
 
-            /* — Dark sidebar (right panel) */
-            --sidebar-bg: #0d1117;
-            --sidebar-surface: #161b22;
-            --sidebar-surface2: #21262d;
-            --sidebar-surface3: #2d333b;
-            --sidebar-border: #30363d;
-            --sidebar-border-light: #21262d;
-            --sidebar-text: #cdd9e5;
-            --sidebar-text-muted: #768390;
-            --sidebar-accent: #58a6ff;
-            --sidebar-accent-dim: rgba(88, 166, 255, 0.12);
+            /* ── Text ── */
+            --text-primary:   #f4f4f5;  /* zinc-100 */
+            --text-secondary: #a1a1aa;  /* zinc-400 */
+            --text-tertiary:  #71717a;  /* zinc-500 */
+            --text-muted:     #52525b;  /* zinc-600 */
 
-            /* — Shadows */
-            --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
-            --shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04);
-            --shadow-lg: 0 10px 30px rgba(0,0,0,0.1), 0 4px 10px rgba(0,0,0,0.05);
-            --shadow-xl: 0 20px 40px rgba(0,0,0,0.13), 0 8px 16px rgba(0,0,0,0.07);
+            /* ── Borders ── */
+            --border:       #27272a;
+            --border-light: #1e1e23;
 
-            /* — Gradients */
-            --gradient-primary: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            /* ── Sidebar (slightly deeper) ── */
+            --sidebar-bg:          #0d0d10;
+            --sidebar-surface:     #111113;
+            --sidebar-surface2:    #16161a;
+            --sidebar-surface3:    #1c1c21;
+            --sidebar-border:      #27272a;
+            --sidebar-text:        #d4d4d8;
+            --sidebar-text-muted:  #71717a;
+            --sidebar-accent:      #a78bfa;
+            --sidebar-accent-dim:  rgba(167, 139, 250, 0.12);
+
+            /* ── Shadows ── */
+            --shadow:    0 1px 4px rgba(0,0,0,0.5);
+            --shadow-md: 0 4px 20px rgba(0,0,0,0.6);
+            --shadow-lg: 0 10px 40px rgba(0,0,0,0.7);
+            --shadow-xl: 0 20px 60px rgba(0,0,0,0.8);
+
+            /* ── Gradients ── */
+            --gradient-primary: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
             --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            --gradient-info: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
-            --gradient-sidebar: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
+            --gradient-info:    linear-gradient(135deg, #3b82f6 0%, #0ea5e9 100%);
+            --gradient-accent:  linear-gradient(135deg, #a78bfa 0%, #60a5fa 100%);
         }
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #e8edf4;
+            background: var(--bg-base);
             color: var(--text-primary);
             line-height: 1.6;
             height: 100vh;
@@ -1085,9 +1091,10 @@
             font-family: 'Monaco', 'Courier New', monospace;
         }
 
-        /* =====================================================
-           PHASE 0 REDESIGN – DARK SIDEBAR & GLOBAL POLISH
-           ===================================================== */
+        /* ================================================================
+           MARKET-BEST DARK THEME  ·  Linear / Vercel / Raycast inspired
+           Zinc-950 base  ·  Violet-600 accent  ·  Full dark everywhere
+           ================================================================ */
 
         /* --- Dark panel details/summary components --- */
         .buddy-panel details {
@@ -1259,6 +1266,423 @@
         /* --- Smooth transitions --- */
         .app-view { transition: opacity 0.15s ease; }
         .tab-content { transition: opacity 0.15s ease; }
+
+        /* ================================================================
+           FULL DARK SYSTEM OVERRIDES — highest specificity
+           ================================================================ */
+
+        /* === Global scrollbar === */
+        * { scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
+        *::-webkit-scrollbar { width: 5px; height: 5px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+        *::-webkit-scrollbar-thumb:hover { background: #52525b; }
+
+        /* === Layout === */
+        body, .main-layout { background: #09090b !important; }
+
+        .app-panel {
+            background: #111113 !important;
+            box-shadow: 1px 0 0 #1e1e23, 0 0 40px rgba(0,0,0,0.6) !important;
+            border-right: none !important;
+            width: 62% !important;
+        }
+
+        .buddy-panel {
+            background: #0d0d10 !important;
+            width: 38% !important;
+        }
+
+        /* === Buddy header — dark glass === */
+        .buddy-header {
+            background: #0d0d10 !important;
+            border-bottom: 1px solid #1e1e23 !important;
+            box-shadow: none !important;
+            padding: 18px 20px 16px !important;
+        }
+        .buddy-header::after {
+            background: linear-gradient(90deg, #7c3aed 0%, #4f46e5 40%, #ec4899 100%) !important;
+            height: 1px !important;
+        }
+        .buddy-header h1 { color: #f4f4f5 !important; font-size: 19px !important; }
+        .buddy-header h1::before { content: "⚡" !important; font-size: 18px !important; }
+        .buddy-header .subtitle { color: #52525b !important; font-size: 12px !important; }
+
+        /* === Cards — everywhere === */
+        .card {
+            background: #16161a !important;
+            border: 1px solid #27272a !important;
+            border-radius: 12px !important;
+            box-shadow: none !important;
+            color: #d4d4d8 !important;
+            padding: 18px !important;
+            margin-bottom: 12px !important;
+        }
+        .card:hover {
+            border-color: #3f3f46 !important;
+            box-shadow: 0 0 0 1px #3f3f46, 0 8px 24px rgba(0,0,0,0.5) !important;
+            transform: none !important;
+        }
+        .card::before {
+            background: linear-gradient(90deg, #7c3aed, #4f46e5) !important;
+            height: 2px !important;
+            opacity: 0 !important;
+        }
+        .card:hover::before { opacity: 1 !important; }
+        .card-title { color: #e4e4e7 !important; font-size: 14px !important; font-weight: 600 !important; text-transform: none !important; letter-spacing: 0 !important; }
+        .card-header { border-bottom: 1px solid #27272a !important; padding-bottom: 12px !important; margin-bottom: 14px !important; }
+
+        /* === Stat cards === */
+        .stat-card {
+            background: #16161a !important;
+            border: 1px solid #27272a !important;
+            border-radius: 12px !important;
+            box-shadow: none !important;
+            padding: 20px 16px 16px !important;
+        }
+        .stat-card::before {
+            background: linear-gradient(90deg, #7c3aed, #4f46e5) !important;
+            height: 2px !important;
+        }
+        .stat-card:hover {
+            border-color: #7c3aed !important;
+            box-shadow: 0 0 20px rgba(124, 58, 237, 0.15) !important;
+            transform: translateY(-2px) !important;
+        }
+        .stat-value {
+            background: linear-gradient(135deg, #a78bfa 0%, #60a5fa 100%) !important;
+            -webkit-background-clip: text !important;
+            background-clip: text !important;
+            -webkit-text-fill-color: transparent !important;
+            font-size: 40px !important;
+        }
+        .stat-label { color: #52525b !important; font-size: 11px !important; letter-spacing: 0.6px !important; margin-top: 6px !important; }
+        .stat-card.success::before { background: linear-gradient(90deg, #10b981, #059669) !important; }
+        .stat-card.success .stat-value { background: linear-gradient(135deg, #34d399, #10b981) !important; -webkit-background-clip: text !important; background-clip: text !important; -webkit-text-fill-color: transparent !important; }
+        .stat-card.info::before { background: linear-gradient(90deg, #3b82f6, #0ea5e9) !important; }
+        .stat-card.info .stat-value { background: linear-gradient(135deg, #60a5fa, #38bdf8) !important; -webkit-background-clip: text !important; background-clip: text !important; -webkit-text-fill-color: transparent !important; }
+
+        /* === Buttons — violet primary === */
+        button {
+            background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%) !important;
+            color: #ffffff !important;
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 9px 18px !important;
+            font-size: 13px !important;
+            font-weight: 600 !important;
+            box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35), inset 0 1px 0 rgba(255,255,255,0.1) !important;
+            letter-spacing: 0.1px !important;
+        }
+        button:hover:not(:disabled) {
+            background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%) !important;
+            box-shadow: 0 4px 16px rgba(124, 58, 237, 0.5), inset 0 1px 0 rgba(255,255,255,0.15) !important;
+            transform: translateY(-1px) !important;
+        }
+        button:active:not(:disabled) { transform: translateY(0) !important; }
+        button:disabled {
+            background: #27272a !important;
+            color: #52525b !important;
+            box-shadow: none !important;
+            cursor: not-allowed !important;
+        }
+        .btn-secondary {
+            background: #1c1c21 !important;
+            border: 1px solid #3f3f46 !important;
+            color: #a1a1aa !important;
+            box-shadow: none !important;
+        }
+        .btn-secondary:hover:not(:disabled) {
+            background: #27272a !important;
+            border-color: #7c3aed !important;
+            color: #a78bfa !important;
+            box-shadow: 0 0 0 1px rgba(124,58,237,0.3) !important;
+            transform: translateY(-1px) !important;
+        }
+        .btn-danger {
+            background: linear-gradient(135deg, #dc2626, #b91c1c) !important;
+            box-shadow: 0 2px 8px rgba(220, 38, 38, 0.35) !important;
+        }
+        .btn-danger:hover:not(:disabled) {
+            background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.5) !important;
+        }
+        .btn-success {
+            background: linear-gradient(135deg, #059669, #047857) !important;
+            box-shadow: 0 2px 8px rgba(5, 150, 105, 0.35) !important;
+        }
+        .btn-success:hover:not(:disabled) {
+            background: linear-gradient(135deg, #10b981, #059669) !important;
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.5) !important;
+        }
+        .btn-sm { padding: 6px 12px !important; font-size: 12px !important; border-radius: 6px !important; }
+
+        /* === Inputs everywhere === */
+        input[type="text"], input[type="password"], input[type="url"], input[type="number"],
+        select, textarea {
+            background: #1c1c21 !important;
+            border: 1px solid #3f3f46 !important;
+            color: #e4e4e7 !important;
+            border-radius: 8px !important;
+            font-size: 13px !important;
+        }
+        input::placeholder, textarea::placeholder { color: #52525b !important; }
+        select option { background: #1c1c21 !important; color: #e4e4e7 !important; }
+        input:focus, select:focus, textarea:focus {
+            border-color: #7c3aed !important;
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.18) !important;
+            background: #1c1c21 !important;
+            outline: none !important;
+        }
+        label { color: #71717a !important; font-size: 12px !important; font-weight: 500 !important; }
+        input[type="checkbox"] { accent-color: #7c3aed !important; }
+
+        /* === App tabs (top of left panel) === */
+        .app-tabs {
+            background: #111113 !important;
+            border-bottom: 1px solid #1e1e23 !important;
+            padding: 10px 16px !important;
+            box-shadow: 0 1px 0 #1e1e23 !important;
+            align-items: center !important;
+        }
+        .app-tab {
+            color: #71717a !important;
+            background: transparent !important;
+            border: none !important;
+            border-radius: 8px !important;
+            font-size: 13px !important;
+            padding: 7px 13px !important;
+            box-shadow: none !important;
+            font-weight: 500 !important;
+        }
+        .app-tab:hover { background: #1c1c21 !important; color: #a1a1aa !important; transform: none !important; }
+        .app-tab.active {
+            color: #a78bfa !important;
+            background: rgba(124, 58, 237, 0.1) !important;
+            font-weight: 600 !important;
+            box-shadow: inset 0 -2px 0 #7c3aed !important;
+        }
+
+        /* === Buddy panel tabs (segmented pill) === */
+        .tabs {
+            background: #0d0d10 !important;
+            border: 1px solid #1e1e23 !important;
+            border-radius: 10px !important;
+            padding: 4px !important;
+            margin-bottom: 14px !important;
+            gap: 2px !important;
+        }
+        .tab {
+            color: #52525b !important;
+            background: transparent !important;
+            border: none !important;
+            border-radius: 7px !important;
+            font-size: 12px !important;
+            padding: 7px 10px !important;
+            box-shadow: none !important;
+            transition: all 0.15s !important;
+        }
+        .tab:hover { color: #a1a1aa !important; background: rgba(255,255,255,0.04) !important; transform: none !important; }
+        .tab.active {
+            background: #1c1c21 !important;
+            color: #e4e4e7 !important;
+            font-weight: 600 !important;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.6), inset 0 0 0 1px #3f3f46 !important;
+        }
+
+        /* === Progress bar === */
+        .progress-bar { background: #1c1c21 !important; height: 5px !important; border-radius: 3px !important; }
+        .progress-fill {
+            background: linear-gradient(90deg, #7c3aed, #4f46e5) !important;
+            border-radius: 3px !important;
+        }
+
+        /* === Status badges === */
+        .status-badge { background: #1c1c21 !important; border: 1px solid #3f3f46 !important; color: #71717a !important; font-size: 12px !important; }
+        .status-badge.active { background: rgba(16,185,129,0.1) !important; border-color: rgba(16,185,129,0.3) !important; color: #34d399 !important; }
+        .status-badge.running { background: rgba(124,58,237,0.1) !important; border-color: rgba(124,58,237,0.3) !important; color: #a78bfa !important; }
+        .status-badge.error { background: rgba(244,63,94,0.1) !important; border-color: rgba(244,63,94,0.3) !important; color: #fb7185 !important; }
+
+        /* === Question panel === */
+        .question-panel {
+            background: rgba(245,158,11,0.07) !important;
+            border: 1px solid rgba(245,158,11,0.2) !important;
+            border-radius: 10px !important;
+        }
+        .question-text { color: #fbbf24 !important; font-size: 14px !important; }
+        .option-button {
+            background: #1c1c21 !important;
+            border: 1px solid #3f3f46 !important;
+            color: #d4d4d8 !important;
+            border-radius: 8px !important;
+            box-shadow: none !important;
+            font-size: 13px !important;
+        }
+        .option-button:hover {
+            background: #27272a !important;
+            border-color: #7c3aed !important;
+            color: #e4e4e7 !important;
+            transform: translateX(3px) !important;
+            box-shadow: none !important;
+        }
+
+        /* === Discovery feed === */
+        .discovery-feed {
+            background: #16161a !important;
+            border: 1px solid #27272a !important;
+            border-radius: 10px !important;
+            box-shadow: none !important;
+        }
+
+        /* === Messages === */
+        .message.success { background: rgba(16,185,129,0.08) !important; border-color: rgba(16,185,129,0.2) !important; color: #34d399 !important; border-radius: 8px !important; }
+        .message.error { background: rgba(244,63,94,0.08) !important; border-color: rgba(244,63,94,0.2) !important; color: #fb7185 !important; border-radius: 8px !important; }
+
+        /* === Health check table === */
+        .health-check-table { background: #16161a !important; border-radius: 10px !important; overflow: hidden !important; }
+        .health-check-table th { background: #1c1c21 !important; color: #71717a !important; border-bottom: 1px solid #27272a !important; font-size: 11px !important; letter-spacing: 0.5px !important; }
+        .health-check-table td { border-bottom: 1px solid #1e1e23 !important; color: #a1a1aa !important; font-size: 13px !important; }
+        .health-check-table tbody tr:hover { background: rgba(124,58,237,0.05) !important; }
+        .health-page-title { color: #d4d4d8 !important; }
+        .health-page-url { color: #52525b !important; }
+        .health-check-status.passed { background: rgba(16,185,129,0.12) !important; color: #34d399 !important; }
+        .health-check-status.failed { background: rgba(244,63,94,0.12) !important; color: #fb7185 !important; }
+        .health-check-status.running { background: rgba(124,58,237,0.12) !important; color: #a78bfa !important; }
+        .health-check-status.pending { background: rgba(245,158,11,0.12) !important; color: #fbbf24 !important; }
+        .health-check-status.skipped { background: rgba(63,63,70,0.4) !important; color: #52525b !important; }
+
+        /* === App iframe header === */
+        .app-iframe-header { background: #0d0d10 !important; border-bottom: 1px solid #1e1e23 !important; }
+
+        /* === Current run indicator === */
+        #current_run_indicator {
+            background: #0d0d10 !important;
+            border-bottom: 1px solid #1e1e23 !important;
+        }
+
+        /* === Views in left panel — full dark === */
+        #testcases-view > div, #progress-view > div,
+        #history-view > div, #execution-history-view > div {
+            background: #111113 !important;
+        }
+        #app-view, #testcases-view, #progress-view, #history-view, #execution-history-view {
+            background: #111113 !important;
+        }
+        #app_progress_feed {
+            background: #16161a !important;
+            border: 1px solid #27272a !important;
+            border-radius: 12px !important;
+        }
+
+        /* === Details/summary — dark === */
+        details {
+            background: #16161a !important;
+            border-color: #27272a !important;
+            border-radius: 8px !important;
+        }
+        summary { color: #a1a1aa !important; font-size: 13px !important; }
+        #ai_config_section, #ollama_config, #openai_config {
+            background: #1c1c21 !important;
+            border-color: #27272a !important;
+        }
+
+        /* === Operations checkbox row === */
+        div[style*="background: #f8f9fa"], div[style*="background: #f8fafc"] {
+            background: #1c1c21 !important;
+            border-color: #27272a !important;
+        }
+
+        /* === Empty state boxes === */
+        div[style*="border: 2px dashed"] {
+            background: #16161a !important;
+            border-color: #27272a !important;
+            color: #71717a !important;
+            border-radius: 12px !important;
+        }
+
+        /* === Inline-style background killers === */
+        [style*="background: white"], [style*="background: #ffffff"], [style*="background: #fff"],
+        [style*="background: var(--bg-primary)"], [style*="background: var(--bg-secondary)"],
+        [style*="background: var(--bg-tertiary)"] {
+            background-color: #16161a !important;
+        }
+        [style*="background: linear-gradient(135deg, #ffffff"] {
+            background: #16161a !important;
+        }
+
+        /* === Info / tip boxes === */
+        [style*="background: rgba(59, 130, 246, 0.1)"], [style*="border-left: 3px solid var(--info)"] {
+            background: rgba(59,130,246,0.07) !important;
+            border-left-color: #3b82f6 !important;
+            border-radius: 6px !important;
+        }
+        [style*="background: rgba(99, 102, 241"], [style*="background: rgba(139, 92"] {
+            background: rgba(124,58,237,0.07) !important;
+        }
+
+        /* === Capability feature items (white inner boxes) === */
+        [style*="background: rgba(255,255,255,0.6)"],
+        [style*="background: rgba(255,255,255,0.8)"],
+        [style*="background: rgba(255,255,255,0.03)"] {
+            background: rgba(255,255,255,0.03) !important;
+            border: 1px solid #27272a !important;
+            border-radius: 8px !important;
+        }
+
+        /* === Future discovery section === */
+        .future-discovery-section {
+            background: rgba(124, 58, 237, 0.06) !important;
+            border-color: rgba(124, 58, 237, 0.2) !important;
+        }
+
+        /* === File upload === */
+        .file-upload-area {
+            background: #1c1c21 !important;
+            border-color: #3f3f46 !important;
+        }
+        .file-upload-area:hover {
+            background: rgba(124,58,237,0.08) !important;
+            border-color: #7c3aed !important;
+        }
+        .file-preview-item {
+            background: #1c1c21 !important;
+            border-color: #27272a !important;
+            color: #a1a1aa !important;
+        }
+
+        /* === Typography === */
+        h1, h2, h3, h4 { color: #e4e4e7 !important; }
+        p { color: #a1a1aa; }
+        small { color: #71717a !important; }
+        code {
+            background: #27272a !important;
+            color: #a78bfa !important;
+            border-radius: 4px !important;
+            padding: 2px 6px !important;
+            font-size: 12px !important;
+        }
+        a { color: #a78bfa !important; }
+        a:hover { color: #c4b5fd !important; }
+
+        /* === Checkbox labels in dark context === */
+        .checkbox-group label {
+            color: #a1a1aa !important;
+            text-transform: none !important;
+            font-size: 13px !important;
+            letter-spacing: 0 !important;
+            font-weight: 400 !important;
+        }
+
+        /* === Run history cards (dynamic inline styles) === */
+        [style*="background: linear-gradient(135deg, rgba(99"] {
+            background: #16161a !important;
+        }
+
+        /* === Headings font refinement === */
+        .buddy-header h1 { font-family: 'Inter', sans-serif; font-weight: 700 !important; }
+
+        /* === Pill badge on run indicator === */
+        #current_run_indicator span[style*="color: #58a6ff"] { color: #a78bfa !important; }
     </style>
 </head>
 <body>
@@ -1454,13 +1878,15 @@
         <!-- Right Panel: QA Buddy -->
         <div class="buddy-panel">
             <div class="buddy-header" style="position: relative;">
-                <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
                     <div>
-                        <h1>QA Buddy</h1>
-                        <p class="subtitle">AI-Powered Test Discovery &amp; Execution</p>
+                        <h1 style="color:#f4f4f5; font-size:19px; font-weight:700; margin-bottom:3px; display:flex; align-items:center; gap:8px; letter-spacing:-0.3px;">
+                            <span style="font-size:20px;">⚡</span> QA Buddy
+                        </h1>
+                        <p style="color:#52525b; font-size:11px; font-weight:400; margin:0; letter-spacing:0.1px;">AI-Powered Test Discovery &amp; Execution</p>
                     </div>
-                    <button onclick="showCapabilities()" style="background: rgba(88,166,255,0.12); border: 1px solid rgba(88,166,255,0.3); color: #58a6ff; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 500; transition: all 0.2s; box-shadow: none; flex-shrink: 0;">
-                        ✨ Capabilities
+                    <button onclick="showCapabilities()" style="background:rgba(124,58,237,0.12); border:1px solid rgba(124,58,237,0.35); color:#a78bfa; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:11px; font-weight:500; box-shadow:none; flex-shrink:0; white-space:nowrap;">
+                        ✦ Capabilities
                     </button>
                 </div>
             </div>
