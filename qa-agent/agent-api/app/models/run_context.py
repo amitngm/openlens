@@ -119,6 +119,14 @@ class RunContext(BaseModel):
     max_discovery_time_minutes: Optional[int] = Field(None, description="Maximum discovery time in minutes (default: 60)")
     close_browser_on_complete: bool = Field(default=False, description="Close browser automatically when tests complete")
 
+    login_attempt_count: int = Field(default=0, description="Number of login attempts made")
+    seed_data: Optional[List[str]] = Field(default=None, description="User-provided seed data for search/filter tests")
+    scraped_data_samples: Optional[List[str]] = Field(default=None, description="Real data values scraped from app during discovery")
+    enabled_operations: Dict[str, bool] = Field(
+        default_factory=lambda: {"read": True, "create": False, "update": False, "delete": False},
+        description="Which CRUD operations are enabled for test execution"
+    )
+
     timestamps: Dict[str, str] = Field(default_factory=dict, description="State transition timestamps")
     artifacts_path: str = Field(..., description="Path to artifacts directory")
     free_text_commands: List[str] = Field(default_factory=list, description="Free-text commands from user")

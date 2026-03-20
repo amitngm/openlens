@@ -50,17 +50,21 @@ class TestExecutor:
         page,
         run_id: str,
         artifacts_path: str,
-        test_plan: Dict[str, Any]
+        test_plan: Dict[str, Any],
+        base_url: str = "",
+        enabled_operations: Optional[Dict[str, bool]] = None
     ) -> Dict[str, Any]:
         """
         Execute test plan and generate report.
-        
+
         Args:
             page: Playwright Page object
             run_id: Run identifier
             artifacts_path: Path to artifacts directory
             test_plan: Test plan dictionary
-        
+            base_url: Base URL for page recovery after error pages
+            enabled_operations: Which CRUD operations are enabled (read/create/update/delete)
+
         Returns:
             Dict with:
                 - report: Dict with test results
@@ -74,6 +78,10 @@ class TestExecutor:
             logger.info(f"[{run_id}] Test plan: {test_plan.get('test_intent', 'unknown')}")
             logger.info(f"[{run_id}] Total tests in plan: {total_tests}")
             logger.info(f"[{run_id}] Tests list: {[t.get('id', 'N/A') for t in tests[:5]]}")
+
+            # Consecutive failure limit for full portal execution resilience
+            consecutive_failures = 0
+            MAX_CONSECUTIVE_FAILURES = 10
             
             if total_tests == 0:
                 logger.error(f"[{run_id}] ERROR: Test plan has no tests!")
@@ -110,6 +118,7 @@ class TestExecutor:
                 "passed": 0,
                 "failed": 0,
                 "skipped": 0,
+                "skipped_disabled": 0,
                 "tests": []
             }
             
@@ -153,7 +162,39 @@ class TestExecutor:
                     "test_name": test_name,
                     "steps_count": steps_count
                 })
-                
+
+                # Check CRUD operation gating
+                if enabled_operations:
+                    op_type = test.get("operation_type", "read")
+                    if not enabled_operations.get(op_type, True):
+                        skipped_result = {
+                            "test_id": test_id,
+                            "name": test_name,
+                            "status": "skipped",
+                            "duration_ms": 0,
+                            "steps": [],
+                            "evidence": [],
+                            "error": None,
+                            "skip_reason": f"Operation '{op_type}' is disabled. Enable in Settings > Operations to run this test."
+                        }
+                        report["tests"].append(skipped_result)
+                        report["skipped"] += 1
+                        report["skipped_disabled"] += 1
+                        self._emit_event(run_id, artifacts_path, "test_skipped", {
+                            "test_id": test_id,
+                            "test_name": test_name,
+                            "reason": f"operation_disabled:{op_type}"
+                        })
+                        self._emit_event(run_id, artifacts_path, "execution_progress", {
+                            "completed": idx + 1,
+                            "total": total_tests,
+                            "passed": report["passed"],
+                            "failed": report["failed"],
+                            "skipped": report["skipped"],
+                            "percent": round(((idx + 1) / total_tests) * 100, 1)
+                        })
+                        continue
+
                 try:
                     test_result = await self._execute_single_test(
                         test=test,
@@ -163,10 +204,10 @@ class TestExecutor:
                         test_index=idx,
                         artifacts_path=artifacts_path
                     )
-                    
+
                     logger.info(f"[{run_id}] Test {idx+1} completed: status={test_result.get('status')}, duration={test_result.get('duration_ms', 0)}ms")
                     report["tests"].append(test_result)
-                    
+
                     # Emit test completed event
                     self._emit_event(run_id, artifacts_path, "test_completed", {
                         "test_index": idx + 1,
@@ -178,14 +219,48 @@ class TestExecutor:
                         "steps_failed": len([s for s in test_result.get('steps', []) if s.get('status') == 'failed']),
                         "error": test_result.get('error')
                     })
-                    
+
                     # Update counters
                     if test_result["status"] == "passed":
                         report["passed"] += 1
+                        consecutive_failures = 0
                     elif test_result["status"] == "failed":
                         report["failed"] += 1
+                        consecutive_failures += 1
                     else:
                         report["skipped"] += 1
+                        consecutive_failures = 0
+
+                    # Page health recovery after error pages
+                    if base_url:
+                        try:
+                            current_url = page.url
+                            if any(err in current_url for err in ["/error", "/404", "/500", "/forbidden"]):
+                                logger.warning(f"[{run_id}] Page on error URL after test {test_id}, recovering to base_url")
+                                await page.goto(base_url, timeout=15000, wait_until="domcontentloaded")
+                                await asyncio.sleep(1)
+                        except Exception as recovery_err:
+                            logger.warning(f"[{run_id}] Recovery navigation failed: {recovery_err}")
+
+                    # Emit progress event after each completed test
+                    self._emit_event(run_id, artifacts_path, "execution_progress", {
+                        "completed": idx + 1,
+                        "total": total_tests,
+                        "passed": report["passed"],
+                        "failed": report["failed"],
+                        "skipped": report["skipped"],
+                        "percent": round(((idx + 1) / total_tests) * 100, 1)
+                    })
+
+                    # Consecutive failure limit — stop if app appears crashed
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        logger.error(f"[{run_id}] {MAX_CONSECUTIVE_FAILURES} consecutive failures — app may be crashed. Stopping.")
+                        self._emit_event(run_id, artifacts_path, "execution_aborted", {
+                            "reason": f"{MAX_CONSECUTIVE_FAILURES} consecutive test failures",
+                            "stopped_at_index": idx + 1
+                        })
+                        break
+
                 except Exception as test_error:
                     logger.error(f"[{run_id}] Test {idx+1} ({test_id}) failed with exception: {test_error}", exc_info=True)
                     # Create a failed test result
@@ -200,6 +275,26 @@ class TestExecutor:
                     }
                     report["tests"].append(error_result)
                     report["failed"] += 1
+                    consecutive_failures += 1
+
+                    # Emit progress even after exception
+                    self._emit_event(run_id, artifacts_path, "execution_progress", {
+                        "completed": idx + 1,
+                        "total": total_tests,
+                        "passed": report["passed"],
+                        "failed": report["failed"],
+                        "skipped": report["skipped"],
+                        "percent": round(((idx + 1) / total_tests) * 100, 1)
+                    })
+
+                    # Consecutive failure limit check after exception too
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        logger.error(f"[{run_id}] {MAX_CONSECUTIVE_FAILURES} consecutive failures — app may be crashed. Stopping.")
+                        self._emit_event(run_id, artifacts_path, "execution_aborted", {
+                            "reason": f"{MAX_CONSECUTIVE_FAILURES} consecutive test failures",
+                            "stopped_at_index": idx + 1
+                        })
+                        break
             
             # Stop tracing and save HAR
             try:
@@ -333,7 +428,7 @@ class TestExecutor:
             
             return {
                 "report": report,
-                "next_state": RunState.FAILED,
+                "next_state": RunState.REPORT_GENERATE,
                 "question": None,
                 "unsafe_deletes": None
             }

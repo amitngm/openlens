@@ -861,7 +861,9 @@ class DiscoveryRunner:
         document_analysis: Optional[Dict[str, Any]] = None,
         phase: str = "phase1_get_operations",
         config_overrides: Optional[Dict[str, Any]] = None,
-        ai_config: Optional[Any] = None  # AIConfig from RunContext
+        ai_config: Optional[Any] = None,  # AIConfig from RunContext
+        app_type: Optional[str] = None,  # Application type hint for tailored discovery
+        seed_data: Optional[List[str]] = None  # User-provided seed data for search/filter tests
     ) -> Dict[str, Any]:
         """
         Run discovery with optional AI support.
@@ -962,7 +964,8 @@ class DiscoveryRunner:
                     "forms_count": 0,
                     "api_endpoints_count": 0
                 },
-                "error": None
+                "error": None,
+                "seed_data": seed_data or []
             }
             
             # Set up network monitoring
@@ -1013,6 +1016,19 @@ class DiscoveryRunner:
 
             current_url = page.url
             base_domain = urlparse(base_url).netloc
+
+            # Auto-detect app type if not specified or set to "auto"
+            effective_app_type = app_type
+            if not effective_app_type or effective_app_type == "auto":
+                logger.info(f"[{run_id}] app_type is '{effective_app_type}' — running auto-detection...")
+                effective_app_type = await self._auto_detect_app_type(page, current_url)
+                self._emit_event(run_id, artifacts_path, "app_type_detected", {
+                    "app_type": effective_app_type,
+                    "detection_method": "auto"
+                })
+            else:
+                logger.info(f"[{run_id}] Using provided app_type: {effective_app_type!r}")
+            result["app_type"] = effective_app_type
 
             # Intelligent Discovery: Build priority test queue from image/document analysis
             get_operation_results = None
@@ -2922,6 +2938,46 @@ class DiscoveryRunner:
         except Exception as e:
             logger.warning(f"[{run_id}] Error discovering sidebar navigation: {e}")
 
+        # Organic link discovery fallback — walk all same-origin <a href> tags to supplement sidebar discovery
+        try:
+            all_links = await page.locator("a[href]").all()
+            # Use the page's current origin for same-origin filtering
+            base_parsed = urlparse(page.url)
+            nav_urls_organic: Set[str] = set(item.get("full_url", "") for item in nav_items if item.get("full_url"))
+            organic_added = 0
+            for link in all_links[:200]:
+                try:
+                    href = await link.get_attribute("href")
+                    if href and not href.startswith("#") and not href.startswith("javascript"):
+                        full_url = urljoin(page.url, href)
+                        full_parsed = urlparse(full_url)
+                        if full_parsed.netloc == base_parsed.netloc:
+                            normalized_organic = self._normalize_url(full_url)
+                            if normalized_organic not in nav_urls_organic:
+                                nav_urls_organic.add(normalized_organic)
+                                # Get link text for display
+                                try:
+                                    link_text = (await link.inner_text()).strip()[:100]
+                                except Exception:
+                                    link_text = full_parsed.path
+                                if link_text and not self._is_destructive(link_text):
+                                    nav_items.append({
+                                        "text": link_text or full_parsed.path,
+                                        "href": href,
+                                        "full_url": full_url,
+                                        "nav_path": link_text or full_parsed.path,
+                                        "submenu_items": [],
+                                        "is_resource": False,
+                                        "source": "organic_link_discovery"
+                                    })
+                                    organic_added += 1
+                except Exception:
+                    continue
+            if organic_added > 0:
+                logger.info(f"[{run_id}] Organic link discovery added {organic_added} additional URLs")
+        except Exception as e:
+            logger.debug(f"[{run_id}] Organic link discovery failed: {e}")
+
         # FALLBACK: If no nav items found from structured sidebar, do aggressive link collection
         if len(nav_items) == 0:
             logger.warning(f"[{run_id}] No navigation items found via sidebar selectors. Falling back to aggressive link collection...")
@@ -3845,6 +3901,183 @@ class DiscoveryRunner:
         except Exception as e:
             logger.warning(f"[{run_id}] Error discovering clickable elements: {e}")
     
+    async def _detect_page_personality(self, page) -> str:
+        """Detect page personality by analysing DOM structure."""
+        try:
+            signals = {}
+
+            # Table/list signals
+            table_count = await page.locator("table, [role='grid'], [role='table']").count()
+            list_count = await page.locator("ul.list, ol.list, [role='list'], .data-list, .item-list").count()
+            signals["has_table_or_list"] = (table_count + list_count) > 0
+
+            # Form signals
+            form_count = await page.locator("form, [role='form']").count()
+            input_count = await page.locator("input:not([type='hidden']):not([type='search']), select, textarea").count()
+            signals["has_form"] = form_count > 0 or input_count > 2
+
+            # Detail view signals (single record displayed)
+            dl_count = await page.locator("dl, .detail-view, .record-detail, [data-testid*='detail']").count()
+            signals["has_detail"] = dl_count > 0
+
+            # Empty state signals
+            try:
+                body_text = await page.locator("body").inner_text()
+                body_lower = body_text.lower()[:500]
+                signals["empty_state"] = any(kw in body_lower for kw in [
+                    "no results", "no data", "nothing found", "empty", "no items",
+                    "get started", "no records", "0 results"
+                ])
+            except:
+                signals["empty_state"] = False
+
+            # Error state signals
+            error_count = await page.locator("[role='alert'], .error-page, .error-boundary, h1:has-text('Error'), h1:has-text('404'), h1:has-text('403')").count()
+            signals["has_error"] = error_count > 0
+
+            # Dashboard signals
+            card_count = await page.locator(".card, .widget, .metric, [data-testid*='card'], .stat-card").count()
+            chart_count = await page.locator("canvas, svg.chart, [data-testid*='chart'], .recharts-wrapper").count()
+            signals["has_dashboard"] = (card_count + chart_count) > 2
+
+            # Determine personality
+            if signals["has_error"]:
+                return "error_state"
+            elif signals["empty_state"]:
+                return "empty_state"
+            elif signals["has_dashboard"]:
+                return "dashboard"
+            elif signals["has_table_or_list"] and not signals["has_form"]:
+                return "list_view"
+            elif signals["has_form"] and not signals["has_table_or_list"]:
+                return "form_view"
+            elif signals["has_detail"]:
+                return "detail_view"
+            elif signals["has_table_or_list"] and signals["has_form"]:
+                return "list_view"  # Mixed — treat as list
+            else:
+                return "unknown"
+        except Exception as e:
+            logger.debug(f"Page personality detection failed: {e}")
+            return "unknown"
+
+    async def _scrape_real_data_from_page(self, page) -> List[str]:
+        """Scrape real data values from tables/lists for use in search tests."""
+        samples = []
+        try:
+            # Extract first column text from tables
+            rows = await page.locator("table tbody tr").all()
+            for row in rows[:5]:
+                try:
+                    cells = await row.locator("td").all()
+                    if cells:
+                        text = await cells[0].inner_text()
+                        text = text.strip()
+                        if text and len(text) > 1 and len(text) < 100 and text not in samples:
+                            samples.append(text)
+                except:
+                    continue
+
+            # Extract visible list item text
+            if len(samples) < 3:
+                items = await page.locator("[role='listitem'], .list-item, .item-name, .row-name, td:first-child").all()
+                for item in items[:8]:
+                    try:
+                        text = await item.inner_text()
+                        text = text.strip()
+                        if text and 2 < len(text) < 80 and text not in samples:
+                            samples.append(text)
+                            if len(samples) >= 5:
+                                break
+                    except:
+                        continue
+
+            # Extract select/dropdown option values
+            selects = await page.locator("select option:not([value=''])").all()
+            for opt in selects[:5]:
+                try:
+                    text = await opt.inner_text()
+                    text = text.strip()
+                    if text and text not in samples and len(text) < 50:
+                        samples.append(text)
+                except:
+                    continue
+
+        except Exception as e:
+            logger.debug(f"Real data scraping failed: {e}")
+
+        return samples[:10]
+
+    async def _auto_detect_app_type(self, page, current_url: str) -> str:
+        """Auto-detect the application type from the current page DOM and URL."""
+        try:
+            body_text = ""
+            try:
+                body_text = (await page.locator("body").inner_text()).lower()[:2000]
+            except Exception:
+                pass
+
+            url_lower = current_url.lower()
+
+            # e_commerce signals
+            e_commerce_selectors = await page.locator(
+                ".cart, .checkout, .product, .price, [class*='cart'], [class*='checkout'], "
+                "[class*='product'], [data-testid*='cart'], [data-testid*='product']"
+            ).count()
+            e_commerce_text = any(kw in body_text or kw in url_lower for kw in [
+                "cart", "checkout", "product", "price", "shop", "order", "buy", "purchase"
+            ])
+            if e_commerce_selectors > 2 or e_commerce_text:
+                detected = "e_commerce"
+                logger.info(f"Auto-detected app type: {detected} (url={current_url})")
+                return detected
+
+            # dev_tools signals
+            dev_tools_text = any(kw in body_text or kw in url_lower for kw in [
+                "kubectl", "namespace", "pod", "deployment", "kubernetes", "cluster", "node",
+                "container", "docker", "helm", "ingress"
+            ])
+            if dev_tools_text:
+                detected = "dev_tools"
+                logger.info(f"Auto-detected app type: {detected} (url={current_url})")
+                return detected
+
+            # saas_dashboard signals
+            saas_selectors = await page.locator(
+                ".metric, .stat-card, .analytics, [data-testid*='metric'], canvas, .recharts-wrapper"
+            ).count()
+            saas_text = any(kw in body_text or kw in url_lower for kw in [
+                "metrics", "analytics", "dashboard", "revenue", "conversion", "retention", "mau", "dau"
+            ])
+            if saas_selectors > 2 or saas_text:
+                detected = "saas_dashboard"
+                logger.info(f"Auto-detected app type: {detected} (url={current_url})")
+                return detected
+
+            # cms signals
+            cms_text = any(kw in body_text or kw in url_lower for kw in [
+                "posts", "articles", "publish", "content", "pages", "media", "categories", "tags", "blog"
+            ])
+            if cms_text:
+                detected = "cms"
+                logger.info(f"Auto-detected app type: {detected} (url={current_url})")
+                return detected
+
+            # crm signals
+            crm_text = any(kw in body_text or kw in url_lower for kw in [
+                "contacts", "leads", "opportunities", "pipeline", "deals", "customers", "accounts", "crm"
+            ])
+            if crm_text:
+                detected = "crm"
+                logger.info(f"Auto-detected app type: {detected} (url={current_url})")
+                return detected
+
+        except Exception as e:
+            logger.debug(f"Auto app type detection failed: {e}")
+
+        logger.info(f"Auto-detected app type: web_app (url={current_url})")
+        return "web_app"
+
     async def _detect_ui_features(self, page) -> Dict[str, Any]:
         """
         Detect additional UI features on a page for comprehensive test coverage.
@@ -3990,6 +4223,12 @@ class DiscoveryRunner:
             # Detect additional UI features for comprehensive test generation
             ui_features = await self._detect_ui_features(page)
 
+            # Detect page personality (list_view, form_view, detail_view, etc.)
+            page_personality = await self._detect_page_personality(page)
+
+            # Scrape real data values for search/filter test generation
+            scraped_data_samples = await self._scrape_real_data_from_page(page)
+
             page_info = {
                 "url": url,
                 "nav_text": nav_text,
@@ -3998,7 +4237,9 @@ class DiscoveryRunner:
                 "primary_actions": primary_actions,
                 "forms": forms,
                 "tables": tables,
-                "ui_features": ui_features
+                "ui_features": ui_features,
+                "page_personality": page_personality,
+                "scraped_data_samples": scraped_data_samples
             }
             
             # Screenshot

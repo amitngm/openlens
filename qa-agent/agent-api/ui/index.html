@@ -1376,9 +1376,44 @@
                             </div>
                         </details>
 
+                        <!-- Operations to Execute -->
+                        <div class="config-section" style="margin-top: 16px;">
+                            <label class="config-label" style="font-weight: 600; display: block; margin-bottom: 8px;">Operations to Execute</label>
+                            <div style="display: flex; gap: 16px; flex-wrap: wrap; padding: 10px; background: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef;">
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
+                                    <input type="checkbox" id="op_read" checked disabled style="accent-color: #28a745;">
+                                    <span style="color: #28a745; font-weight: 500;">Read</span>
+                                    <small style="color: #6c757d;">(always on)</small>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
+                                    <input type="checkbox" id="op_create" onchange="updateOperations()">
+                                    <span>Create</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
+                                    <input type="checkbox" id="op_update" onchange="updateOperations()">
+                                    <span>Update</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px;">
+                                    <input type="checkbox" id="op_delete" onchange="updateOperations()">
+                                    <span style="color: #dc3545;">Delete</span>
+                                </label>
+                            </div>
+                            <small style="color: #6c757d; font-size: 11px; display: block; margin-top: 4px;">
+                                Tests for all operations are always discovered. Only checked ones execute.
+                            </small>
+                        </div>
+
+                        <!-- Test Data Seeds -->
+                        <div class="config-section" style="margin-top: 12px;">
+                            <label class="config-label" for="seed_data" style="font-weight: 600; display: block; margin-bottom: 6px;">Test Data Seeds (optional)</label>
+                            <textarea id="seed_data" rows="3" placeholder="Paste real data for search/filter tests, one per line:&#10;John Doe&#10;user@example.com&#10;Product ABC"
+                                style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 12px; resize: vertical; font-family: monospace; box-sizing: border-box;"></textarea>
+                            <small style="color: #6c757d; font-size: 11px;">Real values scraped from the app are also used automatically.</small>
+                        </div>
+
                         <!-- Advanced Discovery Settings -->
                         <details style="margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
-                            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary);">⚙️ Advanced Settings</summary>
+                            <summary style="cursor: pointer; font-weight: 600; color: var(--text-primary);">Advanced Settings</summary>
                             <div style="margin-top: 12px; display: grid; gap: 12px;">
                                 <div class="form-group">
                                     <label for="max_pages">Max Pages</label>
@@ -2487,6 +2522,11 @@
                 }
             }
 
+            // Add CRUD operations and seed data
+            payload.enabled_operations = updateOperations();
+            const seedData = getSeedData();
+            if (seedData.length > 0) payload.seed_data = seedData;
+
             // Add advanced discovery configuration
             const maxPages = parseInt(document.getElementById('max_pages').value);
             const maxForms = parseInt(document.getElementById('max_forms_per_page').value);
@@ -3099,6 +3139,17 @@
                     showFreeTextExecutionCompleted(event.data);
                 } else if (event.type === 'free_text_execution_error') {
                     showFreeTextExecutionError(event.data);
+                } else if (event.type === 'execution_progress') {
+                    // Update progress in state if available
+                    if (typeof testExecutionState !== 'undefined') {
+                        testExecutionState.passed = event.data.passed || 0;
+                        testExecutionState.failed = event.data.failed || 0;
+                        testExecutionState.skipped = event.data.skipped || 0;
+                    }
+                } else if (event.type === 'test_skipped') {
+                    if (typeof testExecutionState !== 'undefined') {
+                        testExecutionState.skipped++;
+                    }
                 }
             });
         }
@@ -3189,6 +3240,12 @@
                 message = `✨ QA Buddy completed: ${event.data.passed} passed, ${event.data.failed} failed`;
             } else if (event.type === 'free_text_execution_error') {
                 message = `❌ QA Buddy error: ${event.data.error}`;
+            } else if (event.type === 'execution_progress') {
+                message = `⏳ Progress: ${event.data.completed}/${event.data.total} (${event.data.percent}%) — ${event.data.passed} passed, ${event.data.failed} failed, ${event.data.skipped} skipped`;
+            } else if (event.type === 'test_skipped') {
+                message = `⏭️ Skipped (disabled op): ${event.data.test_name}`;
+            } else if (event.type === 'execution_aborted') {
+                message = `🛑 Execution aborted: ${event.data.reason} (stopped at test ${event.data.stopped_at_index})`;
             }
             entry.innerHTML = `<span style="color: #999; margin-right: 8px;">${timestamp}</span>${message}`;
             
@@ -5171,6 +5228,24 @@
         } else {
             initializePage();
             loadRunHistory();
+        }
+
+        function updateOperations() {
+            // Called when operation checkboxes change
+            const ops = {
+                read: true,  // always enabled
+                create: document.getElementById('op_create')?.checked || false,
+                update: document.getElementById('op_update')?.checked || false,
+                delete: document.getElementById('op_delete')?.checked || false
+            };
+            console.log('Operations updated:', ops);
+            return ops;
+        }
+
+        function getSeedData() {
+            const textarea = document.getElementById('seed_data');
+            if (!textarea || !textarea.value.trim()) return [];
+            return textarea.value.split('\n').map(s => s.trim()).filter(s => s.length > 0);
         }
         </script>
 

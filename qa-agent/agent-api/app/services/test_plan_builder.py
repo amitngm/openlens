@@ -149,11 +149,42 @@ class TestPlanBuilder:
             logger.error(f"[{run_id}] Test plan build failed: {e}", exc_info=True)
             raise
     
+    def _get_search_test_data(self, discovery: Dict) -> List[str]:
+        """Get search test data combining real scraped data + seed data + dummies."""
+        data = []
+
+        # 1. Scraped real data from discovery pages
+        for page in discovery.get("pages", []):
+            samples = page.get("scraped_data_samples", [])
+            if samples:
+                data.extend(samples[:2])  # Max 2 per page
+
+        # 2. Seed data provided by user
+        seed_data = discovery.get("seed_data", [])
+        if seed_data:
+            data.extend(seed_data[:3])
+
+        # 3. Always include standard dummies
+        dummies = ["test", "admin", "user"]
+        data.extend(dummies)
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique = []
+        for d in data:
+            if d and d.strip() and d not in seen:
+                seen.add(d)
+                unique.append(d.strip())
+
+        return unique[:8]  # Max 8 search terms
+
     def _generate_smoke_tests(self, discovery: Dict, base_url: str) -> List[Dict]:
         """Generate minimal happy-path tests for top modules/pages."""
         tests = []
         test_id = 1
-        
+
+        search_test_data = self._get_search_test_data(discovery)
+
         # Test 1: Homepage/Dashboard load
         pages = discovery.get("pages", [])
         if pages:
@@ -165,6 +196,7 @@ class TestPlanBuilder:
                 "template": "page_load",
                 "priority": "critical",
                 "type": "ui",
+                "operation_type": "read",
                 "steps": [
                     {"action": "navigate", "target": home_page.get("url", base_url)},
                     {"action": "wait", "timeout": 5000},
@@ -174,7 +206,7 @@ class TestPlanBuilder:
                 "tags": ["smoke", "page_load"]
             })
             test_id += 1
-        
+
         # Test 2-6: Top 5 pages load
         for page in pages[1:6]:
             tests.append({
@@ -184,6 +216,7 @@ class TestPlanBuilder:
                 "template": "page_load",
                 "priority": "high",
                 "type": "ui",
+                "operation_type": "read",
                 "steps": [
                     {"action": "navigate", "target": page.get("url", base_url)},
                     {"action": "wait", "timeout": 5000},
@@ -194,11 +227,11 @@ class TestPlanBuilder:
                 "page_url": page.get("url")
             })
             test_id += 1
-        
+
         # Test: API health checks (top 3 GET endpoints)
         api_endpoints = discovery.get("api_endpoints", [])
         get_apis = [api for api in api_endpoints if api.get("method") == "GET"][:3]
-        
+
         for api in get_apis:
             tests.append({
                 "id": f"SMOKE-{test_id:03d}",
@@ -207,32 +240,35 @@ class TestPlanBuilder:
                 "template": "api_health",
                 "priority": "medium",
                 "type": "api",
+                "operation_type": "read",
                 "steps": [
                     {"action": "request", "method": "GET", "url": api.get("url")},
                     {"action": "assert_status", "expected": [200, 201, 204]}
                 ],
                 "expected_result": "API should return 2xx status",
                 "tags": ["smoke", "api"],
-                "api_url": api.get("url")
+                "api_url": api.get("url"),
+                "search_test_data": search_test_data
             })
             test_id += 1
-        
+
         return tests
     
     def _generate_crud_sanity_tests(self, discovery: Dict, base_url: str) -> List[Dict]:
         """Generate create/update/delete/validation tests for CRUD actions (SAFE only)."""
         tests = []
         test_id = 1
-        
+
         forms = discovery.get("forms_found", [])
         api_endpoints = discovery.get("api_endpoints", [])
-        
+        search_test_data = self._get_search_test_data(discovery)
+
         # CREATE tests (safe - only POST forms/APIs)
         for form in forms:
             if form.get("method") in ["POST"]:
                 fields = form.get("inputs", [])
                 field_names = [f["name"] for f in fields if f.get("name") and f.get("type") != "hidden"]
-                
+
                 if field_names:
                     tests.append({
                         "id": f"CRUD-CREATE-{test_id:03d}",
@@ -241,6 +277,7 @@ class TestPlanBuilder:
                         "template": "create_resource",
                         "priority": "high",
                         "type": "ui",
+                        "operation_type": "create",
                         "steps": [
                             {"action": "navigate", "target": form.get("page_url", base_url)},
                             {"action": "fill_form", "fields": [
@@ -253,24 +290,26 @@ class TestPlanBuilder:
                         "expected_result": "Resource should be created successfully",
                         "tags": ["crud", "create", "safe"],
                         "form_action": form.get("action", ""),
-                        "page_url": form.get("page_url", base_url)
+                        "page_url": form.get("page_url", base_url),
+                        "search_test_data": search_test_data
                     })
                     test_id += 1
-        
+
         # CREATE via API (POST only)
         for api in api_endpoints:
             if api.get("method") == "POST":
                 url = api.get("url", "")
                 path_parts = urlparse(url).path.split("/")
                 resource = next((p for p in reversed(path_parts) if p and not p.isdigit()), "resource")
-                
+
                 tests.append({
                     "id": f"CRUD-CREATE-API-{test_id:03d}",
                     "name": f"Create {resource} via API",
-                    "description": f"POST request to create resource",
+                    "description": "POST request to create resource",
                     "template": "create_resource",
                     "priority": "high",
                     "type": "api",
+                    "operation_type": "create",
                     "steps": [
                         {"action": "request", "method": "POST", "url": url},
                         {"action": "set_headers", "headers": {"Content-Type": "application/json"}},
@@ -283,7 +322,7 @@ class TestPlanBuilder:
                     "api_url": url
                 })
                 test_id += 1
-        
+
         # UPDATE tests (PUT/PATCH - safe, no deletes)
         for api in api_endpoints:
             method = api.get("method", "").upper()
@@ -296,6 +335,7 @@ class TestPlanBuilder:
                     "template": "update_resource",
                     "priority": "high",
                     "type": "api",
+                    "operation_type": "update",
                     "steps": [
                         {"action": "setup", "description": "Ensure resource exists"},
                         {"action": "request", "method": method, "url": url},
@@ -308,14 +348,15 @@ class TestPlanBuilder:
                     "api_url": url
                 })
                 test_id += 1
-        
+
         # VALIDATION tests (required fields)
         for form in forms:
             if form.get("method") in ["POST", "PUT"]:
                 fields = form.get("inputs", [])
                 required_fields = [f for f in fields if f.get("type") not in ["hidden", "submit", "button"]]
-                
+
                 if required_fields:
+                    form_method = form.get("method", "POST").upper()
                     tests.append({
                         "id": f"CRUD-VALIDATION-{test_id:03d}",
                         "name": f"Validation: {form.get('action', 'form')[:40]}",
@@ -323,6 +364,7 @@ class TestPlanBuilder:
                         "template": "validation",
                         "priority": "medium",
                         "type": "ui",
+                        "operation_type": "create" if form_method == "POST" else "update",
                         "steps": [
                             {"action": "navigate", "target": form.get("page_url", base_url)},
                             {"action": "submit", "selector": "button[type=submit], form"},
@@ -334,7 +376,7 @@ class TestPlanBuilder:
                         "page_url": form.get("page_url", base_url)
                     })
                     test_id += 1
-        
+
         return tests
     
     def _infer_modules(self, discovery: Dict) -> List[str]:
@@ -414,6 +456,7 @@ class TestPlanBuilder:
                 "template": "page_load",
                 "priority": "high",
                 "type": "ui",
+                "operation_type": "read",
                 "steps": [
                     {"action": "navigate", "target": page.get("url", base_url)},
                     {"action": "wait", "timeout": 5000},
@@ -423,10 +466,11 @@ class TestPlanBuilder:
                 "tags": ["module", module_lower, "page_load"]
             })
             test_id += 1
-        
+
         # Generate form tests
         for form in module_forms[:3]:
-            if form.get("method") in ["POST", "PUT"]:
+            form_method = form.get("method", "POST").upper()
+            if form_method in ["POST", "PUT"]:
                 tests.append({
                     "id": f"MODULE-{test_id:03d}",
                     "name": f"{module}: Form action on {form.get('action', 'form')[:30]}",
@@ -434,6 +478,7 @@ class TestPlanBuilder:
                     "template": "form_submit",
                     "priority": "medium",
                     "type": "ui",
+                    "operation_type": "create" if form_method == "POST" else "update",
                     "steps": [
                         {"action": "navigate", "target": form.get("page_url", base_url)},
                         {"action": "fill_form", "fields": [
@@ -455,11 +500,12 @@ class TestPlanBuilder:
         """Generate guided exploration with safe actions only (no deletes)."""
         tests = []
         test_id = 1
-        
+
         pages = discovery.get("pages", [])
         forms = discovery.get("forms_found", [])
         api_endpoints = discovery.get("api_endpoints", [])
-        
+        search_test_data = self._get_search_test_data(discovery)
+
         # Explore pages (safe navigation)
         for page in pages[:10]:
             tests.append({
@@ -469,6 +515,7 @@ class TestPlanBuilder:
                 "template": "explore_page",
                 "priority": "medium",
                 "type": "ui",
+                "operation_type": "read",
                 "steps": [
                     {"action": "navigate", "target": page.get("url", base_url)},
                     {"action": "wait", "timeout": 3000},
@@ -481,13 +528,16 @@ class TestPlanBuilder:
                 ],
                 "expected_result": "Page should be explorable without errors",
                 "tags": ["exploratory", "safe"],
-                "page_url": page.get("url")
+                "page_url": page.get("url"),
+                "search_test_data": search_test_data
             })
             test_id += 1
-        
+
         # Safe form submissions (POST only, no DELETE)
         for form in forms:
-            if form.get("method") in ["POST", "PUT", "PATCH"]:
+            form_method = form.get("method", "POST").upper()
+            if form_method in ["POST", "PUT", "PATCH"]:
+                op_type = "create" if form_method == "POST" else "update"
                 tests.append({
                     "id": f"EXPLORE-FORM-{test_id:03d}",
                     "name": f"Explore form: {form.get('action', 'form')[:40]}",
@@ -495,6 +545,7 @@ class TestPlanBuilder:
                     "template": "explore_form",
                     "priority": "low",
                     "type": "ui",
+                    "operation_type": op_type,
                     "steps": [
                         {"action": "navigate", "target": form.get("page_url", base_url)},
                         {"action": "fill_form_safe", "fields": [
@@ -507,13 +558,15 @@ class TestPlanBuilder:
                     "expected_result": "Form should be fillable (not submitted)",
                     "tags": ["exploratory", "safe", "form"],
                     "form_action": form.get("action", ""),
-                    "page_url": form.get("page_url", base_url)
+                    "page_url": form.get("page_url", base_url),
+                    "search_test_data": search_test_data
                 })
                 test_id += 1
-        
+
         # Safe API exploration (GET, POST only)
         safe_apis = [api for api in api_endpoints if api.get("method") in ["GET", "POST"]][:5]
         for api in safe_apis:
+            api_method = api.get("method", "GET").upper()
             tests.append({
                 "id": f"EXPLORE-API-{test_id:03d}",
                 "name": f"Explore API: {urlparse(api.get('url', '')).path[:40]}",
@@ -521,6 +574,7 @@ class TestPlanBuilder:
                 "template": "explore_api",
                 "priority": "low",
                 "type": "api",
+                "operation_type": "read" if api_method == "GET" else "create",
                 "steps": [
                     {"action": "request", "method": api.get("method"), "url": api.get("url")},
                     {"action": "send"},
@@ -531,7 +585,7 @@ class TestPlanBuilder:
                 "api_url": api.get("url")
             })
             test_id += 1
-        
+
         return tests
     
     def _get_timestamp(self) -> str:

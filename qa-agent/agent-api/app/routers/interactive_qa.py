@@ -71,6 +71,15 @@ class StartRunRequest(BaseModel):
         examples=["web_app", "e_commerce", "admin_panel", "saas_dashboard", "cms", "crm", "dev_tools", "auto"]
     )
 
+    # User-provided seed data for search/filter tests
+    seed_data: Optional[List[str]] = Field(None, description="User-provided seed data for search/filter tests (one value per item)")
+
+    # CRUD operation gating — only checked operations execute during test run
+    enabled_operations: Optional[Dict[str, bool]] = Field(
+        None,
+        description="Which CRUD operations to execute. Default: only read. Keys: read, create, update, delete"
+    )
+
     # Discovery configuration overrides (optional)
     max_pages: Optional[int] = Field(None, description="Maximum pages to discover (default: 2000)")
     max_forms_per_page: Optional[int] = Field(None, description="Maximum forms to process per page (default: 50)")
@@ -994,7 +1003,9 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
             max_discovery_time_minutes=request.max_discovery_time_minutes,
             close_browser_on_complete=bool(request.close_browser_on_complete) if request.close_browser_on_complete is not None else False,
             ai_config=request.ai_config,
-            app_type=request.app_type or "auto"
+            app_type=request.app_type or "auto",
+            seed_data=request.seed_data,
+            enabled_operations=request.enabled_operations
         )
         
         # Transition to OPEN_URL (opens URL in check_session)
@@ -1169,7 +1180,9 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
                                             document_analysis=document_analysis,
                                             phase=context.test_phase,
                                             config_overrides=config_overrides if config_overrides else None,
-                                            ai_config=getattr(context, "ai_config", None)  # Pass AI config if available
+                                            ai_config=getattr(context, "ai_config", None),  # Pass AI config if available
+                                            app_type=getattr(context, "app_type", None),  # Pass app type hint
+                                            seed_data=getattr(context, "seed_data", None)  # Pass user seed data
                                         )
                                         
                                         # Store discovery summary in context
@@ -1779,7 +1792,9 @@ async def answer_question(
                                                 debug=getattr(context, "discovery_debug", False),
                                                 image_hints=image_hints,
                                                 document_analysis=document_analysis,
-                                                phase=context.test_phase
+                                                phase=context.test_phase,
+                                                app_type=getattr(context, "app_type", None),  # Pass app type hint
+                                                seed_data=getattr(context, "seed_data", None)  # Pass user seed data
                                             )
                                             
                                             # Store discovery summary in context
@@ -1853,7 +1868,9 @@ async def answer_question(
                     page=page,
                     run_id=run_id,
                     base_url=context.base_url,
-                    artifacts_path=context.artifacts_path
+                    artifacts_path=context.artifacts_path,
+                    app_type=getattr(context, "app_type", None),  # Pass app type hint
+                    seed_data=getattr(context, "seed_data", None)  # Pass user seed data
                 )
                 
                 # Store discovery summary in context
@@ -1937,7 +1954,9 @@ async def answer_question(
                                 run_id=run_id,
                                 base_url=context.base_url,
                                 artifacts_path=context.artifacts_path,
-                                debug=getattr(context, "discovery_debug", False)
+                                debug=getattr(context, "discovery_debug", False),
+                                app_type=getattr(context, "app_type", None),  # Pass app type hint
+                                seed_data=getattr(context, "seed_data", None)  # Pass user seed data
                             )
                             
                             # Store discovery summary in context
@@ -2036,9 +2055,11 @@ async def answer_question(
                         page=page,
                         run_id=run_id,
                         artifacts_path=context.artifacts_path,
-                        test_plan=plan_result["test_plan"]
+                        test_plan=plan_result["test_plan"],
+                        base_url=context.base_url,
+                        enabled_operations=context.enabled_operations
                     )
-                    
+
                     # If unsafe deletes detected, pause and ask
                     if execution_result.get("question"):
                         context = _run_store.update_run(run_id, question=execution_result["question"])
@@ -2118,9 +2139,11 @@ async def answer_question(
                     page=page,
                     run_id=run_id,
                     artifacts_path=context.artifacts_path,
-                    test_plan=test_plan
+                    test_plan=test_plan,
+                    base_url=context.base_url,
+                    enabled_operations=context.enabled_operations
                 )
-                
+
                 # If unsafe deletes detected, pause and ask
                 if execution_result.get("question"):
                     context = _run_store.update_run(run_id, question=execution_result["question"])
@@ -2201,9 +2224,11 @@ async def answer_question(
                         page=page,
                         run_id=run_id,
                         artifacts_path=context.artifacts_path,
-                        test_plan=test_plan
+                        test_plan=test_plan,
+                        base_url=context.base_url,
+                        enabled_operations=context.enabled_operations
                     )
-                    
+
                     # Transition to next state
                     next_state = execution_result["next_state"]
                     context = _run_store.transition_state(run_id, next_state)
@@ -2917,73 +2942,71 @@ async def get_test_cases(run_id: str):
 async def regenerate_test_cases(run_id: str):
     """
     Regenerate test cases from discovery.json for an existing run.
-    Use this to get executable steps (navigate/click/fill dict steps) without re-running discovery.
+    Uses the same TestPlanBuilder path as initial generation to preserve count.
     """
     try:
         context = _run_store.get_run(run_id)
         if not context:
-            data_dir = Path("data") if Path("data").exists() else Path("agent-api/data")
-            run_dir = data_dir / run_id
-            if not run_dir.exists():
-                raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-            artifacts_path = str(run_dir)
-        else:
-            artifacts_path = context.artifacts_path
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
 
-        discovery_file = Path(artifacts_path) / "discovery.json"
+        artifacts_path = context.artifacts_path
+        artifacts_dir = Path(artifacts_path)
+
+        discovery_file = artifacts_dir / "discovery.json"
         if not discovery_file.exists():
-            raise HTTPException(status_code=404, detail="Discovery not found. Run discovery first.")
+            raise HTTPException(status_code=400, detail="No discovery.json found. Run discovery first.")
 
-        with open(discovery_file, "r") as f:
+        with open(discovery_file) as f:
             discovery_data = json.load(f)
 
         pages = discovery_data.get("pages", [])
         if not pages:
             raise HTTPException(status_code=400, detail="Discovery has no pages.")
 
-        # Deduplicate only by exact URL string (same URL twice = one page). Do not normalize path/query
-        # so we preserve distinct pages like /item/1, /item/2, /search?q=a and avoid dropping count.
-        seen_exact_urls = set()
-        unique_pages = []
-        for p in pages:
-            url = (p.get("url") or "").strip()
-            if not url:
-                unique_pages.append(p)
-                continue
-            if url not in seen_exact_urls:
-                seen_exact_urls.add(url)
-                unique_pages.append(p)
-        pages = unique_pages
-        if len(unique_pages) < len(discovery_data.get("pages", [])):
-            logger.info(f"[{run_id}] Deduplicated pages (exact URL only): {len(discovery_data.get('pages', []))} -> {len(pages)}")
+        # Load previous test plan to get the test_intent
+        previous_count = 0
+        test_intent = "smoke"  # default fallback
+        test_plan_file = artifacts_dir / "test_plan.json"
+        if test_plan_file.exists():
+            with open(test_plan_file) as f:
+                old_plan = json.load(f)
+            test_intent = old_plan.get("test_intent", "smoke")
+            previous_count = old_plan.get("total_tests", 0)
 
-        import hashlib
-        from app.services.test_case_generator import get_test_case_generator
-        test_gen = get_test_case_generator()
-        all_test_cases = []
-        for page in pages:
-            page_url = (page.get("url") or "").strip()
-            page_cases = test_gen.generate_test_cases_for_page(page_info=page, run_id=run_id)
-            # Make id unique per page URL so different URLs with same page_name don't collapse to one test
-            suffix = hashlib.md5(page_url.encode()).hexdigest()[:8] if page_url else ""
-            for tc in page_cases:
-                base_id = tc.get("id") or "tc"
-                tc["id"] = f"{base_id}_{suffix}" if suffix else base_id
-                all_test_cases.append(tc)
+        # Use TestPlanBuilder (same as initial generation) to ensure count parity
+        builder = get_test_plan_builder()
 
-        test_gen.save_test_cases(run_id, artifacts_path, all_test_cases)
-        logger.info(f"[{run_id}] Regenerated {len(all_test_cases)} test cases from {len(pages)} unique pages")
+        # Get page object from browser manager
+        browser_mgr = get_browser_manager()
+        page = await browser_mgr.get_page(run_id)
+
+        result = await builder.build_test_plan(
+            page=page,
+            run_id=run_id,
+            artifacts_path=artifacts_path,
+            test_intent=test_intent,
+            app_type=context.app_type
+        )
+
+        new_plan = result.get("test_plan")
+        if not new_plan:
+            raise HTTPException(status_code=500, detail="Test plan builder returned no plan")
+
+        new_count = new_plan.get("total_tests", 0)
+
+        logger.info(f"[{run_id}] Regenerated: previous={previous_count}, new={new_count}, intent={test_intent}")
 
         return {
             "run_id": run_id,
-            "regenerated": len(all_test_cases),
-            "pages_used": len(pages),
-            "message": f"Regenerated {len(all_test_cases)} test cases (from {len(pages)} pages). Only exact-duplicate URLs were merged; each page URL keeps its own test cases.",
+            "regenerated": new_count,
+            "previous_count": previous_count,
+            "test_intent": test_intent,
+            "message": f"Regenerated {new_count} test cases (was {previous_count}). Intent: {test_intent}.",
         }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"[{run_id}] Regenerate test cases failed: {e}", exc_info=True)
+        logger.error(f"[{run_id}] Regenerate failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Regenerate failed: {str(e)}")
 
 
@@ -3354,9 +3377,10 @@ async def execute_test_cases(run_id: str, request: ExecuteTestCasesRequest = Bod
                 page=page,
                 run_id=execution_id,
                 artifacts_path=str(execution_artifacts_path),
-                test_plan=test_plan
+                test_plan=test_plan,
+                base_url=request.base_url
             )
-            
+
             # Validate execution result
             if not execution_result or not execution_result.get("report"):
                 logger.error(f"[{execution_id}] ERROR: Execution result is empty or missing report!")

@@ -9,10 +9,14 @@ from app.models.run_context import Question
 
 logger = logging.getLogger(__name__)
 
+# Score thresholds
+LOGIN_REQUIRED_THRESHOLD = 50   # Very confident it is a login page
+LOGIN_AMBIGUOUS_THRESHOLD = 20  # Possibly a login page — ask the user
+
 
 class SessionChecker:
     """Service for checking session/login state."""
-    
+
     # Keycloak detection patterns
     KEYCLOAK_URL_PATTERNS = ["/realms/", "openid-connect"]
     KEYCLOAK_SELECTORS = [
@@ -21,17 +25,17 @@ class SessionChecker:
         "input[name='username']",
         "input[name='password']",
         "#kc-login",
-        "form#kc-form-login"
+        "form#kc-form-login",
     ]
-    
+
     # Login form selectors (generic)
     LOGIN_FORM_SELECTORS = [
         "input[type='password']",
         "input[name='password']",
         "#password",
-        "form:has(input[type='password'])"
+        "form:has(input[type='password'])",
     ]
-    
+
     async def check_session(
         self,
         page,
@@ -41,123 +45,209 @@ class SessionChecker:
     ) -> Dict[str, Any]:
         """
         Check if user is already logged in or needs login.
-        
+
         Args:
             page: Playwright Page object
             base_url: Base application URL
             run_id: Run identifier
             artifacts_path: Path to artifacts directory
-        
+
         Returns:
             Dict with:
-                - status: "logged_in" | "keycloak" | "ambiguous"
+                - status: "logged_in" | "login_required" | "ambiguous"
                 - next_state: RunState
-                - question: Optional[Question] (if ambiguous)
+                - question: Optional[Question] (if ambiguous / unexpected)
                 - screenshot_path: str
+                - auth_type: str ("keycloak" | "generic_form" | "none")
         """
         try:
-            # Navigate to base URL
             logger.info(f"[{run_id}] Opening base URL: {base_url}")
             await page.goto(base_url, timeout=30000, wait_until="networkidle")
             await page.wait_for_load_state("domcontentloaded")
-            
+
             current_url = page.url
             logger.info(f"[{run_id}] Current URL after navigation: {current_url}")
-            
+
             # Capture screenshot
             artifacts_dir = Path(artifacts_path)
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             screenshot_path = str(artifacts_dir / "session_check.png")
             await page.screenshot(path=screenshot_path)
             logger.info(f"[{run_id}] Screenshot saved: {screenshot_path}")
-            
-            # Check 1: Keycloak detection
-            is_keycloak = await self._detect_keycloak(page, current_url)
-            
-            if is_keycloak:
-                logger.info(f"[{run_id}] Keycloak detected - login required")
+
+            # Score the page for login likelihood
+            score = await self._score_login_page(page, current_url)
+            logger.info(f"[{run_id}] Login page score: {score}/100")
+
+            # Determine auth_type for the result
+            url_lower = current_url.lower()
+            if any(p in url_lower for p in self.KEYCLOAK_URL_PATTERNS):
+                auth_type = "keycloak"
+            elif score >= LOGIN_REQUIRED_THRESHOLD:
+                auth_type = "generic_form"
+            else:
+                auth_type = "none"
+
+            if score >= LOGIN_REQUIRED_THRESHOLD:
+                logger.info(f"[{run_id}] Login required (score={score}) — auth_type={auth_type}")
                 return {
-                    "status": "keycloak",
+                    "status": "login_required",
                     "next_state": RunState.LOGIN_DETECT,
                     "question": None,
-                    "screenshot_path": screenshot_path
+                    "screenshot_path": screenshot_path,
+                    "auth_type": auth_type
                 }
-            
-            # Check 2: Login form detection
-            has_login_form = await self._has_login_form(page)
-            
-            if has_login_form:
-                logger.info(f"[{run_id}] Login form detected - login required")
+
+            if score >= LOGIN_AMBIGUOUS_THRESHOLD:
+                logger.warning(f"[{run_id}] Ambiguous login page (score={score}) — asking user")
+                question = Question(
+                    id="login_confirm",
+                    type="confirm",
+                    text=(
+                        "I detected what might be a login page (not certain). "
+                        "Are you already logged in?"
+                    ),
+                    screenshot_path=screenshot_path
+                )
                 return {
-                    "status": "keycloak",  # Treat as login required
-                    "next_state": RunState.LOGIN_DETECT,
-                    "question": None,
-                    "screenshot_path": screenshot_path
+                    "status": "ambiguous",
+                    "next_state": RunState.WAIT_LOGIN_CONFIRM,
+                    "question": question,
+                    "screenshot_path": screenshot_path,
+                    "auth_type": auth_type
                 }
-            
-            # Check 3: Logged-in indicators
+
+            # Low score — check for logged-in indicators
             is_logged_in = await self._has_logged_in_indicators(page)
-            
+
             if is_logged_in:
-                logger.info(f"[{run_id}] Logged-in indicators found - session valid")
+                logger.info(f"[{run_id}] Logged-in indicators found — session valid")
                 return {
                     "status": "logged_in",
                     "next_state": RunState.CONTEXT_DETECT,
                     "question": None,
-                    "screenshot_path": screenshot_path
+                    "screenshot_path": screenshot_path,
+                    "auth_type": "none"
                 }
-            
-            # Ambiguous case - create confirm question
-            logger.warning(f"[{run_id}] Session state ambiguous - asking user")
+
+            # No login form, no nav/dashboard — unexpected screen
+            logger.warning(f"[{run_id}] Unexpected screen (score={score}, no login indicators)")
             question = Question(
-                id="login_confirm",
+                id="unexpected_screen",
                 type="confirm",
-                text="Login required? I am not sure. Are you already logged in?",
+                text=(
+                    "The page doesn't look like a login page or a logged-in app. "
+                    "Please review the screenshot and confirm how to proceed. "
+                    "Are you already logged in?"
+                ),
                 screenshot_path=screenshot_path
             )
-            
             return {
                 "status": "ambiguous",
-                "next_state": RunState.WAIT_LOGIN_CONFIRM,
+                "next_state": RunState.WAIT_UNEXPECTED_SCREEN,
                 "question": question,
-                "screenshot_path": screenshot_path
+                "screenshot_path": screenshot_path,
+                "auth_type": "none"
             }
-        
+
         except Exception as e:
             logger.error(f"[{run_id}] Session check failed: {e}", exc_info=True)
-            # On error, default to ambiguous
             artifacts_dir = Path(artifacts_path)
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             screenshot_path = str(artifacts_dir / "session_check_error.png")
             try:
                 await page.screenshot(path=screenshot_path)
-            except:
+            except Exception:
                 pass
-            
+
             question = Question(
                 id="login_confirm",
                 type="confirm",
                 text="Login required? I am not sure. Are you already logged in?",
                 screenshot_path=screenshot_path if Path(screenshot_path).exists() else None
             )
-            
             return {
                 "status": "ambiguous",
                 "next_state": RunState.WAIT_LOGIN_CONFIRM,
                 "question": question,
-                "screenshot_path": screenshot_path
+                "screenshot_path": screenshot_path,
+                "auth_type": "none"
             }
-    
+
+    # ------------------------------------------------------------------
+    # Scoring
+    # ------------------------------------------------------------------
+
+    async def _score_login_page(self, page, current_url: str) -> int:
+        """
+        Return a score 0-100 estimating how likely the current page is a login page.
+
+        Scoring breakdown:
+          +50  Keycloak URL patterns (/realms/, openid-connect)
+          +10  URL contains login-related keyword
+          +30  Has a visible password field
+          +10  Has a username/email field
+          +5   Page title contains login-related keyword
+        """
+        score = 0
+        url_lower = current_url.lower()
+
+        # Keycloak bonus (very high confidence)
+        if "/realms/" in url_lower or "openid-connect" in url_lower:
+            score += 50
+
+        # URL signals
+        for kw in ["login", "signin", "sign-in", "auth", "sso", "account/login"]:
+            if kw in url_lower:
+                score += 10
+                break
+
+        # Has password field
+        try:
+            pw_count = await page.locator("input[type='password']").count()
+            if pw_count > 0:
+                score += 30
+        except Exception:
+            pass
+
+        # Has username/email field
+        try:
+            for sel in [
+                "input[type='email']",
+                "input[name='username']",
+                "input[name='email']",
+            ]:
+                c = await page.locator(sel).count()
+                if c > 0:
+                    score += 10
+                    break
+        except Exception:
+            pass
+
+        # Page title signals
+        try:
+            title = await page.title()
+            for kw in ["login", "sign in", "sign-in", "authentication"]:
+                if kw in title.lower():
+                    score += 5
+                    break
+        except Exception:
+            pass
+
+        return min(score, 100)
+
+    # ------------------------------------------------------------------
+    # Legacy helper methods (kept as internal helpers used by _score_login_page)
+    # ------------------------------------------------------------------
+
     async def _detect_keycloak(self, page, current_url: str) -> bool:
         """Detect if current page is Keycloak login."""
-        # Check URL patterns
         url_lower = current_url.lower()
         for pattern in self.KEYCLOAK_URL_PATTERNS:
             if pattern in url_lower:
                 logger.debug(f"Keycloak detected in URL: {pattern}")
                 return True
-        
-        # Check for Keycloak form selectors
+
         try:
             for selector in self.KEYCLOAK_SELECTORS:
                 count = await page.locator(selector).count()
@@ -166,9 +256,9 @@ class SessionChecker:
                     return True
         except Exception as e:
             logger.debug(f"Error checking Keycloak selectors: {e}")
-        
+
         return False
-    
+
     async def _has_login_form(self, page) -> bool:
         """Check if page has a login form."""
         try:
@@ -179,12 +269,11 @@ class SessionChecker:
                     return True
         except Exception as e:
             logger.debug(f"Error checking login form selectors: {e}")
-        
+
         return False
-    
+
     async def _has_logged_in_indicators(self, page) -> bool:
         """Check for indicators that user is logged in."""
-        # Common logged-in indicators
         logged_in_selectors = [
             "nav",
             ".sidebar",
@@ -197,9 +286,9 @@ class SessionChecker:
             "button:has-text('Logout')",
             "a:has-text('Logout')",
             ".tenant-selector",
-            ".context-selector"
+            ".context-selector",
         ]
-        
+
         try:
             for selector in logged_in_selectors:
                 count = await page.locator(selector).count()
@@ -208,7 +297,7 @@ class SessionChecker:
                     return True
         except Exception as e:
             logger.debug(f"Error checking logged-in indicators: {e}")
-        
+
         return False
 
 
