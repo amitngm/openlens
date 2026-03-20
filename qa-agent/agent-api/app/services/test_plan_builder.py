@@ -349,6 +349,12 @@ class TestPlanBuilder:
                 })
                 test_id += 1
 
+        # CREATE tests from primary_actions on discovered pages (button-based flows)
+        # These use SmartFormFiller to click the button, fill the modal/form, and submit
+        page_action_tests = self._generate_page_action_tests(discovery, base_url, start_id=test_id)
+        tests.extend(page_action_tests)
+        test_id += len(page_action_tests)
+
         # VALIDATION tests (required fields)
         for form in forms:
             if form.get("method") in ["POST", "PUT"]:
@@ -379,6 +385,103 @@ class TestPlanBuilder:
 
         return tests
     
+    def _generate_page_action_tests(self, discovery: Dict, base_url: str, start_id: int = 1) -> List[Dict]:
+        """Generate CREATE/EDIT tests from primary_actions discovered on each page.
+
+        For each page that has primary_actions (Create, Add, New, Edit buttons),
+        we generate a `smart_create_resource` test that:
+        1. Navigates to the page
+        2. Clicks the create/add button (using its discovered selector)
+        3. SmartFormFiller fills all form fields intelligently
+        4. Submits and verifies success
+
+        All tests are tagged as operation_type='create' (or 'update' for Edit actions)
+        so they can be gated by enabled_operations at execution time.
+        """
+        tests = []
+        test_id = start_id
+        pages = discovery.get("pages", [])
+
+        for page in pages:
+            page_url = page.get("url", base_url)
+            page_title = page.get("title", "Page")[:40]
+            primary_actions = page.get("primary_actions", [])
+
+            # Also check modal_forms attached to this page
+            modal_forms = page.get("modal_forms", [])
+
+            for action_info in primary_actions:
+                action_label = action_info.get("label", "") if isinstance(action_info, dict) else str(action_info)
+                action_selector = action_info.get("selector", "") if isinstance(action_info, dict) else ""
+
+                label_lower = action_label.lower()
+
+                # Classify the action type
+                if any(kw in label_lower for kw in ["create", "add", "new", "register", "upload", "import"]):
+                    op_type = "create"
+                    test_prefix = "CREATE"
+                elif any(kw in label_lower for kw in ["edit", "update", "modify", "change"]):
+                    op_type = "update"
+                    test_prefix = "UPDATE"
+                else:
+                    # Skip unknown action types
+                    continue
+
+                # Build the smart_create_resource test
+                step = {
+                    "action": "smart_create_resource",
+                    "navigate_to": page_url,
+                    "context_hint": f"{action_label} on {page_title}"
+                }
+                if action_selector:
+                    step["create_selector"] = action_selector
+
+                tests.append({
+                    "id": f"CRUD-{test_prefix}-PAGE-{test_id:03d}",
+                    "name": f"{action_label}: {page_title}",
+                    "description": f"Click '{action_label}' button on {page_title}, fill form with real data, submit",
+                    "template": "smart_create_resource",
+                    "priority": "high",
+                    "type": "ui",
+                    "operation_type": op_type,
+                    "steps": [step],
+                    "expected_result": f"Resource created/updated via '{action_label}' button without errors",
+                    "tags": ["crud", op_type, "smart_form", "button_flow"],
+                    "page_url": page_url,
+                    "create_selector": action_selector
+                })
+                test_id += 1
+
+            # Also generate tests for modal_forms if they have a trigger selector
+            for modal in modal_forms:
+                trigger_selector = modal.get("trigger_selector", "")
+                modal_title = modal.get("title", "")[:40] or "modal form"
+                if not trigger_selector:
+                    continue
+
+                tests.append({
+                    "id": f"CRUD-MODAL-CREATE-{test_id:03d}",
+                    "name": f"Modal Form: {modal_title} on {page_title}",
+                    "description": f"Open modal via '{trigger_selector}', fill all fields, submit",
+                    "template": "smart_create_resource",
+                    "priority": "high",
+                    "type": "ui",
+                    "operation_type": "create",
+                    "steps": [{
+                        "action": "smart_create_resource",
+                        "navigate_to": page_url,
+                        "create_selector": trigger_selector,
+                        "context_hint": f"modal form {modal_title}"
+                    }],
+                    "expected_result": "Modal form submitted successfully",
+                    "tags": ["crud", "create", "smart_form", "modal"],
+                    "page_url": page_url,
+                    "modal_title": modal_title
+                })
+                test_id += 1
+
+        return tests
+
     def _infer_modules(self, discovery: Dict) -> List[str]:
         """Infer modules from discovered pages/URLs."""
         modules: Set[str] = set()
@@ -585,6 +688,10 @@ class TestPlanBuilder:
                 "api_url": api.get("url")
             })
             test_id += 1
+
+        # Smart button-based create flows from primary_actions
+        page_action_tests = self._generate_page_action_tests(discovery, base_url, start_id=test_id)
+        tests.extend(page_action_tests)
 
         return tests
     

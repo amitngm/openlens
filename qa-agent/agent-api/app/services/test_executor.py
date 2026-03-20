@@ -80,8 +80,9 @@ class TestExecutor:
             logger.info(f"[{run_id}] Tests list: {[t.get('id', 'N/A') for t in tests[:5]]}")
 
             # Consecutive failure limit for full portal execution resilience
+            # 50 allows full portal coverage even with many flaky/broken pages
             consecutive_failures = 0
-            MAX_CONSECUTIVE_FAILURES = 10
+            MAX_CONSECUTIVE_FAILURES = 50
             
             if total_tests == 0:
                 logger.error(f"[{run_id}] ERROR: Test plan has no tests!")
@@ -1194,38 +1195,193 @@ class TestExecutor:
                         step_result["status"] = "failed"
                         step_result["error"] = "Missing selector or value for fill action"
                 elif action == "fill_form":
-                    # Legacy fill_form format with fields array
-                    fields = step.get("fields", []) if isinstance(step, dict) else []
-                    for field in fields:
-                        name = field.get("name")
-                        value = field.get("value", "test_value")
-                        field_type = field.get("type", "text")
-                        if name:
-                            try:
-                                # Try multiple selector strategies
-                                selectors = [
-                                    f"input[name='{name}']",
-                                    f"textarea[name='{name}']",
-                                    f"select[name='{name}']",
-                                    f"input[type='{field_type}'][name='{name}']",
-                                    f"#{name}",
-                                    f"[name='{name}']"
-                                ]
-                                filled = False
-                                for selector in selectors:
-                                    try:
-                                        if await page.locator(selector).count() > 0:
-                                            await page.fill(selector, str(value), timeout=5000)
-                                            logger.info(f"[{run_id}] Filled field {name} with {value[:20]}")
-                                            filled = True
-                                            break
-                                    except:
-                                        continue
-                                if not filled:
-                                    logger.warning(f"[{run_id}] Could not find field: {name}")
-                            except Exception as e:
-                                logger.warning(f"[{run_id}] Failed to fill field {name}: {e}")
-                    step_result["status"] = "passed"
+                    # Smart fill_form: use SmartFormFiller to intelligently fill any form
+                    # Falls back to legacy field-by-field fill if SmartFormFiller not available
+                    try:
+                        from app.services.smart_form_filler import get_smart_form_filler
+                        filler = get_smart_form_filler()
+                        form_selector = step.get("form_selector") if isinstance(step, dict) else None
+                        context_hint = step.get("context_hint", "") if isinstance(step, dict) else ""
+                        result = await filler.fill_form(
+                            page,
+                            run_id=run_id,
+                            form_selector=form_selector,
+                            context_hint=context_hint
+                        )
+                        fields_filled = result.get("fields_filled", 0)
+                        logger.info(f"[{run_id}] SmartFormFiller filled {fields_filled} fields")
+                        step_result["status"] = "passed" if fields_filled > 0 else "failed"
+                        if fields_filled == 0:
+                            step_result["error"] = "SmartFormFiller: no fillable fields found"
+                    except ImportError:
+                        # Legacy fallback: field-by-field fill
+                        fields = step.get("fields", []) if isinstance(step, dict) else []
+                        for field in fields:
+                            name = field.get("name")
+                            value = field.get("value", "test_value")
+                            field_type = field.get("type", "text")
+                            if name:
+                                try:
+                                    selectors = [
+                                        f"input[name='{name}']",
+                                        f"textarea[name='{name}']",
+                                        f"select[name='{name}']",
+                                        f"input[type='{field_type}'][name='{name}']",
+                                        f"#{name}",
+                                        f"[name='{name}']"
+                                    ]
+                                    filled = False
+                                    for selector in selectors:
+                                        try:
+                                            if await page.locator(selector).count() > 0:
+                                                await page.fill(selector, str(value), timeout=5000)
+                                                logger.info(f"[{run_id}] Filled field {name} with {str(value)[:20]}")
+                                                filled = True
+                                                break
+                                        except:
+                                            continue
+                                    if not filled:
+                                        logger.warning(f"[{run_id}] Could not find field: {name}")
+                                except Exception as e:
+                                    logger.warning(f"[{run_id}] Failed to fill field {name}: {e}")
+                        step_result["status"] = "passed"
+
+            elif action == "smart_fill_form":
+                # Explicitly smart form fill with SmartFormFiller
+                from app.services.smart_form_filler import get_smart_form_filler
+                filler = get_smart_form_filler()
+                form_selector = step.get("form_selector") if isinstance(step, dict) else None
+                context_hint = step.get("context_hint", "") if isinstance(step, dict) else ""
+                result = await filler.fill_form(
+                    page,
+                    run_id=run_id,
+                    form_selector=form_selector,
+                    context_hint=context_hint
+                )
+                fields_filled = result.get("fields_filled", 0)
+                errors = result.get("errors", [])
+                logger.info(f"[{run_id}] smart_fill_form: {fields_filled} fields filled, {len(errors)} errors")
+                step_result["status"] = "passed" if fields_filled > 0 else "failed"
+                step_result["detail"] = f"Filled {fields_filled} fields"
+                if errors:
+                    step_result["warnings"] = errors
+
+            elif action == "click_create_button":
+                # Find and click Create/Add/New button on the current page
+                from app.services.smart_form_filler import get_smart_form_filler
+                filler = get_smart_form_filler()
+                # Optional: use a known selector from discovery (primary_actions)
+                known_selector = step.get("selector") if isinstance(step, dict) else None
+                if known_selector:
+                    try:
+                        await page.click(known_selector, timeout=5000)
+                        await asyncio.sleep(0.8)
+                        step_result["status"] = "passed"
+                        logger.info(f"[{run_id}] Clicked create button: {known_selector}")
+                    except Exception as e:
+                        # Fallback to SmartFormFiller discovery
+                        clicked = await filler.find_and_click_create_button(page)
+                        step_result["status"] = "passed" if clicked else "failed"
+                        if not clicked:
+                            step_result["error"] = f"Could not click create button: {e}"
+                else:
+                    clicked = await filler.find_and_click_create_button(page)
+                    step_result["status"] = "passed" if clicked else "failed"
+                    if not clicked:
+                        step_result["error"] = "No create/add button found on page"
+                    else:
+                        await asyncio.sleep(0.8)  # wait for modal/form to appear
+
+            elif action == "smart_create_resource":
+                # Full create flow: click create button → fill form → submit → verify success
+                from app.services.smart_form_filler import get_smart_form_filler
+                filler = get_smart_form_filler()
+                nav_url = step.get("navigate_to") if isinstance(step, dict) else None
+                create_selector = step.get("create_selector") if isinstance(step, dict) else None
+                context_hint = step.get("context_hint", "") if isinstance(step, dict) else ""
+
+                # Step A: optional navigation
+                if nav_url:
+                    try:
+                        await page.goto(nav_url, timeout=15000, wait_until="domcontentloaded")
+                        await asyncio.sleep(1)
+                        logger.info(f"[{run_id}] Navigated to {nav_url} for create flow")
+                    except Exception as nav_err:
+                        step_result["status"] = "failed"
+                        step_result["error"] = f"Navigation failed: {nav_err}"
+                        raise  # caught by outer try/except
+
+                # Step B: click create/add button
+                if create_selector:
+                    try:
+                        await page.click(create_selector, timeout=5000)
+                        await asyncio.sleep(1)
+                    except Exception:
+                        clicked = await filler.find_and_click_create_button(page)
+                        if not clicked:
+                            step_result["status"] = "failed"
+                            step_result["error"] = "Could not open create form"
+                            raise RuntimeError("Could not open create form")
+                else:
+                    clicked = await filler.find_and_click_create_button(page)
+                    if not clicked:
+                        step_result["status"] = "failed"
+                        step_result["error"] = "No create button found"
+                        raise RuntimeError("No create button found")
+                    await asyncio.sleep(1)
+
+                # Step C: fill form intelligently
+                fill_result = await filler.fill_form(
+                    page, run_id=run_id, context_hint=context_hint
+                )
+                fields_filled = fill_result.get("fields_filled", 0)
+                logger.info(f"[{run_id}] smart_create_resource: filled {fields_filled} fields")
+
+                # Step D: submit form
+                submitted = await filler.find_and_click_submit(page)
+                if submitted:
+                    await asyncio.sleep(1.5)
+                    # Step E: check for success
+                    success = await filler.check_for_success(page)
+                    validation_errs = await filler.check_for_validation_errors(page)
+                    if success:
+                        step_result["status"] = "passed"
+                        step_result["detail"] = f"Resource created successfully ({fields_filled} fields filled)"
+                        logger.info(f"[{run_id}] smart_create_resource: SUCCESS")
+                    elif validation_errs:
+                        step_result["status"] = "failed"
+                        step_result["error"] = f"Validation errors: {validation_errs[:3]}"
+                        logger.warning(f"[{run_id}] smart_create_resource: validation errors: {validation_errs}")
+                    else:
+                        step_result["status"] = "passed"  # assume success if no explicit error
+                        step_result["detail"] = "Form submitted (no explicit success message)"
+                else:
+                    step_result["status"] = "failed"
+                    step_result["error"] = "Could not find submit button"
+
+            elif action == "verify_success":
+                # Check for success indicators (toast, banner, URL change)
+                from app.services.smart_form_filler import get_smart_form_filler
+                filler = get_smart_form_filler()
+                success = await filler.check_for_success(page)
+                step_result["status"] = "passed" if success else "failed"
+                if not success:
+                    step_result["error"] = "No success indicator found after action"
+
+            elif action == "check_validation_errors":
+                # Verify that validation errors appear (for negative test cases)
+                from app.services.smart_form_filler import get_smart_form_filler
+                filler = get_smart_form_filler()
+                errors_found = await filler.check_for_validation_errors(page)
+                expected_errors = step.get("expected_errors", True) if isinstance(step, dict) else True
+                if expected_errors:
+                    step_result["status"] = "passed" if errors_found else "failed"
+                    if not errors_found:
+                        step_result["error"] = "Expected validation errors but none found"
+                else:
+                    step_result["status"] = "passed" if not errors_found else "failed"
+                    if errors_found:
+                        step_result["error"] = f"Unexpected validation errors: {errors_found[:3]}"
             
             elif action == "submit":
                 selector = step.get("selector", "button[type=submit], form, button:has-text('Submit'), button:has-text('Save')")

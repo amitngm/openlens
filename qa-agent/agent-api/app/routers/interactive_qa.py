@@ -2994,6 +2994,63 @@ async def regenerate_test_cases(run_id: str):
 
         new_count = new_plan.get("total_tests", 0)
 
+        # Also rebuild test_cases.json so list_runs / get_test_cases counts are consistent
+        # Convert test_plan tests into the test_cases.json schema format
+        try:
+            from datetime import datetime as _dt
+            all_tc = []
+            scenarios_map: Dict[str, Dict] = {}
+            for t in new_plan.get("tests", []):
+                page_url = t.get("page_url", "")
+                page_name = t.get("name", "")[:60]
+                tc_entry = {
+                    "id": t.get("id", ""),
+                    "name": t.get("name", ""),
+                    "description": t.get("description", ""),
+                    "type": t.get("type", "ui"),
+                    "priority": t.get("priority", "medium"),
+                    "status": "pending",
+                    "page_url": page_url,
+                    "page_name": page_name,
+                    "steps": t.get("steps", []),
+                    "expected_result": t.get("expected_result", ""),
+                    "operation_type": t.get("operation_type", "read"),
+                    "tags": t.get("tags", []),
+                }
+                all_tc.append(tc_entry)
+
+                # Group by page_url for scenarios
+                key = page_url or page_name or "General"
+                if key not in scenarios_map:
+                    scenarios_map[key] = {
+                        "scenario_name": key,
+                        "page_name": page_name,
+                        "page_url": page_url,
+                        "test_cases": [],
+                        "total": 0,
+                        "pending": 0,
+                        "passed": 0,
+                        "failed": 0
+                    }
+                scenarios_map[key]["test_cases"].append(tc_entry)
+                scenarios_map[key]["total"] += 1
+                scenarios_map[key]["pending"] += 1
+
+            updated_test_cases = {
+                "run_id": run_id,
+                "generated_at": _dt.utcnow().isoformat() + "Z",
+                "test_intent": test_intent,
+                "total_test_cases": len(all_tc),
+                "scenarios": list(scenarios_map.values()),
+                "all_test_cases": all_tc
+            }
+            test_cases_file = artifacts_dir / "test_cases.json"
+            with open(test_cases_file, "w", encoding="utf-8") as f:
+                json.dump(updated_test_cases, f, indent=2, default=str)
+            logger.info(f"[{run_id}] Updated test_cases.json with {len(all_tc)} tests from regenerated plan")
+        except Exception as tc_err:
+            logger.warning(f"[{run_id}] Could not update test_cases.json: {tc_err}")
+
         logger.info(f"[{run_id}] Regenerated: previous={previous_count}, new={new_count}, intent={test_intent}")
 
         return {
