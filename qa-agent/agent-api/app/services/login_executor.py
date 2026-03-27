@@ -3,11 +3,14 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+import re
+from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse
 
+from app.models.ai_config import AIConfig
 from app.models.run_state import RunState
 from app.models.run_context import Question
+from app.services.ai.provider_factory import get_llm_provider
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +24,18 @@ class LoginExecutor:
     USERNAME_SELECTORS = [
         "input#username",
         "input[name='username']",
+        "input[name*='user' i]",
+        "input[name*='login' i]",
         "input#email",
         "input[name='email']",
+        "input[name*='email' i]",
         "input[type='email']",
         "input[placeholder*='email' i]",
         "input[placeholder*='username' i]",
         "input[placeholder*='user' i]",
+        "input[aria-label*='email' i]",
+        "input[aria-label*='username' i]",
+        "input[aria-label*='user' i]",
         "input[autocomplete='username']",
         "input[autocomplete='email']",
         "input[type='text']:first-of-type",
@@ -34,20 +43,47 @@ class LoginExecutor:
     PASSWORD_SELECTORS = [
         "input#password",
         "input[name='password']",
+        "input[name*='pass' i]",
         "input[type='password']",
+        # Common MUI input classes (Outlined/Standard/Filled)
+        "input.MuiInputBase-input",
+        "input.MuiOutlinedInput-input",
+        "input.MuiInput-input",
         "input[placeholder*='password' i]",
+        "input[aria-label*='password' i]",
+        "input[aria-label*='pass' i]",
         "input[autocomplete='current-password']",
     ]
     SUBMIT_SELECTORS = [
         "button[type='submit']",
         "input[type='submit']",
         "#kc-login",
+        # MUI buttons frequently used for submit/login
+        "button.MuiButtonBase-root[type='submit']",
+        "button.MuiButton-root[type='submit']",
+        "button[class*='MuiButton' i][type='submit']",
         "button:has-text('Sign in')",
         "button:has-text('Log in')",
         "button:has-text('Login')",
         "button:has-text('Continue')",
         "button:has-text('Next')",
         "[role='button']:has-text('Sign in')",
+        "[role='button']:has-text('Login')",
+        "[role='button']:has-text('Continue')",
+    ]
+    # Some apps show a "Login" entry point first (no fields yet).
+    # Try clicking these before failing with "no username field found".
+    LOGIN_ENTRY_SELECTORS = [
+        "button:has-text('Login')",
+        "button:has-text('Log in')",
+        "button:has-text('Sign in')",
+        "a:has-text('Login')",
+        "a:has-text('Log in')",
+        "a:has-text('Sign in')",
+        "[role='button']:has-text('Login')",
+        "[role='button']:has-text('Log in')",
+        "[role='button']:has-text('Sign in')",
+        "text=/\\b(login|log\\s*in|sign\\s*in)\\b/i",
     ]
     GENERIC_ERROR_SELECTORS = [
         ".kc-feedback-text",
@@ -68,6 +104,12 @@ class LoginExecutor:
 
     # Keycloak URL patterns (kept for backward compat)
     KEYCLOAK_PATTERNS = ["/realms/", "openid-connect"]
+    WRONG_CREDENTIALS_RE = re.compile(
+        r"(invalid|incorrect|wrong).*(password|credential|username|email)|"
+        r"(password|credential|username|email).*(invalid|incorrect|wrong)|"
+        r"unauthori[sz]ed|forbidden|bad credentials|authentication failed",
+        re.IGNORECASE,
+    )
 
     def __init__(self):
         self._login_attempts: Dict[str, int] = {}  # Track login attempts per run
@@ -79,7 +121,8 @@ class LoginExecutor:
         base_url: str,
         username: str,
         password: str,
-        artifacts_path: str
+        artifacts_path: str,
+        ai_config: Optional[AIConfig] = None,
     ) -> Dict[str, Any]:
         """
         Attempt a generic (or Keycloak) login.
@@ -119,19 +162,20 @@ class LoginExecutor:
                     pass
 
                 question = Question(
-                    id="login_loop",
-                    type="text",
+                    id="human_login_bypass",
+                    type="confirm",
                     text=(
-                        f"Login failed after {MAX_LOGIN_ATTEMPTS} attempts. "
-                        "Please verify credentials."
+                        f"Login automation seems stuck after {MAX_LOGIN_ATTEMPTS} attempts.\n\n"
+                        "Please complete login manually in the browser (human takeover), then confirm.\n"
+                        "If you cannot log in, choose No and we'll retry credentials."
                     ),
                     screenshot_path=screenshot_path if Path(screenshot_path).exists() else None
                 )
                 return {
-                    "status": "loop",
-                    "next_state": RunState.FAILED,
+                    "status": "timeout",
+                    "next_state": RunState.WAIT_LOGIN_CONFIRM,
                     "question": question,
-                    "error_message": f"Login failed after {MAX_LOGIN_ATTEMPTS} attempts. Please verify credentials.",
+                    "error_message": f"Login automation stuck after {MAX_LOGIN_ATTEMPTS} attempts; human takeover requested.",
                     "screenshot_path": screenshot_path
                 }
 
@@ -139,60 +183,72 @@ class LoginExecutor:
             logger.info(f"[{run_id}] Attempt {attempt_count}/{MAX_LOGIN_ATTEMPTS} from URL: {url_before}")
 
             # Step 1: Fill username / email
-            username_filled = False
-            for selector in self.USERNAME_SELECTORS:
+            username_filled = await self._fill_first_match(page, run_id, self.USERNAME_SELECTORS, username, "username")
+            if not username_filled:
+                # Try to open login form (some apps show only a Login button first)
+                opened = await self._try_open_login_form(page, run_id)
+                if opened:
+                    username_filled = await self._fill_first_match(page, run_id, self.USERNAME_SELECTORS, username, "username")
+
+            if not username_filled and ai_config and ai_config.enabled and ai_config.provider != "none":
+                # AI fallback: choose the best "login entry" candidate to click.
                 try:
-                    count = await page.locator(selector).count()
-                    if count > 0:
-                        await page.locator(selector).first.fill(username)
-                        username_filled = True
-                        logger.info(f"[{run_id}] Filled username using: {selector}")
-                        break
+                    ai_clicked = await self._ai_try_open_login_form(
+                        page=page,
+                        run_id=run_id,
+                        artifacts_path=artifacts_path,
+                        ai_config=ai_config,
+                    )
+                    if ai_clicked:
+                        username_filled = await self._fill_first_match(
+                            page, run_id, self.USERNAME_SELECTORS, username, "username"
+                        )
                 except Exception as e:
-                    logger.debug(f"[{run_id}] Username selector {selector} failed: {e}")
+                    logger.debug(f"[{run_id}] AI login-entry fallback failed: {e}")
 
             if not username_filled:
-                raise Exception("Could not find username/email field")
+                artifacts_dir = Path(artifacts_path)
+                artifacts_dir.mkdir(parents=True, exist_ok=True)
+                screenshot_path = str(artifacts_dir / "login_click_required.png")
+                try:
+                    await page.screenshot(path=screenshot_path)
+                except Exception:
+                    pass
+
+                question = Question(
+                    id="login_click_required",
+                    type="confirm",
+                    text=(
+                        "I can't find the username/email field yet. Some apps show a 'Login/Sign in' button first "
+                        "(or a popup blocks the form). Please click the Login/Sign in button in the browser, "
+                        "ensure the username/password fields are visible, then confirm."
+                    ),
+                    screenshot_path=screenshot_path if Path(screenshot_path).exists() else None,
+                )
+                return {
+                    "status": "timeout",
+                    "next_state": RunState.WAIT_LOGIN_CONFIRM,
+                    "question": question,
+                    "error_message": "Login form not visible; user click required",
+                    "screenshot_path": screenshot_path,
+                }
 
             # Step 2: Fill password
-            password_filled = False
-            for selector in self.PASSWORD_SELECTORS:
-                try:
-                    count = await page.locator(selector).count()
-                    if count > 0:
-                        await page.locator(selector).first.fill(password)
-                        password_filled = True
-                        logger.info(f"[{run_id}] Filled password using: {selector}")
-                        break
-                except Exception as e:
-                    logger.debug(f"[{run_id}] Password selector {selector} failed: {e}")
+            password_filled = await self._fill_first_match(page, run_id, self.PASSWORD_SELECTORS, password, "password")
 
             if not password_filled:
                 raise Exception("Could not find password field")
 
             # Step 3: Click submit and wait for navigation
-            submit_clicked = False
-            for selector in self.SUBMIT_SELECTORS:
-                try:
-                    count = await page.locator(selector).count()
-                    if count > 0:
-                        try:
-                            async with page.expect_navigation(timeout=30000, wait_until="networkidle"):
-                                await page.locator(selector).first.click()
-                            submit_clicked = True
-                            logger.info(f"[{run_id}] Clicked submit using: {selector}, waiting for redirect")
-                            break
-                        except asyncio.TimeoutError:
-                            await page.locator(selector).first.click()
-                            submit_clicked = True
-                            logger.info(f"[{run_id}] Clicked submit using: {selector}, navigation timeout")
-                            await asyncio.sleep(3)
-                            break
-                except Exception as e:
-                    logger.debug(f"[{run_id}] Submit selector {selector} failed: {e}")
+            submitted = await self._submit_login(
+                page=page,
+                run_id=run_id,
+                artifacts_path=artifacts_path,
+                ai_config=ai_config,
+            )
 
-            if not submit_clicked:
-                raise Exception("Could not find submit button")
+            if not submitted:
+                raise Exception("Could not submit login (no submit button / click blocked)")
 
             # Wait for page to stabilize
             try:
@@ -244,13 +300,19 @@ class LoginExecutor:
             error_message = await self._check_for_errors(page)
             if error_message:
                 logger.warning(f"[{run_id}] Login error detected: {error_message}")
+                is_wrong_creds = self._looks_like_wrong_credentials(error_message)
+                guidance = (
+                    "Wrong credentials (username/password). Please retry with correct credentials."
+                    if is_wrong_creds
+                    else "Login blocked by an obstacle on the page. Please retry after fixing it."
+                )
                 question = Question(
                     id="login_error",
                     type="text",
                     text=(
                         f"Login failed: {error_message}. "
                         f"Attempt {attempt_count}/{MAX_LOGIN_ATTEMPTS}. "
-                        "Please check credentials and try again."
+                        f"{guidance}"
                     ),
                     screenshot_path=screenshot_path
                 )
@@ -311,8 +373,8 @@ class LoginExecutor:
                 id="login_error",
                 type="text",
                 text=(
-                    f"Login attempt failed: {str(e)[:200]}. "
-                    "Please check credentials and try again."
+                    f"Login attempt failed due to an obstacle: {str(e)[:200]}. "
+                    "Please retry with credentials again. If the issue persists, the login form may be non-standard/SSO-only."
                 ),
                 screenshot_path=screenshot_path if Path(screenshot_path).exists() else None
             )
@@ -393,6 +455,390 @@ class LoginExecutor:
         """Check if URL is a Keycloak URL (backward compat)."""
         url_lower = url.lower()
         return any(pattern in url_lower for pattern in self.KEYCLOAK_PATTERNS)
+
+    async def _fill_first_match(self, page, run_id: str, selectors: list, value: str, field_name: str) -> bool:
+        for selector in selectors:
+            try:
+                loc = await self._first_locator_any_frame(page, selector)
+                if not loc:
+                    continue
+
+                # Best-effort: make interactable
+                try:
+                    await loc.scroll_into_view_if_needed()
+                except Exception:
+                    pass
+                try:
+                    await loc.click(timeout=3000)
+                except Exception:
+                    pass
+
+                # Try fill first
+                try:
+                    await loc.fill(value, timeout=5000)
+                    logger.info(f"[{run_id}] Filled {field_name} using: {selector}")
+                    return True
+                except Exception:
+                    # Some frameworks block fill(); type like a human
+                    try:
+                        await loc.click(timeout=3000)
+                    except Exception:
+                        pass
+                    try:
+                        await loc.press("Control+A")
+                        await loc.press("Backspace")
+                    except Exception:
+                        pass
+                    await loc.type(value, delay=35)
+                    logger.info(f"[{run_id}] Typed {field_name} using: {selector}")
+                    return True
+            except Exception as e:
+                logger.debug(f"[{run_id}] {field_name} selector {selector} failed: {e}")
+        return False
+
+    async def _first_locator_any_frame(self, page, selector: str):
+        """
+        Find a matching locator in main frame or iframes.
+        Many IdP/login providers render fields inside an iframe.
+        """
+        try:
+            loc = page.locator(selector)
+            if await loc.count() > 0:
+                return loc.first
+        except Exception:
+            pass
+
+        try:
+            for frame in page.frames:
+                try:
+                    if frame == page.main_frame:
+                        continue
+                    floc = frame.locator(selector)
+                    if await floc.count() > 0:
+                        return floc.first
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        return None
+
+    async def _try_open_login_form(self, page, run_id: str) -> bool:
+        try:
+            for selector in self.LOGIN_ENTRY_SELECTORS:
+                try:
+                    loc = page.locator(selector).first
+                    count = await loc.count()
+                    if count <= 0:
+                        continue
+                    try:
+                        await loc.scroll_into_view_if_needed()
+                    except Exception:
+                        pass
+                    await loc.click(timeout=5000)
+                    logger.info(f"[{run_id}] Clicked login entry using: {selector}")
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=15000)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(1)
+                    return True
+                except Exception as e:
+                    logger.debug(f"[{run_id}] Login entry selector {selector} failed: {e}")
+        except Exception as e:
+            logger.debug(f"[{run_id}] Error trying to open login form: {e}")
+        return False
+
+    async def _submit_login(
+        self,
+        page,
+        run_id: str,
+        artifacts_path: str,
+        ai_config: Optional[AIConfig],
+    ) -> bool:
+        """
+        Submit strategies (in order):
+        1) Click obvious submit/login buttons (incl. MUI)
+        2) Press Enter in password field
+        3) Submit the nearest form element via JS
+        4) AI fallback: choose the best submit candidate by visible text
+        """
+        # Strategy 1: click known submit selectors
+        for selector in self.SUBMIT_SELECTORS:
+            try:
+                loc = await self._first_locator_any_frame(page, selector)
+                if not loc:
+                    continue
+                try:
+                    await loc.scroll_into_view_if_needed()
+                except Exception:
+                    pass
+                try:
+                    async with page.expect_navigation(timeout=30000, wait_until="networkidle"):
+                        await loc.click(timeout=7000)
+                    logger.info(f"[{run_id}] Clicked submit using: {selector}, waiting for redirect")
+                    return True
+                except asyncio.TimeoutError:
+                    await loc.click(timeout=7000)
+                    logger.info(f"[{run_id}] Clicked submit using: {selector}, navigation timeout")
+                    await asyncio.sleep(2)
+                    return True
+            except Exception as e:
+                logger.debug(f"[{run_id}] Submit selector {selector} failed: {e}")
+
+        # Strategy 2: press Enter on password field (common for MUI/login forms)
+        try:
+            pw = await self._first_locator_any_frame(page, "input[type='password'], input[name*='pass' i], input.MuiInputBase-input")
+            if pw:
+                try:
+                    await pw.focus()
+                except Exception:
+                    pass
+                await pw.press("Enter")
+                logger.info(f"[{run_id}] Submitted login by pressing Enter in password field")
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=15000)
+                except Exception:
+                    pass
+                await asyncio.sleep(1)
+                return True
+        except Exception as e:
+            logger.debug(f"[{run_id}] Enter-submit failed: {e}")
+
+        # Strategy 3: submit nearest form via JS (works when button click is blocked)
+        try:
+            any_input = await self._first_locator_any_frame(
+                page,
+                "input[type='password'], input[type='email'], input[type='text'], input.MuiInputBase-input",
+            )
+            if any_input:
+                submitted = await any_input.evaluate(
+                    """(el) => {
+                      const form = el.closest('form');
+                      if (!form) return false;
+                      if (typeof form.requestSubmit === 'function') { form.requestSubmit(); return true; }
+                      if (typeof form.submit === 'function') { form.submit(); return true; }
+                      return false;
+                    }"""
+                )
+                if submitted:
+                    logger.info(f"[{run_id}] Submitted login by form.requestSubmit()/submit()")
+                    try:
+                        await page.wait_for_load_state("networkidle", timeout=15000)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(1)
+                    return True
+        except Exception as e:
+            logger.debug(f"[{run_id}] Form submit fallback failed: {e}")
+
+        # Strategy 4: AI fallback pick best submit button text and click it
+        if ai_config and ai_config.enabled and ai_config.provider != "none":
+            try:
+                candidates = await self._collect_login_submit_candidates(page)
+                if candidates:
+                    provider_config = {
+                        "enabled": ai_config.enabled,
+                        "provider": ai_config.provider,
+                        "model_name": ai_config.model_name,
+                        "api_key": ai_config.api_key,
+                        "base_url": ai_config.base_url,
+                        "temperature": ai_config.temperature,
+                        "max_tokens": ai_config.max_tokens,
+                        "timeout": ai_config.timeout,
+                    }
+                    llm = get_llm_provider(provider_config)
+                    if llm:
+                        try:
+                            if not await llm.is_available():
+                                return False
+                        except Exception:
+                            return False
+
+                        artifacts_dir = Path(artifacts_path)
+                        artifacts_dir.mkdir(parents=True, exist_ok=True)
+                        try:
+                            await page.screenshot(path=str(artifacts_dir / "ai_submit.png"))
+                        except Exception:
+                            pass
+
+                        schema = {
+                            "type": "object",
+                            "properties": {"chosen_text": {"type": "string"}},
+                            "required": ["chosen_text"],
+                        }
+                        prompt = (
+                            "Pick the best button/link text to submit the login form.\n"
+                            f"URL: {page.url}\n"
+                            "Candidates:\n" + "\n".join(f"- {c}" for c in candidates) + "\n"
+                            "Return JSON with chosen_text exactly matching one candidate."
+                        )
+                        result = await llm.generate_structured(
+                            prompt=prompt,
+                            schema=schema,
+                            system_prompt="Return only valid JSON.",
+                            temperature=0.2,
+                        )
+                        chosen = (result.get("chosen_text") or "").strip()
+                        if chosen and chosen in candidates:
+                            try:
+                                loc = page.locator(f"text={chosen}").first
+                                await loc.scroll_into_view_if_needed()
+                                await loc.click(timeout=7000)
+                                logger.info(f"[{run_id}] AI clicked submit by text: {chosen}")
+                                try:
+                                    await page.wait_for_load_state("networkidle", timeout=15000)
+                                except Exception:
+                                    pass
+                                await asyncio.sleep(1)
+                                return True
+                            except Exception as e:
+                                logger.debug(f"[{run_id}] AI-chosen submit click failed: {e}")
+            except Exception as e:
+                logger.debug(f"[{run_id}] AI submit fallback failed: {e}")
+
+        return False
+
+    async def _collect_login_submit_candidates(self, page, limit: int = 20) -> List[str]:
+        """Collect likely submit button texts (Login/Sign in/Continue/Next/Submit)."""
+        try:
+            loc = page.locator("button, [role='button'], input[type='submit'], a")
+            count = await loc.count()
+            out: List[str] = []
+            for i in range(min(count, 250)):
+                if len(out) >= limit:
+                    break
+                try:
+                    t = (await loc.nth(i).inner_text()).strip()
+                    t = re.sub(r"\\s+", " ", t)
+                    if not t or len(t) > 60:
+                        continue
+                    if re.search(r"\\b(login|log\\s*in|sign\\s*in|continue|next|submit|verify)\\b", t, re.IGNORECASE):
+                        if t not in out:
+                            out.append(t)
+                except Exception:
+                    continue
+            return out
+        except Exception:
+            return []
+
+    async def _ai_try_open_login_form(
+        self,
+        page,
+        run_id: str,
+        artifacts_path: str,
+        ai_config: AIConfig,
+    ) -> bool:
+        """
+        AI-assisted fallback to click a "Login/Sign in" entry point when the form fields
+        aren't visible yet. This is model/provider agnostic via LLMProvider.
+        """
+        provider_config = {
+            "enabled": ai_config.enabled,
+            "provider": ai_config.provider,
+            "model_name": ai_config.model_name,
+            "api_key": ai_config.api_key,
+            "base_url": ai_config.base_url,
+            "temperature": ai_config.temperature,
+            "max_tokens": ai_config.max_tokens,
+            "timeout": ai_config.timeout,
+        }
+        llm = get_llm_provider(provider_config)
+        if not llm:
+            return False
+        try:
+            if not await llm.is_available():
+                return False
+        except Exception:
+            # If availability check fails, be conservative and skip AI
+            return False
+
+        candidates = await self._collect_login_entry_candidates(page)
+        if not candidates:
+            return False
+
+        artifacts_dir = Path(artifacts_path)
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        screenshot_path = str(artifacts_dir / "ai_login_entry.png")
+        try:
+            await page.screenshot(path=screenshot_path)
+        except Exception:
+            screenshot_path = ""
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "chosen_text": {"type": "string", "description": "Exact visible text of the best login entry to click"},
+                "reason": {"type": "string"},
+            },
+            "required": ["chosen_text"],
+        }
+        prompt = (
+            "You are helping automate a web login with Playwright.\n"
+            "The login form fields (username/password) are not visible yet.\n"
+            "Choose the best candidate that, when clicked, is most likely to open the login form.\n\n"
+            f"Current URL: {page.url}\n"
+            "Candidates (visible texts):\n"
+            + "\n".join(f"- {t}" for t in candidates)
+            + "\n\nReturn JSON with field 'chosen_text' exactly matching one candidate."
+        )
+        result = await llm.generate_structured(
+            prompt=prompt,
+            schema=schema,
+            system_prompt="Return only valid JSON. Do not invent candidates.",
+            temperature=0.2,
+        )
+
+        chosen = (result.get("chosen_text") or "").strip()
+        if not chosen or chosen not in candidates:
+            return False
+
+        try:
+            loc = page.locator(f"text={chosen}").first
+            await loc.scroll_into_view_if_needed()
+            await loc.click(timeout=5000)
+            logger.info(f"[{run_id}] AI clicked login entry by text: {chosen}")
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+            return True
+        except Exception as e:
+            logger.debug(f"[{run_id}] AI-chosen login entry click failed: {e}")
+            return False
+
+    async def _collect_login_entry_candidates(self, page, limit: int = 20) -> List[str]:
+        """
+        Collect likely login-entry texts from buttons/links/role=button.
+        Keeps it cheap and model-friendly.
+        """
+        try:
+            # Prefer semantic targets first
+            loc = page.locator("button, [role='button'], a")
+            count = await loc.count()
+            out: List[str] = []
+            for i in range(min(count, 200)):  # cap traversal
+                if len(out) >= limit:
+                    break
+                try:
+                    t = (await loc.nth(i).inner_text()).strip()
+                    t = re.sub(r"\s+", " ", t)
+                    if not t or len(t) > 60:
+                        continue
+                    if re.search(r"\b(login|log\s*in|sign\s*in)\b", t, re.IGNORECASE):
+                        if t not in out:
+                            out.append(t)
+                except Exception:
+                    continue
+            return out
+        except Exception:
+            return []
+
+    def _looks_like_wrong_credentials(self, error_text: str) -> bool:
+        if not error_text:
+            return False
+        return bool(self.WRONG_CREDENTIALS_RE.search(error_text))
 
     def reset_attempts(self, run_id: str):
         """Reset login attempts counter for a run."""

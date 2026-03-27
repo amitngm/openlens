@@ -190,6 +190,28 @@ class TestCaseRepository:
     @staticmethod
     async def bulk_create_test_cases(db: AsyncSession, run_id: str, test_cases_data: List[Dict[str, Any]]):
         """Bulk create test cases for a run."""
+        # Guard against duplicates (idempotent bulk insert behavior)
+        incoming = []
+        seen_ids = set()
+        for tc in test_cases_data:
+            tid = (tc.get("test_id") or "").strip()
+            if not tid:
+                continue
+            if tid in seen_ids:
+                continue
+            seen_ids.add(tid)
+            incoming.append(tc)
+
+        existing_ids: set = set()
+        try:
+            result = await db.execute(select(TestCase.test_id).where(TestCase.run_id == run_id))
+            existing_ids = {row[0] for row in result.all() if row and row[0]}
+        except Exception:
+            # If DB query fails, fall back to best-effort dedupe within incoming batch only
+            existing_ids = set()
+
+        to_insert = [tc for tc in incoming if (tc.get("test_id") or "").strip() not in existing_ids]
+
         test_cases = [
             TestCase(
                 run_id=run_id,
@@ -201,11 +223,11 @@ class TestCaseRepository:
                 steps=tc.get("steps"),
                 status=tc.get("status", "pending")
             )
-            for tc in test_cases_data
+            for tc in to_insert
         ]
         db.add_all(test_cases)
         await db.commit()
-        logger.info(f"Created {len(test_cases)} test cases for run: {run_id}")
+        logger.info(f"Created {len(test_cases)} test cases for run: {run_id} (skipped {len(test_cases_data) - len(to_insert)} duplicates)")
 
     @staticmethod
     async def get_test_cases_by_run(db: AsyncSession, run_id: str) -> List[TestCase]:

@@ -73,7 +73,7 @@ class TestPlanBuilder:
                 # Generate minimal happy-path tests for top modules/pages
                 logger.info(f"[{run_id}] Building smoke test plan")
                 tests = self._generate_smoke_tests(discovery_data, base_url)
-                test_plan["tests"] = tests
+                test_plan["tests"] = self._dedupe_tests(tests, run_id)
                 test_plan["total_tests"] = len(tests)
                 test_plan["generated_at"] = self._get_timestamp()
                 
@@ -81,7 +81,7 @@ class TestPlanBuilder:
                 # Generate create/update/delete/validation tests for CRUD actions (SAFE only)
                 logger.info(f"[{run_id}] Building CRUD sanity test plan")
                 tests = self._generate_crud_sanity_tests(discovery_data, base_url)
-                test_plan["tests"] = tests
+                test_plan["tests"] = self._dedupe_tests(tests, run_id)
                 test_plan["total_tests"] = len(tests)
                 test_plan["generated_at"] = self._get_timestamp()
                 
@@ -115,7 +115,7 @@ class TestPlanBuilder:
                     # Single module - proceed with it
                     module = modules[0] if modules else "default"
                     tests = self._generate_module_tests(discovery_data, base_url, module)
-                    test_plan["tests"] = tests
+                    test_plan["tests"] = self._dedupe_tests(tests, run_id)
                     test_plan["total_tests"] = len(tests)
                     test_plan["generated_at"] = self._get_timestamp()
                     test_plan["module"] = module
@@ -124,7 +124,7 @@ class TestPlanBuilder:
                 # Generate guided exploration with safe actions only (no deletes)
                 logger.info(f"[{run_id}] Building exploratory test plan")
                 tests = self._generate_exploratory_tests(discovery_data, base_url)
-                test_plan["tests"] = tests
+                test_plan["tests"] = self._dedupe_tests(tests, run_id)
                 test_plan["total_tests"] = len(tests)
                 test_plan["generated_at"] = self._get_timestamp()
                 test_plan["mode"] = "exploratory_safe"
@@ -148,6 +148,26 @@ class TestPlanBuilder:
         except Exception as e:
             logger.error(f"[{run_id}] Test plan build failed: {e}", exc_info=True)
             raise
+
+    def _dedupe_tests(self, tests: List[Dict[str, Any]], run_id: str) -> List[Dict[str, Any]]:
+        """
+        Prevent duplicate "tickets" (tests) within a single plan.
+        Dedupe key is stable across regenerations.
+        """
+        seen: Set[str] = set()
+        out: List[Dict[str, Any]] = []
+        for t in tests:
+            name = (t.get("name") or "").strip().lower()
+            t_type = (t.get("type") or "").strip().lower()
+            template = (t.get("template") or "").strip().lower()
+            page_url = (t.get("page_url") or t.get("api_url") or "").strip().lower()
+            key = f"{t_type}|{template}|{page_url}|{name}"
+            if key in seen:
+                logger.info(f"[{run_id}] Skipping duplicate test in plan: {t.get('id')} {t.get('name')}")
+                continue
+            seen.add(key)
+            out.append(t)
+        return out
     
     def _get_search_test_data(self, discovery: Dict) -> List[str]:
         """Get search test data combining real scraped data + seed data + dummies."""
@@ -196,6 +216,7 @@ class TestPlanBuilder:
                 "template": "page_load",
                 "priority": "critical",
                 "type": "ui",
+                "generated_by": "rules",
                 "operation_type": "read",
                 "steps": [
                     {"action": "navigate", "target": home_page.get("url", base_url)},
@@ -216,6 +237,7 @@ class TestPlanBuilder:
                 "template": "page_load",
                 "priority": "high",
                 "type": "ui",
+                "generated_by": "rules",
                 "operation_type": "read",
                 "steps": [
                     {"action": "navigate", "target": page.get("url", base_url)},
@@ -240,6 +262,7 @@ class TestPlanBuilder:
                 "template": "api_health",
                 "priority": "medium",
                 "type": "api",
+                "generated_by": "rules",
                 "operation_type": "read",
                 "steps": [
                     {"action": "request", "method": "GET", "url": api.get("url")},

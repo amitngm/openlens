@@ -2186,6 +2186,9 @@
                         <button id="stop_btn" class="btn-danger hidden" onclick="stopRun()" style="width: 100%; margin-top: 8px;">
                             ⏹️ Stop Polling
                         </button>
+                        <button id="stop_all_btn" class="btn-danger hidden" onclick="stopAllRuns()" style="width: 100%; margin-top: 8px; opacity: 0.95;">
+                            ⛔ Stop All Runs (Kill Execution)
+                        </button>
                     </div>
 
                     <!-- Status Card -->
@@ -2197,8 +2200,8 @@
                         <div id="status_content"></div>
                     </div>
 
-                    <!-- Question Card - Hidden (not needed) -->
-                    <div class="card hidden" id="question_card" style="display: none;">
+                    <!-- Question Card (shown when backend asks a question) -->
+                    <div class="card hidden" id="question_card">
                         <div class="card-header">
                             <h2 class="card-title"><span class="icon">❓</span> Action Required</h2>
                         </div>
@@ -3365,6 +3368,7 @@
                 document.getElementById('status_card').classList.remove('hidden');
                 document.getElementById('free_text_card').classList.remove('hidden');
                 document.getElementById('stop_btn').classList.remove('hidden');
+                document.getElementById('stop_all_btn').classList.remove('hidden');
 
                 // Load app in iframe immediately with base URL (but don't switch to app tab yet)
                 if (baseUrl) {
@@ -3498,6 +3502,23 @@
             stopPolling();
             document.getElementById('start_btn').disabled = false;
             document.getElementById('stop_btn').classList.add('hidden');
+            document.getElementById('stop_all_btn').classList.add('hidden');
+        }
+
+        async function stopAllRuns() {
+            try {
+                if (!confirm('Stop ALL runs and close all browsers?')) return;
+                await fetch(`${API_BASE}/runs/stop-all`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reason: 'Stopped from UI' })
+                });
+            } catch (e) {
+                console.error('stopAllRuns failed', e);
+            } finally {
+                stopRun();
+                showMessage('Stopped all runs', 'success');
+            }
         }
 
         function stopPolling() {
@@ -5956,6 +5977,7 @@
                             document.getElementById('status_card').classList.remove('hidden');
                             document.getElementById('free_text_card').classList.remove('hidden');
                             document.getElementById('stop_btn').classList.remove('hidden');
+                            document.getElementById('stop_all_btn').classList.remove('hidden');
                         } else {
                             // Discovery is complete, just fetch final data (no polling needed)
                             console.log('✅ Discovery complete, fetching final data (no polling)...');

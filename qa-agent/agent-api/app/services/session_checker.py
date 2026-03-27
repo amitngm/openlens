@@ -136,9 +136,9 @@ class SessionChecker:
                 id="unexpected_screen",
                 type="confirm",
                 text=(
-                    "The page doesn't look like a login page or a logged-in app. "
-                    "Please review the screenshot and confirm how to proceed. "
-                    "Are you already logged in?"
+                    "I’m on an unexpected screen (not clearly a login page, and not clearly logged-in).\n\n"
+                    "Please take the next manual step in the browser (e.g., close a popup, click Continue, choose a tenant, "
+                    "complete a captcha/SSO step), then confirm and I’ll re-check and continue."
                 ),
                 screenshot_path=screenshot_path
             )

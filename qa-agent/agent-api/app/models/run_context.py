@@ -131,6 +131,8 @@ class RunContext(BaseModel):
     timestamps: Dict[str, str] = Field(default_factory=dict, description="State transition timestamps")
     artifacts_path: str = Field(..., description="Path to artifacts directory")
     free_text_commands: List[str] = Field(default_factory=list, description="Free-text commands from user")
+    stop_requested: bool = Field(default=False, description="If True, execution should stop ASAP")
+    stop_reason: Optional[str] = Field(default=None, description="Why the run was stopped/cancelled")
     
     class Config:
         json_schema_extra = {

@@ -36,6 +36,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/runs", tags=["Interactive QA"])
 
+# Background tasks per run (for cancellation)
+_run_tasks: Dict[str, asyncio.Task] = {}
+
 # Global run store instance
 _run_store = RunStore()
 
@@ -273,6 +276,113 @@ async def _execute_free_text_instruction(run_id: str, instruction: str):
             debug=getattr(context, "discovery_debug", False),
             artifacts_path=context.artifacts_path
         )
+
+        # ------------------------------------------------------------------
+        # Quick command mode (operator actions)
+        # ------------------------------------------------------------------
+        cmd = instruction.strip()
+        cmd_lower = cmd.lower()
+        quick_result = None
+        try:
+            import re as _re
+
+            # goto <url>
+            m = _re.match(r"^\s*(go\s*to|goto|open)\s+(?P<url>https?://\S+)\s*$", cmd, _re.IGNORECASE)
+            if m:
+                url = m.group("url")
+                await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                quick_result = f"Navigated to {url}"
+
+            # click <text>
+            if quick_result is None:
+                m = _re.match(r"^\s*click\s+(?P<what>.+?)\s*$", cmd, _re.IGNORECASE)
+                if m:
+                    what = m.group("what").strip().strip("'\"")
+                    try:
+                        await page.get_by_text(what, exact=True).first.click(timeout=7000)
+                    except Exception:
+                        await page.get_by_text(what, exact=False).first.click(timeout=7000)
+                    quick_result = f"Clicked '{what}'"
+
+            # type <value> in <selector>
+            if quick_result is None:
+                m = _re.match(r"^\s*(type|enter)\s+(?P<value>.+?)\s+in\s+(?P<selector>.+?)\s*$", cmd, _re.IGNORECASE)
+                if m:
+                    value = m.group("value").strip().strip("'\"")
+                    selector = m.group("selector").strip()
+                    loc = page.locator(selector).first
+                    await loc.click(timeout=5000)
+                    try:
+                        await loc.fill(value, timeout=5000)
+                    except Exception:
+                        try:
+                            await loc.press("Control+A")
+                            await loc.press("Backspace")
+                        except Exception:
+                            pass
+                        await loc.type(value, delay=35)
+                    quick_result = f"Typed into {selector}"
+
+            # press enter
+            if quick_result is None and cmd_lower in {"enter", "press enter"}:
+                await page.keyboard.press("Enter")
+                quick_result = "Pressed Enter"
+
+            # login / submit using stored creds
+            if quick_result is None and cmd_lower in {"login", "submit", "sign in"}:
+                if context.auth and context.auth.username and context.auth.password:
+                    login_executor = get_login_executor()
+                    login_result = await login_executor.attempt_login(
+                        page=page,
+                        run_id=run_id,
+                        base_url=context.base_url,
+                        username=context.auth.username,
+                        password=context.auth.password,
+                        artifacts_path=context.artifacts_path,
+                        ai_config=getattr(context, "ai_config", None),
+                    )
+                    quick_result = f"Login attempt: {login_result.get('status')}"
+                else:
+                    quick_result = "No stored credentials. Provide login creds first."
+        except Exception as e:
+            quick_result = f"Quick command failed: {str(e)[:200]}"
+
+        if quick_result is not None:
+            # Emit event + update URL
+            try:
+                _run_store.update_run(run_id, current_url=page.url)
+            except Exception:
+                pass
+
+            try:
+                events_file = Path(context.artifacts_path) / "events.jsonl"
+                with open(events_file, "a") as f:
+                    event = {
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "type": "free_text_quick_command",
+                        "data": {"instruction": instruction, "result": quick_result, "url": page.url},
+                    }
+                    f.write(json.dumps(event) + "\n")
+            except Exception:
+                pass
+
+            # Re-check session after operator action (best-effort)
+            try:
+                session_checker = get_session_checker()
+                check_result = await session_checker.check_session(
+                    page=page,
+                    base_url=context.base_url,
+                    run_id=run_id,
+                    artifacts_path=context.artifacts_path,
+                )
+                _run_store.update_run(run_id, current_url=page.url)
+                _run_store.transition_state(run_id, check_result["next_state"])
+                if check_result.get("question"):
+                    _run_store.update_run(run_id, question=check_result["question"])
+            except Exception:
+                pass
+
+            return
 
         # Log execution start
         events_file = Path(context.artifacts_path) / "events.jsonl"
@@ -1612,6 +1722,9 @@ async def answer_question(
     context = _run_store.get_run(run_id)
     if not context:
         raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+    if getattr(context, "stop_requested", False) or context.state == RunState.CANCELLED:
+        raise HTTPException(status_code=409, detail="Run is cancelled/stopped")
     
     # Handle free_text commands (special case)
     if request.question_id == "free_text":
@@ -1623,22 +1736,11 @@ async def answer_question(
 
         logger.info(f"[{run_id}] Free text command received: {request.answer[:100]}")
 
-        # Process the command if in WAIT_TEST_INTENT state
-        if context.state == RunState.WAIT_TEST_INTENT:
-            logger.info(f"[{run_id}] Processing free text command in WAIT_TEST_INTENT state")
-
-            # Transition to TEST_EXECUTE state
-            context = _run_store.transition_state(run_id, RunState.TEST_EXECUTE)
-
-            # Execute the test instruction in background
-            import asyncio
-            asyncio.create_task(_execute_free_text_instruction(run_id, request.answer))
-
-            message = f"Executing test: {request.answer[:100]}..."
-            logger.info(f"[{run_id}] Started background execution of free text instruction")
-        else:
-            # Just store for later if not in correct state
-            message = f"Command received: {request.answer[:100]}"
+        # Execute free-text command in background in ANY state
+        logger.info(f"[{run_id}] Processing free text command in state={context.state.value}")
+        task = asyncio.create_task(_execute_free_text_instruction(run_id, request.answer))
+        _run_tasks[run_id] = task
+        message = f"Running command: {request.answer[:100]}..."
 
         # Return current status
         context = _run_store.get_run(run_id)
@@ -1677,6 +1779,28 @@ async def answer_question(
                     parts = request.answer.split(",", 1)
                     username = parts[0].strip() if len(parts) > 0 else ""
                     password = parts[1].strip() if len(parts) > 1 else ""
+
+                if not username or not password:
+                    question = Question(
+                        id="login_creds",
+                        type="text",
+                        text=(
+                            "Username/password missing. Please retry.\n"
+                            "Format: 'username,password' or JSON {\"username\":\"...\",\"password\":\"...\"}."
+                        ),
+                    )
+                    new_state = RunState.WAIT_LOGIN_INPUT
+                    context = _run_store.transition_state(run_id, new_state)
+                    context = _run_store.update_run(run_id, question=question)
+                    message = "Credentials missing - please retry"
+                    # Return current status early
+                    return AnswerResponse(
+                        run_id=context.run_id,
+                        state=context.state.value,
+                        question=context.question,
+                        message=message,
+                        current_url=context.current_url,
+                    )
                 
                 # Update auth config
                 if context.auth:
@@ -1710,7 +1834,8 @@ async def answer_question(
                         base_url=context.base_url,
                         username=context.auth.username,
                         password=context.auth.password,
-                        artifacts_path=context.artifacts_path
+                        artifacts_path=context.artifacts_path,
+                        ai_config=getattr(context, "ai_config", None),
                     )
                     
                     # Update current URL
@@ -1912,92 +2037,242 @@ async def answer_question(
             # Handle yes/no answer
             answer_lower = request.answer.lower().strip()
             if answer_lower in ["yes", "y", "true", "1"]:
-                # User says they are logged in - proceed to context detection
-                new_state = RunState.CONTEXT_DETECT
-                context = _run_store.transition_state(run_id, new_state)
-                
-                # Perform context detection
+                # If we asked the user to click "Login/Sign in" (login form not visible),
+                # retry LOGIN_ATTEMPT with existing credentials.
+                if context.question and context.question.id == "login_click_required":
+                    if not context.auth or not context.auth.username or not context.auth.password:
+                        question = Question(
+                            id="login_creds",
+                            type="text",
+                            text="Credentials missing. Please provide login credentials (username,password) and retry.",
+                        )
+                        new_state = RunState.WAIT_LOGIN_INPUT
+                        context = _run_store.transition_state(run_id, new_state)
+                        context = _run_store.update_run(run_id, question=question)
+                        message = "Credentials missing - please retry"
+                    else:
+                        browser_manager = get_browser_manager()
+                        login_executor = get_login_executor()
+                        try:
+                            page = await browser_manager.get_page(
+                                run_id,
+                                headless=context.headless,
+                                debug=getattr(context, "discovery_debug", False),
+                                artifacts_path=context.artifacts_path,
+                            )
+                            login_result = await login_executor.attempt_login(
+                                page=page,
+                                run_id=run_id,
+                                base_url=context.base_url,
+                                username=context.auth.username,
+                                password=context.auth.password,
+                                artifacts_path=context.artifacts_path,
+                                ai_config=getattr(context, "ai_config", None),
+                            )
+
+                            context = _run_store.update_run(run_id, current_url=page.url)
+                            new_state = login_result["next_state"]
+                            context = _run_store.transition_state(run_id, new_state)
+                            if login_result.get("question"):
+                                context = _run_store.update_run(run_id, question=login_result["question"])
+                                message = login_result.get("error_message") or "Login step completed"
+                            else:
+                                message = "Login successful"
+                        except Exception as e:
+                            logger.error(f"[{run_id}] Login retry after click failed: {e}", exc_info=True)
+                            question = Question(
+                                id="login_creds",
+                                type="text",
+                                text=f"Login retry failed: {str(e)[:200]}. Please retry with credentials again.",
+                            )
+                            new_state = RunState.WAIT_LOGIN_INPUT
+                            context = _run_store.transition_state(run_id, new_state)
+                            context = _run_store.update_run(run_id, question=question)
+                            message = "Login retry failed"
+                elif context.question and context.question.id == "human_login_bypass":
+                    # Human takeover: user claims they completed login manually.
+                    browser_manager = get_browser_manager()
+                    post_login_validator = get_post_login_validator()
+                    try:
+                        page = await browser_manager.get_page(
+                            run_id,
+                            headless=context.headless,
+                            debug=getattr(context, "discovery_debug", False),
+                            artifacts_path=context.artifacts_path,
+                        )
+                        validation_result = await post_login_validator.validate_session(
+                            page=page,
+                            run_id=run_id,
+                            base_url=context.base_url,
+                            artifacts_path=context.artifacts_path,
+                        )
+                        context = _run_store.update_run(run_id, current_url=validation_result.get("current_url"))
+                        new_state = validation_result["next_state"]
+                        context = _run_store.transition_state(run_id, new_state)
+                        if validation_result.get("question"):
+                            context = _run_store.update_run(run_id, question=validation_result["question"])
+                            message = "Session still not established. Please retry login."
+                        else:
+                            message = "Manual login confirmed. Continuing."
+                    except Exception as e:
+                        logger.error(f"[{run_id}] Human login bypass validation failed: {e}", exc_info=True)
+                        question = Question(
+                            id="login_creds",
+                            type="text",
+                            text=f"Could not validate manual login: {str(e)[:200]}. Please retry credentials.",
+                        )
+                        new_state = RunState.WAIT_LOGIN_INPUT
+                        context = _run_store.transition_state(run_id, new_state)
+                        context = _run_store.update_run(run_id, question=question)
+                        message = "Manual login validation failed"
+                else:
+                    # User says they are logged in - proceed to context detection
+                    new_state = RunState.CONTEXT_DETECT
+                    context = _run_store.transition_state(run_id, new_state)
+                    
+                    # Perform context detection
+                    browser_manager = get_browser_manager()
+                    context_detector = get_context_detector()
+                    
+                    try:
+                        page = await browser_manager.get_page(
+                            run_id,
+                            headless=context.headless,
+                            debug=getattr(context, "discovery_debug", False),
+                            artifacts_path=context.artifacts_path
+                        )
+                        detect_result = await context_detector.detect_context(
+                            page=page,
+                            run_id=run_id,
+                            artifacts_path=context.artifacts_path
+                        )
+
+                        # Update selected context if single option
+                        if detect_result.get("selected_context"):
+                            context = _run_store.update_run(run_id, selected_context=detect_result["selected_context"])
+
+                        # Transition to next state
+                        new_state = detect_result["next_state"]
+                        context = _run_store.transition_state(run_id, new_state)
+
+                        # Update question if multiple options
+                        if detect_result["question"]:
+                            context = _run_store.update_run(run_id, question=detect_result["question"])
+                            message = "Multiple contexts detected - please select one"
+                        else:
+                            # Context selected - proceed to discovery
+                            if detect_result["next_state"] == RunState.DISCOVERY_RUN:
+                                discovery_runner = get_discovery_runner()
+                                discovery_result = await discovery_runner.run_discovery(
+                                    page=page,
+                                    run_id=run_id,
+                                    base_url=context.base_url,
+                                    artifacts_path=context.artifacts_path,
+                                    debug=getattr(context, "discovery_debug", False),
+                                    app_type=getattr(context, "app_type", None),  # Pass app type hint
+                                    seed_data=getattr(context, "seed_data", None)  # Pass user seed data
+                                )
+
+                                # Store discovery summary in context
+                                context = _run_store.update_run(
+                                    run_id,
+                                    discovery_summary=discovery_result.get("summary", {})
+                                )
+
+                                # Transition to DISCOVERY_SUMMARY
+                                context = _run_store.transition_state(run_id, RunState.DISCOVERY_SUMMARY)
+
+                                # Generate discovery summary and transition to WAIT_TEST_INTENT
+                                discovery_summarizer = get_discovery_summarizer()
+                                summary_result = await discovery_summarizer.generate_summary(
+                                    page=page,
+                                    run_id=run_id,
+                                    artifacts_path=context.artifacts_path
+                                )
+
+                                # Store detailed summary in context
+                                context = _run_store.update_run(
+                                    run_id,
+                                    discovery_summary=summary_result["summary"]
+                                )
+
+                                # Transition to WAIT_TEST_INTENT
+                                context = _run_store.transition_state(run_id, summary_result["next_state"])
+
+                                # Update question
+                                if summary_result["question"]:
+                                    context = _run_store.update_run(run_id, question=summary_result["question"])
+
+                                message = f"Discovery completed: {summary_result['summary']['pages_count']} pages, {summary_result['summary']['forms_count']} forms found"
+                            else:
+                                message = f"Proceeding with existing session. Context: {detect_result.get('selected_context', 'default')}"
+                    except Exception as e:
+                        logger.error(f"[{run_id}] Context detection failed: {e}", exc_info=True)
+                        new_state = RunState.DISCOVERY_RUN
+                        context = _run_store.transition_state(run_id, new_state)
+                        message = "Proceeding with existing session (context detection failed)"
+            else:
+                # User answered "no" to a confirm question
+                if context.question and context.question.id == "human_login_bypass":
+                    question = Question(
+                        id="login_creds",
+                        type="text",
+                        text="Okay. Please provide credentials again (username,password) and retry.",
+                    )
+                    new_state = RunState.WAIT_LOGIN_INPUT
+                    context = _run_store.transition_state(run_id, new_state)
+                    context = _run_store.update_run(run_id, question=question)
+                    message = "Retrying login with credentials"
+
+        elif context.state == RunState.WAIT_UNEXPECTED_SCREEN:
+            # User performed a manual step (close popup/captcha/SSO/etc.), now re-check and continue.
+            answer_lower = request.answer.lower().strip()
+            if answer_lower in ["yes", "y", "true", "1"]:
                 browser_manager = get_browser_manager()
-                context_detector = get_context_detector()
-                
+                session_checker = get_session_checker()
                 try:
                     page = await browser_manager.get_page(
                         run_id,
                         headless=context.headless,
                         debug=getattr(context, "discovery_debug", False),
-                        artifacts_path=context.artifacts_path
+                        artifacts_path=context.artifacts_path,
                     )
-                    detect_result = await context_detector.detect_context(
+                    check_result = await session_checker.check_session(
                         page=page,
+                        base_url=context.base_url,
                         run_id=run_id,
-                        artifacts_path=context.artifacts_path
+                        artifacts_path=context.artifacts_path,
                     )
-                    
-                    # Update selected context if single option
-                    if detect_result.get("selected_context"):
-                        context = _run_store.update_run(run_id, selected_context=detect_result["selected_context"])
-                    
-                    # Transition to next state
-                    new_state = detect_result["next_state"]
+
+                    context = _run_store.update_run(run_id, current_url=page.url)
+                    new_state = check_result["next_state"]
                     context = _run_store.transition_state(run_id, new_state)
-                    
-                    # Update question if multiple options
-                    if detect_result["question"]:
-                        context = _run_store.update_run(run_id, question=detect_result["question"])
-                        message = "Multiple contexts detected - please select one"
+                    if check_result.get("question"):
+                        context = _run_store.update_run(run_id, question=check_result["question"])
+                        message = "Still need input to proceed"
                     else:
-                        # Context selected - proceed to discovery
-                        if detect_result["next_state"] == RunState.DISCOVERY_RUN:
-                            discovery_runner = get_discovery_runner()
-                            discovery_result = await discovery_runner.run_discovery(
-                                page=page,
-                                run_id=run_id,
-                                base_url=context.base_url,
-                                artifacts_path=context.artifacts_path,
-                                debug=getattr(context, "discovery_debug", False),
-                                app_type=getattr(context, "app_type", None),  # Pass app type hint
-                                seed_data=getattr(context, "seed_data", None)  # Pass user seed data
-                            )
-                            
-                            # Store discovery summary in context
-                            context = _run_store.update_run(
-                                run_id,
-                                discovery_summary=discovery_result.get("summary", {})
-                            )
-                            
-                            # Transition to DISCOVERY_SUMMARY
-                            context = _run_store.transition_state(run_id, RunState.DISCOVERY_SUMMARY)
-                            
-                            # Generate discovery summary and transition to WAIT_TEST_INTENT
-                            discovery_summarizer = get_discovery_summarizer()
-                            summary_result = await discovery_summarizer.generate_summary(
-                                page=page,
-                                run_id=run_id,
-                                artifacts_path=context.artifacts_path
-                            )
-                            
-                            # Store detailed summary in context
-                            context = _run_store.update_run(
-                                run_id,
-                                discovery_summary=summary_result["summary"]
-                            )
-                            
-                            # Transition to WAIT_TEST_INTENT
-                            context = _run_store.transition_state(run_id, summary_result["next_state"])
-                            
-                            # Update question
-                            if summary_result["question"]:
-                                context = _run_store.update_run(run_id, question=summary_result["question"])
-                            
-                            message = f"Discovery completed: {summary_result['summary']['pages_count']} pages, {summary_result['summary']['forms_count']} forms found"
-                        else:
-                            message = f"Proceeding with existing session. Context: {detect_result.get('selected_context', 'default')}"
+                        message = "Proceeding after unexpected screen"
                 except Exception as e:
-                    logger.error(f"[{run_id}] Context detection failed: {e}", exc_info=True)
-                    # Default to proceeding without context
-                    new_state = RunState.DISCOVERY_RUN
+                    logger.error(f"[{run_id}] Unexpected-screen recheck failed: {e}", exc_info=True)
+                    question = Question(
+                        id="unexpected_screen",
+                        type="confirm",
+                        text=f"Re-check failed: {str(e)[:200]}. Please take another manual step and confirm again.",
+                    )
+                    new_state = RunState.WAIT_UNEXPECTED_SCREEN
                     context = _run_store.transition_state(run_id, new_state)
-                    message = "Proceeding with existing session (context detection failed)"
+                    context = _run_store.update_run(run_id, question=question)
+                    message = "Still on unexpected screen"
+            else:
+                question = Question(
+                    id="unexpected_screen",
+                    type="confirm",
+                    text="Okay. Please take the next manual step in the browser, then confirm when ready.",
+                )
+                new_state = RunState.WAIT_UNEXPECTED_SCREEN
+                context = _run_store.transition_state(run_id, new_state)
+                context = _run_store.update_run(run_id, question=question)
+                message = "Waiting for manual step"
         
         elif context.state == RunState.WAIT_TEST_INTENT:
             # User selected test intent - translate human choice to internal intent + ops
@@ -2346,6 +2621,84 @@ def _calculate_progress(state: RunState) -> int:
     except ValueError:
         # State not in order (e.g., FAILED)
         return 0 if state == RunState.FAILED else 100
+
+
+@router.post("/{run_id}/stop", summary="Stop/cancel a run")
+async def stop_run(run_id: str, payload: Dict[str, str] = Body(default={"reason": "User requested stop"})):
+    """
+    Stop execution at any moment:
+    - cancels background tasks (if any)
+    - closes the browser context
+    - marks run as CANCELLED
+    """
+    context = _run_store.get_run(run_id)
+    if not context:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+
+    reason = (payload or {}).get("reason") or "User requested stop"
+
+    # Mark stop requested and transition state
+    try:
+        context = _run_store.update_run(run_id, stop_requested=True, stop_reason=reason, question=None)
+        context = _run_store.transition_state(run_id, RunState.CANCELLED)
+    except Exception:
+        pass
+
+    # Cancel any background task
+    task = _run_tasks.get(run_id)
+    if task and not task.done():
+        task.cancel()
+
+    # Close browser context
+    try:
+        browser_manager = get_browser_manager()
+        await browser_manager.close_context(run_id)
+    except Exception:
+        pass
+
+    return {"run_id": run_id, "state": RunState.CANCELLED.value, "message": "Stopped", "reason": reason}
+
+
+@router.post("/stop-all", summary="Stop/cancel ALL runs")
+async def stop_all_runs(payload: Dict[str, str] = Body(default={"reason": "User requested stop all"})):
+    """
+    Stop everything:
+    - marks all in-memory runs as CANCELLED
+    - cancels any background tasks we started
+    - closes ALL Playwright contexts/browsers
+    """
+    reason = (payload or {}).get("reason") or "User requested stop all"
+
+    # Cancel tracked tasks
+    cancelled_tasks = 0
+    for rid, task in list(_run_tasks.items()):
+        if task and not task.done():
+            task.cancel()
+            cancelled_tasks += 1
+
+    # Mark all runs cancelled (in-memory store)
+    cancelled_runs = 0
+    for ctx in _run_store.list_runs():
+        try:
+            _run_store.update_run(ctx.run_id, stop_requested=True, stop_reason=reason, question=None)
+            _run_store.transition_state(ctx.run_id, RunState.CANCELLED)
+            cancelled_runs += 1
+        except Exception:
+            continue
+
+    # Close all browser contexts
+    try:
+        browser_manager = get_browser_manager()
+        await browser_manager.close_all()
+    except Exception:
+        pass
+
+    return {
+        "message": "Stopped all runs",
+        "reason": reason,
+        "cancelled_runs": cancelled_runs,
+        "cancelled_tasks": cancelled_tasks,
+    }
 
 
 # =============================================================================

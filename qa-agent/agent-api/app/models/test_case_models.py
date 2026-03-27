@@ -85,6 +85,7 @@ class TestCase:
     page_name: str = ""
     status: str = "pending"  # "pending", "running", "passed", "failed", "skipped"
     tags: List[str] = field(default_factory=list)
+    generated_by: str = "rules"  # "rules" | "ai" | "hybrid"
 
     # Coverage tracking
     covers_requirements: List[str] = field(default_factory=list)
@@ -117,7 +118,8 @@ class TestCase:
             "page_name": self.page_name,
             "status": self.status,
             "tags": self.tags,
-            "covers_requirements": self.covers_requirements
+            "covers_requirements": self.covers_requirements,
+            "generated_by": self.generated_by,
         }
 
     def to_human_readable_steps(self) -> List[str]:
@@ -136,7 +138,8 @@ class TestCase:
             "priority": self.priority,
             "steps": self.to_human_readable_steps(),
             "expected_result": self.expected_result,
-            "tags": self.tags
+            "tags": self.tags,
+            "generated_by": self.generated_by,
         }
 
     def add_execution_result(
