@@ -45,7 +45,13 @@ class AIConfig(BaseModel):
         ge=1,
         description="Request timeout in seconds"
     )
-    
+    human_like_max_steps: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=2000,
+        description="Max LLM action steps for human:/goal: mode (default: env HUMAN_LIKE_AGENT_MAX_STEPS or 25)",
+    )
+
     class Config:
         json_schema_extra = {
             "example": {

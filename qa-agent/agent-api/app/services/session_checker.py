@@ -69,8 +69,19 @@ class SessionChecker:
         try:
             if not skip_initial_navigation:
                 logger.info(f"[{run_id}] Opening base URL: {base_url}")
-                await page.goto(base_url, timeout=30000, wait_until="networkidle")
-                await page.wait_for_load_state("domcontentloaded")
+                # domcontentloaded first — many SPAs never reach "networkidle" (polling/WebSockets)
+                await page.goto(base_url, timeout=45000, wait_until="domcontentloaded")
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=15000)
+                except Exception:
+                    logger.info(
+                        f"[{run_id}] Session check: networkidle not reached in 15s (normal for SPAs); continuing"
+                    )
+                try:
+                    await page.wait_for_load_state("domcontentloaded")
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
             else:
                 logger.info(f"[{run_id}] Session check without navigation (current URL: {page.url})")
                 try:

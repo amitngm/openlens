@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -16,7 +17,19 @@ from app.services.ai.provider_factory import get_llm_provider
 
 logger = logging.getLogger(__name__)
 
-MAX_STEPS = 10
+# Hard ceiling for human-like loop (matches AIConfig.human_like_max_steps le=)
+_HUMAN_LIKE_CAP = 2000
+
+
+def resolve_max_steps(explicit: Optional[int]) -> int:
+    """Per-run cap for human-like loop: explicit from AI config, else env, else 25."""
+    if explicit is not None:
+        return max(1, min(_HUMAN_LIKE_CAP, explicit))
+    raw = os.getenv("HUMAN_LIKE_AGENT_MAX_STEPS", "25")
+    try:
+        return max(1, min(_HUMAN_LIKE_CAP, int(raw.strip())))
+    except ValueError:
+        return 25
 SYSTEM_PROMPT = """You are a careful browser automation assistant.
 You only choose the next single action to move toward the user's goal.
 You must pick targets that appear in the provided page snapshot (use exact or substring text from "text" fields).
@@ -88,7 +101,7 @@ async def run_goal_loop(
     run_id: str,
     ai_config: Any,
     *,
-    max_steps: int = MAX_STEPS,
+    max_steps: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Observe page → ask LLM for one action → execute → repeat until done or max_steps.
@@ -113,10 +126,15 @@ async def run_goal_loop(
             "error": "no_provider",
         }
 
+    effective_max = max_steps
+    if effective_max is None:
+        effective_max = cfg.get("human_like_max_steps")
+    cap = resolve_max_steps(effective_max)
+
     steps_out: List[Dict[str, Any]] = []
     last_error = ""
 
-    for step_i in range(max_steps):
+    for step_i in range(cap):
         snap = await _snapshot_page(page)
         snap_txt = json.dumps(snap, indent=0)[:12000]
         user_prompt = f"""User goal: {goal}
@@ -168,9 +186,14 @@ Current page snapshot:
             last_error = ""
 
     return {
-        "ok": True,
+        "ok": False,
         "steps": steps_out,
-        "summary": f"Stopped after {max_steps} steps (cap). Last URL: {page.url}",
+        "summary": (
+            f"Goal not completed after {cap} steps (limit). "
+            f"Set AI human_like_max_steps, or env HUMAN_LIKE_AGENT_MAX_STEPS, or use a smaller goal. "
+            f"Last URL: {page.url}"
+        ),
+        "error": "max_steps",
     }
 
 
