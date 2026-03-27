@@ -47,7 +47,9 @@ class RunStore:
         ai_config: Optional[AIConfig] = None,
         app_type: Optional[str] = None,
         seed_data: Optional[List[str]] = None,
-        enabled_operations: Optional[Dict[str, bool]] = None
+        enabled_operations: Optional[Dict[str, bool]] = None,
+        auto_select_context: bool = True,
+        ask_test_intent_after_discovery: bool = False,
     ) -> RunContext:
         """
         Create a new run context.
@@ -84,6 +86,8 @@ class RunStore:
             ai_config=ai_config,
             app_type=app_type,
             seed_data=seed_data,
+            auto_select_context=auto_select_context,
+            ask_test_intent_after_discovery=ask_test_intent_after_discovery,
             **({"enabled_operations": enabled_operations} if enabled_operations is not None else {}),
             timestamps={RunState.START.value: datetime.utcnow().isoformat() + "Z"}
         )

@@ -2212,13 +2212,13 @@
                             </div>
                         </details>
 
-                        <!-- Test Mode — buddy asks after discovery -->
+                        <!-- Test Mode — default: auto full coverage after discovery -->
                         <div class="config-section" style="margin-top: 16px;">
                             <label class="config-label" style="font-weight: 600; display: block; margin-bottom: 8px;">What to Test</label>
                             <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: rgba(37,99,235,0.05); border-radius: 8px; border: 1px solid rgba(37,99,235,0.15);">
                                 <span style="font-size: 18px; line-height: 1;">🤖</span>
                                 <p style="margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
-                                    Buddy <strong style="color: var(--text-primary);">walks the whole app surface</strong>: it records the <strong>full DOM</strong> on each page and every <strong>route and navigation path</strong> it can reach — not limited to buttons, tables, or forms; those are just examples. Links, modals, drawers, lists, inputs, and other interactive nodes are all in scope. Tests are built from that complete picture. After discovery it asks what to emphasize (read-only, writes, full coverage), including delete actions only when you allow them.
+                                    Buddy <strong style="color: var(--text-primary);">discovers the app on its own</strong> (full DOM, routes, navigation). By default it then runs <strong>full coverage</strong> (same as “Test everything”). Use <strong>Advanced Settings</strong> only if you want to pause and pick read-only / smoke / etc. Ask QA Buddy is for <strong>extra</strong> instructions on top of this flow.
                                 </p>
                             </div>
                         </div>
@@ -2251,8 +2251,20 @@
                                     <label for="max_discovery_time">Max Time (minutes)</label>
                                     <input type="number" id="max_discovery_time" placeholder="60" value="60" min="1" max="120">
                                 </div>
+                                <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 13px; color: var(--text-secondary); line-height: 1.45;">
+                                    <input type="checkbox" id="prompt_context_selection" style="margin-top: 3px;">
+                                    <span>Pause to choose tenant / project / workspace when several are detected (off by default: first option is used and discovery continues automatically).</span>
+                                </label>
+                                <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-size: 13px; color: var(--text-secondary); line-height: 1.45;">
+                                    <input type="checkbox" id="ask_test_intent_after_discovery" style="margin-top: 3px;">
+                                    <span>After discovery, pause to choose test scope (read-only, smoke, etc.). Off by default: Buddy runs full coverage automatically; use Ask QA Buddy only for extra instructions.</span>
+                                </label>
                             </div>
                         </details>
+
+                        <p style="margin: 16px 0 0; font-size: 12px; color: var(--text-tertiary); line-height: 1.5;">
+                            After login, <strong style="color: var(--text-secondary); font-weight: 600;">discovery and default full test scope</strong> run on their own. <strong style="color: var(--text-secondary); font-weight: 600;">Ask QA Buddy</strong> is optional — for add-on steps or follow-ups.
+                        </p>
 
                         <button id="start_btn" onclick="startRun()" style="width: 100%; margin-top: 20px;">
                             🚀 Start Discovery Run
@@ -2287,8 +2299,13 @@
                         <div class="card-header">
                             <h2 class="card-title"><span class="icon">💬</span> Ask QA Buddy</h2>
                         </div>
+                        <div id="buddy_quick_next_steps" class="hidden" style="margin-bottom: 14px; padding: 12px; background: rgba(37, 99, 235, 0.06); border: 1px solid rgba(37, 99, 235, 0.18); border-radius: 8px;">
+                            <p style="margin: 0 0 10px; font-size: 12px; font-weight: 600; color: var(--text-primary);">Next step</p>
+                            <p id="buddy_quick_next_steps_hint" style="margin: 0 0 10px; font-size: 11px; color: var(--text-secondary); line-height: 1.45;">Choose an option below (same as Action Required). Optional: use free text for extra instructions after you pick a scope.</p>
+                            <div id="buddy_quick_next_steps_buttons" class="question-options" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                        </div>
                         <div style="display: flex; gap: 8px;">
-                            <textarea id="free_text_input" placeholder="What should I test / check / skip?" rows="3" style="flex: 1;"></textarea>
+                            <textarea id="free_text_input" placeholder="Human-like agent (AI on): agent: open Settings then save&#10;Quick: click Sign in | goto https://... | login&#10;Or describe tests: search for X, test table rows…" rows="3" style="flex: 1;"></textarea>
                             <button onclick="submitFreeText()" style="align-self: flex-end;">Send</button>
                         </div>
                     </div>
@@ -2894,20 +2911,6 @@
         </div>
     </div>
 
-    <!-- Floating activity console (live state + discovery events) -->
-    <div id="buddy_activity_panel" class="buddy-activity-panel hidden" aria-live="polite">
-        <div class="buddy-activity-header">
-            <span class="buddy-activity-title">📟 Activity</span>
-            <span class="buddy-activity-hint">What Buddy is doing</span>
-            <div class="buddy-activity-actions">
-                <button type="button" class="buddy-activity-btn" onclick="clearBuddyActivityLog()" title="Clear">Clear</button>
-                <button type="button" class="buddy-activity-btn" onclick="toggleBuddyActivityPanel()" title="Minimize">−</button>
-            </div>
-        </div>
-        <div id="buddy_activity_log" class="buddy-activity-log"></div>
-        <button type="button" id="buddy_activity_collapsed_tab" class="buddy-activity-collapsed hidden" onclick="toggleBuddyActivityPanel(true)" title="Show activity">📟 Activity</button>
-    </div>
-
     <script>
         // Configuration
         const API_BASE = window.location.origin;
@@ -2934,7 +2937,7 @@
             'LOGIN_ATTEMPT': 'Submitting login…',
             'POST_LOGIN_VALIDATE': 'Validating session after login (reload app)…',
             'CONTEXT_DETECT': 'Detecting tenant / context / workspace…',
-            'WAIT_CONTEXT_INPUT': 'Waiting for context selection…',
+            'WAIT_CONTEXT_INPUT': 'Waiting for tenant / project / workspace selection…',
             'WAIT_UNEXPECTED_SCREEN': 'Unexpected screen — use Action Required or manual steps…',
             'DISCOVERY_RUN': 'Discovery running — crawling pages and DOM…',
             'DISCOVERY_SUMMARY': 'Building discovery summary…',
@@ -2949,23 +2952,8 @@
         };
 
         function appendBuddyActivityLine(text, kind) {
-            const panel = document.getElementById('buddy_activity_panel');
-            const log = document.getElementById('buddy_activity_log');
-            if (!panel || !log) return;
-            panel.classList.remove('hidden');
-            const line = document.createElement('div');
-            line.className = 'buddy-activity-line ' + (kind === 'state' ? 'state' : 'event');
-            const ts = new Date().toLocaleTimeString();
-            line.innerHTML = `<span class="ts">[${ts}]</span>${escapeHtml(String(text))}`;
-            log.appendChild(line);
-            log.scrollTop = log.scrollHeight;
-            while (log.children.length > 200) log.removeChild(log.firstChild);
-        }
-
-        function escapeHtml(s) {
-            const d = document.createElement('div');
-            d.textContent = s;
-            return d.innerHTML;
+            /* Activity floating panel removed; keep function as no-op for callers */
+            return;
         }
 
         function clearBuddyActivityLog() {
@@ -3458,6 +3446,13 @@
             if (!isNaN(maxTableRows) && maxTableRows > 0) payload.max_table_rows_to_click = maxTableRows;
             if (!isNaN(maxTime) && maxTime > 0) payload.max_discovery_time_minutes = maxTime;
 
+            if (document.getElementById('prompt_context_selection')?.checked) {
+                payload.auto_select_context = false;
+            }
+            if (document.getElementById('ask_test_intent_after_discovery')?.checked) {
+                payload.ask_test_intent_after_discovery = true;
+            }
+
             const authType = document.getElementById('auth_type').value;
             const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value.trim();
@@ -3556,16 +3551,6 @@
                 localStorage.setItem('eventsCursor_' + currentRunId, '0');
 
                 lastBuddyLoggedState = null;
-                clearBuddyActivityLog();
-                (function showBuddyPanel() {
-                    const bpanel = document.getElementById('buddy_activity_panel');
-                    const btab = document.getElementById('buddy_activity_collapsed_tab');
-                    if (bpanel) {
-                        bpanel.classList.remove('hidden', 'minimized');
-                        if (btab) btab.classList.add('hidden');
-                    }
-                })();
-                appendBuddyActivityLine(`Run ${currentRunId} — session starting (login, validation, then discovery). Watch states below.`, 'state');
 
                 // Reset discovery status
                 updateDiscoveryStatus('not_started', null);
@@ -4089,6 +4074,10 @@
                     showFreeTextExecutionCompleted(event.data);
                 } else if (event.type === 'free_text_execution_error') {
                     showFreeTextExecutionError(event.data);
+                } else if (event.type === 'human_like_agent') {
+                    const g = event.data && event.data.goal ? event.data.goal : '';
+                    const s = event.data && event.data.summary ? event.data.summary : '';
+                    appendBuddyActivityLine(`Human-like agent: ${g.slice(0, 80)}${g.length > 80 ? '…' : ''} — ${s.slice(0, 120)}`, 'event');
                 } else if (event.type === 'execution_progress') {
                     // Update progress in state if available
                     if (typeof testExecutionState !== 'undefined') {
@@ -5936,7 +5925,72 @@
                 showQuestion(data.question);
             } else {
                 document.getElementById('question_card').classList.add('hidden');
+                syncBuddyQuickNextSteps(null);
             }
+        }
+
+        function syncBuddyQuickNextSteps(question) {
+            const wrap = document.getElementById('buddy_quick_next_steps');
+            const host = document.getElementById('buddy_quick_next_steps_buttons');
+            const hint = document.getElementById('buddy_quick_next_steps_hint');
+            if (!wrap || !host) return;
+            host.innerHTML = '';
+            if (!question) {
+                wrap.classList.add('hidden');
+                return;
+            }
+            if (question.type === 'text') {
+                wrap.classList.add('hidden');
+                return;
+            }
+            if (question.type === 'confirm') {
+                wrap.classList.remove('hidden');
+                if (hint) hint.textContent = 'Same as Action Required — tap Yes or No here if the main buttons do not respond.';
+                ['Yes', 'No'].forEach(answer => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'option-button';
+                    btn.style.cssText = 'padding: 10px 14px; font-weight: 600; width: 100%; text-align: center;';
+                    btn.textContent = answer;
+                    btn.onclick = () => submitAnswer(question.id, answer.toLowerCase());
+                    host.appendChild(btn);
+                });
+                return;
+            }
+            if (question.type !== 'select_one' || !question.options || !question.options.length) {
+                wrap.classList.add('hidden');
+                return;
+            }
+            wrap.classList.remove('hidden');
+            if (hint) {
+                if (question.id === 'test_intent') {
+                    hint.textContent = 'Discovery is done. Pick a test scope (e.g. Test everything). Same buttons as Action Required — use whichever card you prefer.';
+                } else if (question.id === 'test_intent_module') {
+                    hint.textContent = 'Pick which module to test. Same as Action Required.';
+                } else if (question.id === 'context_select') {
+                    hint.textContent = 'Pick tenant / project / workspace. Same as Action Required.';
+                } else {
+                    hint.textContent = 'Choose an option below. Same as Action Required when a question is open.';
+                }
+            }
+            question.options.forEach(option => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'option-button';
+                btn.style.cssText = 'display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 10px 14px; gap: 2px; width: 100%;';
+                const labelEl = document.createElement('span');
+                labelEl.style.cssText = 'font-weight: 600; font-size: 13px;';
+                labelEl.textContent = option.label || option.id;
+                btn.appendChild(labelEl);
+                if (option.description) {
+                    const descEl = document.createElement('span');
+                    descEl.style.cssText = 'font-size: 11px; font-weight: 400; opacity: 0.75; line-height: 1.4;';
+                    descEl.textContent = option.description;
+                    btn.appendChild(descEl);
+                }
+                btn.onclick = () => submitAnswer(question.id, option.id);
+                host.appendChild(btn);
+            });
         }
 
         function showQuestion(question) {
@@ -5951,6 +6005,7 @@
                 options.style.cssText = 'display: flex; flex-direction: column; gap: 8px; margin-top: 10px;';
                 question.options.forEach(option => {
                     const btn = document.createElement('button');
+                    btn.type = 'button';
                     btn.className = 'option-button';
                     btn.style.cssText = 'display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 10px 14px; gap: 2px;';
                     const labelEl = document.createElement('span');
@@ -5972,6 +6027,7 @@
                 buttons.style.cssText = 'display: flex; gap: 10px;';
                 ['Yes', 'No'].forEach(answer => {
                     const btn = document.createElement('button');
+                    btn.type = 'button';
                     btn.className = answer === 'Yes' ? 'btn-success' : 'btn-danger';
                     btn.textContent = answer;
                     btn.onclick = () => submitAnswer(question.id, answer.toLowerCase());
@@ -5979,10 +6035,14 @@
                 });
                 content.appendChild(buttons);
             }
+            syncBuddyQuickNextSteps(question);
         }
 
         async function submitAnswer(questionId, answer) {
-            if (!currentRunId) return;
+            if (!currentRunId) {
+                showMessage('No active run ID — refresh the page or start a new discovery run.', 'error');
+                return;
+            }
             try {
                 const response = await fetch(`${API_BASE}/runs/${currentRunId}/answer`, {
                     method: 'POST',
@@ -6146,9 +6206,6 @@
             if (currentRunId) {
                 console.log('📌 Using run ID:', currentRunId);
                 updateCurrentRunIndicator();
-                const bpanel = document.getElementById('buddy_activity_panel');
-                if (bpanel) bpanel.classList.remove('hidden');
-                appendBuddyActivityLine(`Resumed run ${currentRunId} — loading status…`, 'state');
 
                 // Reset cursor to 0 to replay all events from beginning (ensures we don't miss anything on refresh)
                 eventsCursor = 0;

@@ -31,6 +31,7 @@ from app.services.test_plan_builder import get_test_plan_builder
 from app.services.test_executor import get_test_executor
 from app.services.report_generator import get_report_generator
 from app.services.image_analyzer import get_image_analyzer
+from app.services.human_like_agent import parse_agent_goal, run_goal_loop
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,22 @@ class StartRunRequest(BaseModel):
     max_forms_per_page: Optional[int] = Field(None, description="Maximum forms to process per page (default: 50)")
     max_table_rows_to_click: Optional[int] = Field(None, description="Maximum table rows to click (default: 50)")
     max_discovery_time_minutes: Optional[int] = Field(None, description="Maximum discovery time in minutes (default: 60)")
+
+    auto_select_context: Optional[bool] = Field(
+        True,
+        description=(
+            "If True (default), when multiple tenant/context options are detected after login, "
+            "use the first option and start discovery immediately. Set False to pause and ask which to use."
+        ),
+    )
+
+    ask_test_intent_after_discovery: Optional[bool] = Field(
+        False,
+        description=(
+            "If False (default), after discovery Buddy automatically runs full coverage (Test everything). "
+            "If True, pause so you can choose read-only / smoke / etc. Ask QA Buddy stays for extra instructions only."
+        ),
+    )
 
     class Config:
         json_schema_extra = {
@@ -346,6 +363,44 @@ async def _execute_free_text_instruction(run_id: str, instruction: str):
                     quick_result = "No stored credentials. Provide login creds first."
         except Exception as e:
             quick_result = f"Quick command failed: {str(e)[:200]}"
+
+        # Human-like agent: sees page snapshot + LLM picks next actions (prefix: agent:, human:, goal:)
+        if quick_result is None:
+            goal = parse_agent_goal(cmd)
+            if goal:
+                agent_result = await run_goal_loop(
+                    page,
+                    goal,
+                    run_id,
+                    getattr(context, "ai_config", None),
+                )
+                quick_result = agent_result.get("summary", "Human-like agent finished")
+                try:
+                    _run_store.update_run(run_id, current_url=page.url)
+                except Exception:
+                    pass
+                try:
+                    ev_path = Path(context.artifacts_path) / "events.jsonl"
+                    with open(ev_path, "a") as f:
+                        f.write(
+                            json.dumps(
+                                {
+                                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                                    "type": "human_like_agent",
+                                    "data": {
+                                        "goal": goal,
+                                        "summary": quick_result,
+                                        "ok": agent_result.get("ok"),
+                                        "steps": agent_result.get("steps", [])[:25],
+                                        "url": page.url,
+                                    },
+                                },
+                                default=str,
+                            )
+                            + "\n"
+                        )
+                except Exception:
+                    pass
 
         if quick_result is not None:
             # Emit event + update URL
@@ -629,6 +684,135 @@ async def _execute_free_text_instruction(run_id: str, instruction: str):
             context = _run_store.transition_state(run_id, RunState.WAIT_TEST_INTENT)
         except:
             pass
+
+
+async def _execute_test_intent_pipeline(run_id: str, raw_answer: str) -> str:
+    """
+    Apply test intent (e.g. everything, read_only) and build + execute tests.
+    Caller must have transitioned to WAIT_TEST_INTENT already.
+    """
+    context = _run_store.get_run(run_id)
+    if not context:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    if context.state != RunState.WAIT_TEST_INTENT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid state for test intent: {context.state.value}",
+        )
+
+    raw_lower = raw_answer.lower().strip()
+    INTENT_MAP = {
+        "everything": ("exploratory_15m", {"read": True, "create": True, "update": True, "delete": True}),
+        "write_focus": ("crud_sanity", {"read": True, "create": True, "update": True, "delete": True}),
+        "read_only": ("smoke", {"read": True, "create": False, "update": False, "delete": False}),
+        "quick_smoke": ("smoke", {"read": True, "create": False, "update": False, "delete": False}),
+        "smoke": ("smoke", {"read": True, "create": False, "update": False, "delete": False}),
+        "crud_sanity": ("crud_sanity", {"read": True, "create": True, "update": True, "delete": True}),
+        "module_based": ("module_based", {"read": True, "create": True, "update": True, "delete": True}),
+        "exploratory_15m": ("exploratory_15m", {"read": True, "create": True, "update": True, "delete": True}),
+    }
+
+    if raw_lower not in INTENT_MAP:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown test intent: '{raw_answer}'. Choose: everything, write_focus, read_only, quick_smoke",
+        )
+
+    test_intent, auto_ops = INTENT_MAP[raw_lower]
+    logger.info(f"[{run_id}] Test intent '{raw_lower}' → '{test_intent}', ops={auto_ops}")
+
+    context = _run_store.update_run(run_id, enabled_operations=auto_ops)
+    context = _run_store.transition_state(run_id, RunState.TEST_PLAN_BUILD)
+
+    browser_manager = get_browser_manager()
+    test_plan_builder = get_test_plan_builder()
+    message = "Test intent processed"
+
+    try:
+        page = await browser_manager.get_page(
+            run_id,
+            headless=context.headless,
+            debug=getattr(context, "discovery_debug", False),
+            artifacts_path=context.artifacts_path,
+        )
+        plan_result = await test_plan_builder.build_test_plan(
+            page=page,
+            run_id=run_id,
+            artifacts_path=context.artifacts_path,
+            test_intent=test_intent,
+            app_type=getattr(context, "app_type", None),
+        )
+
+        if plan_result.get("question"):
+            context = _run_store.update_run(run_id, question=plan_result["question"])
+            context = _run_store.update_run(run_id, selected_context=test_intent)
+            message = f"Test intent selected: {test_intent}. Please select a module."
+        else:
+            context = _run_store.update_run(run_id, test_plan=plan_result["test_plan"])
+            new_state = plan_result["next_state"]
+            context = _run_store.transition_state(run_id, new_state)
+
+            test_executor = get_test_executor()
+            execution_result = await test_executor.execute_tests(
+                page=page,
+                run_id=run_id,
+                artifacts_path=context.artifacts_path,
+                test_plan=plan_result["test_plan"],
+                base_url=context.base_url,
+                enabled_operations=context.enabled_operations,
+            )
+
+            if execution_result.get("question"):
+                context = _run_store.update_run(run_id, question=execution_result["question"])
+                message = (
+                    f"Test plan built: {plan_result['test_plan']['total_tests']} tests. "
+                    "Unsafe deletes detected - confirmation required."
+                )
+            else:
+                next_state = execution_result["next_state"]
+                context = _run_store.transition_state(run_id, next_state)
+                message = (
+                    f"Test execution completed: {execution_result['report']['passed']} passed, "
+                    f"{execution_result['report']['failed']} failed"
+                )
+                if next_state == RunState.DONE and context.close_browser_on_complete:
+                    try:
+                        browser_manager = get_browser_manager()
+                        await browser_manager.close_context(run_id)
+                        logger.info(f"[{run_id}] Browser closed after test completion")
+                    except Exception as e:
+                        logger.warning(f"[{run_id}] Failed to close browser: {e}")
+    except Exception as e:
+        logger.error(f"[{run_id}] Test plan build failed: {e}", exc_info=True)
+        message = f"Test plan build failed: {str(e)[:200]}"
+
+    return message
+
+
+async def _after_discovery_summary(run_id: str, summary_result: Dict[str, Any]) -> None:
+    """
+    Transition to WAIT_TEST_INTENT; either show scope question or auto-run 'everything'.
+    """
+    if summary_result.get("next_state") != RunState.WAIT_TEST_INTENT:
+        _run_store.transition_state(run_id, summary_result["next_state"])
+        return
+
+    _run_store.transition_state(run_id, RunState.WAIT_TEST_INTENT)
+    ctx = _run_store.get_run(run_id)
+    ask = getattr(ctx, "ask_test_intent_after_discovery", False)
+
+    if ask:
+        if summary_result.get("question"):
+            _run_store.update_run(run_id, question=summary_result["question"])
+        return
+
+    _run_store.update_run(run_id, question=None)
+    try:
+        await _execute_test_intent_pipeline(run_id, "everything")
+    except Exception as e:
+        logger.error(f"[{run_id}] Auto test intent after discovery failed: {e}", exc_info=True)
+        if summary_result.get("question"):
+            _run_store.update_run(run_id, question=summary_result["question"])
 
 
 async def _test_table_rows(page, run_id: str, table_keyword: Optional[str]) -> Dict[str, Any]:
@@ -1152,7 +1336,17 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
             ai_config=request.ai_config,
             app_type=request.app_type or "auto",
             seed_data=request.seed_data,
-            enabled_operations=request.enabled_operations
+            enabled_operations=request.enabled_operations,
+            auto_select_context=(
+                request.auto_select_context
+                if request.auto_select_context is not None
+                else True
+            ),
+            ask_test_intent_after_discovery=(
+                request.ask_test_intent_after_discovery
+                if request.ask_test_intent_after_discovery is not None
+                else False
+            ),
         )
         
         # Transition to OPEN_URL (opens URL in check_session)
@@ -1278,7 +1472,10 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
                                 detect_result = await context_detector.detect_context(
                                     page=page,
                                     run_id=run_id,
-                                    artifacts_path=context.artifacts_path
+                                    artifacts_path=context.artifacts_path,
+                                    auto_select_context=getattr(
+                                        context, "auto_select_context", True
+                                    ),
                                 )
                                 
                                 # Update selected context if single option
@@ -1355,12 +1552,8 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
                                             discovery_summary=summary_result["summary"]
                                         )
                                         
-                                        # Transition to WAIT_TEST_INTENT
-                                        context = _run_store.transition_state(run_id, summary_result["next_state"])
-                                        
-                                        # Update question
-                                        if summary_result["question"]:
-                                            context = _run_store.update_run(run_id, question=summary_result["question"])
+                                        # WAIT_TEST_INTENT or auto-run full test scope (default)
+                                        await _after_discovery_summary(run_id, summary_result)
             else:
                 # Update question if ambiguous (from SESSION_CHECK)
                 if check_result["question"]:
@@ -1916,7 +2109,10 @@ async def answer_question(
                                     detect_result = await context_detector.detect_context(
                                         page=page,
                                         run_id=run_id,
-                                        artifacts_path=context.artifacts_path
+                                        artifacts_path=context.artifacts_path,
+                                        auto_select_context=getattr(
+                                            context, "auto_select_context", True
+                                        ),
                                     )
                                     
                                     # Update selected context if single option
@@ -1982,12 +2178,8 @@ async def answer_question(
                                                 discovery_summary=summary_result["summary"]
                                             )
                                             
-                                            # Transition to WAIT_TEST_INTENT
-                                            context = _run_store.transition_state(run_id, summary_result["next_state"])
-                                            
-                                            # Update question
-                                            if summary_result["question"]:
-                                                context = _run_store.update_run(run_id, question=summary_result["question"])
+                                            # WAIT_TEST_INTENT or auto-run full test scope (default)
+                                            await _after_discovery_summary(run_id, summary_result)
                                             
                                             message = f"Discovery completed: {summary_result['summary']['pages_count']} pages, {summary_result['summary']['forms_count']} forms found"
                                         else:
@@ -2058,12 +2250,8 @@ async def answer_question(
                     discovery_summary=summary_result["summary"]
                 )
                 
-                # Transition to WAIT_TEST_INTENT
-                context = _run_store.transition_state(run_id, summary_result["next_state"])
-                
-                # Update question
-                if summary_result["question"]:
-                    context = _run_store.update_run(run_id, question=summary_result["question"])
+                # WAIT_TEST_INTENT or auto-run full test scope (default)
+                await _after_discovery_summary(run_id, summary_result)
                 
                 message = f"Context selected: {request.answer}. Discovery completed: {summary_result['summary']['pages_count']} pages, {summary_result['summary']['forms_count']} forms found"
             except Exception as e:
@@ -2181,7 +2369,10 @@ async def answer_question(
                         detect_result = await context_detector.detect_context(
                             page=page,
                             run_id=run_id,
-                            artifacts_path=context.artifacts_path
+                            artifacts_path=context.artifacts_path,
+                            auto_select_context=getattr(
+                                context, "auto_select_context", True
+                            ),
                         )
 
                         # Update selected context if single option
@@ -2233,12 +2424,8 @@ async def answer_question(
                                     discovery_summary=summary_result["summary"]
                                 )
 
-                                # Transition to WAIT_TEST_INTENT
-                                context = _run_store.transition_state(run_id, summary_result["next_state"])
-
-                                # Update question
-                                if summary_result["question"]:
-                                    context = _run_store.update_run(run_id, question=summary_result["question"])
+                                # WAIT_TEST_INTENT or auto-run full test scope (default)
+                                await _after_discovery_summary(run_id, summary_result)
 
                                 message = f"Discovery completed: {summary_result['summary']['pages_count']} pages, {summary_result['summary']['forms_count']} forms found"
                             else:
@@ -2260,6 +2447,28 @@ async def answer_question(
                     context = _run_store.transition_state(run_id, new_state)
                     context = _run_store.update_run(run_id, question=question)
                     message = "Retrying login with credentials"
+                elif context.question and context.question.id == "login_confirm":
+                    # "Are you already logged in?" → No: user needs login flow
+                    new_state = RunState.LOGIN_DETECT
+                    context = _run_store.transition_state(run_id, new_state)
+                    login_detector = get_login_detector()
+                    ctx = _run_store.get_run(run_id)
+                    keycloak_guess = (
+                        (ctx.auth and getattr(ctx.auth, "type", "") == "keycloak")
+                        or ("keycloak" in (ctx.base_url or "").lower())
+                    )
+                    detect_result = await login_detector.detect_login(
+                        run_id=run_id,
+                        context=ctx,
+                        keycloak_detected=keycloak_guess,
+                    )
+                    if detect_result.get("auth_updated"):
+                        context = _run_store.update_run(run_id, auth=ctx.auth)
+                    ns = detect_result["next_state"]
+                    context = _run_store.transition_state(run_id, ns)
+                    if detect_result.get("question"):
+                        context = _run_store.update_run(run_id, question=detect_result["question"])
+                    message = "Starting login flow — follow prompts or enter credentials when asked."
 
         elif context.state == RunState.WAIT_UNEXPECTED_SCREEN:
             # User performed a manual step (close popup/captcha/SSO/etc.), now re-check and continue.
@@ -2358,108 +2567,8 @@ async def answer_question(
                 message = "Waiting for manual step"
         
         elif context.state == RunState.WAIT_TEST_INTENT:
-            # User selected test intent - translate human choice to internal intent + ops
-            raw_answer = request.answer.lower().strip()
+            message = await _execute_test_intent_pipeline(run_id, request.answer.lower().strip())
 
-            # Map human-friendly answers → (internal_intent, enabled_operations)
-            INTENT_MAP = {
-                # New human options
-                "everything":   ("exploratory_15m", {"read": True, "create": True, "update": True, "delete": True}),
-                "write_focus":  ("crud_sanity",     {"read": True, "create": True, "update": True, "delete": True}),
-                "read_only":    ("smoke",            {"read": True, "create": False, "update": False, "delete": False}),
-                "quick_smoke":  ("smoke",            {"read": True, "create": False, "update": False, "delete": False}),
-                # Legacy options (keep backward compat)
-                "smoke":            ("smoke",            {"read": True, "create": False, "update": False, "delete": False}),
-                "crud_sanity":      ("crud_sanity",      {"read": True, "create": True, "update": True, "delete": True}),
-                "module_based":     ("module_based",     {"read": True, "create": True, "update": True, "delete": True}),
-                "exploratory_15m":  ("exploratory_15m",  {"read": True, "create": True, "update": True, "delete": True}),
-            }
-
-            if raw_answer not in INTENT_MAP:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unknown test intent: '{raw_answer}'. Choose: everything, write_focus, read_only, quick_smoke"
-                )
-
-            test_intent, auto_ops = INTENT_MAP[raw_answer]
-            logger.info(f"[{run_id}] Test intent '{raw_answer}' → '{test_intent}', ops={auto_ops}")
-
-            # Apply auto-detected operations (overrides any checkbox selection)
-            context = _run_store.update_run(run_id, enabled_operations=auto_ops)
-
-            # Transition to TEST_PLAN_BUILD
-            new_state = RunState.TEST_PLAN_BUILD
-            context = _run_store.transition_state(run_id, new_state)
-
-            # Build test plan
-            browser_manager = get_browser_manager()
-            test_plan_builder = get_test_plan_builder()
-
-            try:
-                page = await browser_manager.get_page(
-                    run_id,
-                    headless=context.headless,
-                    debug=getattr(context, "discovery_debug", False),
-                    artifacts_path=context.artifacts_path
-                )
-                plan_result = await test_plan_builder.build_test_plan(
-                    page=page,
-                    run_id=run_id,
-                    artifacts_path=context.artifacts_path,
-                    test_intent=test_intent,
-                    app_type=getattr(context, "app_type", None)
-                )
-                
-                # If module_based and multiple modules, ask for module selection
-                if plan_result.get("question"):
-                    context = _run_store.update_run(run_id, question=plan_result["question"])
-                    # Store modules for later use
-                    context = _run_store.update_run(run_id, selected_context=test_intent)  # Store intent temporarily
-                    message = f"Test intent selected: {test_intent}. Please select a module."
-                else:
-                    # Test plan built - store it and transition to TEST_EXECUTE
-                    context = _run_store.update_run(
-                        run_id,
-                        test_plan=plan_result["test_plan"]
-                    )
-                    
-                    # Transition to TEST_EXECUTE
-                    new_state = plan_result["next_state"]
-                    context = _run_store.transition_state(run_id, new_state)
-                    
-                    # Execute tests
-                    test_executor = get_test_executor()
-                    execution_result = await test_executor.execute_tests(
-                        page=page,
-                        run_id=run_id,
-                        artifacts_path=context.artifacts_path,
-                        test_plan=plan_result["test_plan"],
-                        base_url=context.base_url,
-                        enabled_operations=context.enabled_operations
-                    )
-
-                    # If unsafe deletes detected, pause and ask
-                    if execution_result.get("question"):
-                        context = _run_store.update_run(run_id, question=execution_result["question"])
-                        message = f"Test plan built: {plan_result['test_plan']['total_tests']} tests. Unsafe deletes detected - confirmation required."
-                    else:
-                        # Transition to next state
-                        next_state = execution_result["next_state"]
-                        context = _run_store.transition_state(run_id, next_state)
-                        message = f"Test execution completed: {execution_result['report']['passed']} passed, {execution_result['report']['failed']} failed"
-                        
-                        # Close browser if requested and state is DONE
-                        if next_state == RunState.DONE and context.close_browser_on_complete:
-                            try:
-                                browser_manager = get_browser_manager()
-                                await browser_manager.close_context(run_id)
-                                logger.info(f"[{run_id}] Browser closed after test completion")
-                            except Exception as e:
-                                logger.warning(f"[{run_id}] Failed to close browser: {e}")
-            except Exception as e:
-                logger.error(f"[{run_id}] Test plan build failed: {e}", exc_info=True)
-                message = f"Test plan build failed: {str(e)[:200]}"
-        
         elif context.state == RunState.WAIT_TEST_INTENT_MODULE:
             # User selected module for module_based testing
             selected_module = request.answer
@@ -2543,39 +2652,6 @@ async def answer_question(
             except Exception as e:
                 logger.error(f"[{run_id}] Module test plan build failed: {e}", exc_info=True)
                 message = f"Module test plan build failed: {str(e)[:200]}"
-        
-        elif context.state == RunState.WAIT_LOGIN_CONFIRM:
-            # Handle yes/no answer
-            answer_lower = request.answer.lower().strip()
-            if answer_lower in ["yes", "y", "true", "1"]:
-                # User says they need to login - perform LOGIN_DETECT
-                new_state = RunState.LOGIN_DETECT
-                context = _run_store.transition_state(run_id, new_state)
-                
-                # Perform login detection
-                login_detector = get_login_detector()
-                detect_result = await login_detector.detect_login(
-                    run_id=run_id,
-                    context=context,
-                    keycloak_detected=True  # Assume Keycloak if user says they need login
-                )
-                
-                # Update auth if needed
-                if detect_result["auth_updated"]:
-                    context = _run_store.update_run(run_id, auth=context.auth)
-                
-                # Transition to next state from login detection
-                new_state = detect_result["next_state"]
-                context = _run_store.transition_state(run_id, new_state)
-                
-                # Update question if credentials needed
-                if detect_result["question"]:
-                    context = _run_store.update_run(run_id, question=detect_result["question"])
-                    message = "Please provide login credentials"
-                else:
-                    message = "Credentials available, ready for login attempt"
-            else:
-                raise HTTPException(status_code=400, detail="Invalid answer. Expected: yes/no")
         
         elif context.state == RunState.TEST_EXECUTE:
             # Handle confirmation for unsafe deletes

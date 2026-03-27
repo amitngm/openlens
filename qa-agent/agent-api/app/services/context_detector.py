@@ -48,7 +48,8 @@ class ContextDetector:
         self,
         page,
         run_id: str,
-        artifacts_path: str
+        artifacts_path: str,
+        auto_select_context: bool = True,
     ) -> Dict[str, Any]:
         """
         Detect tenant/project/cell selector and extract options.
@@ -57,13 +58,15 @@ class ContextDetector:
             page: Playwright Page object
             run_id: Run identifier
             artifacts_path: Path to artifacts directory
+            auto_select_context: If True and multiple options exist, pick the first and go to DISCOVERY_RUN.
         
         Returns:
             Dict with:
                 - has_context: bool
                 - options: List[str] (distinct option labels)
                 - next_state: RunState
-                - question: Optional[Question] (if multiple options)
+                - question: Optional[Question] (if multiple options and not auto_select_context)
+                - selected_context: Optional[str]
                 - screenshot_path: str
         """
         try:
@@ -89,6 +92,19 @@ class ContextDetector:
             
             # Step 3: Determine next state
             if len(options) > 1:
+                if auto_select_context:
+                    selected_context = options[0]
+                    logger.info(
+                        f"[{run_id}] Multiple contexts ({len(options)}); auto-selecting first: {selected_context!r}"
+                    )
+                    return {
+                        "has_context": True,
+                        "options": options,
+                        "next_state": RunState.DISCOVERY_RUN,
+                        "question": None,
+                        "selected_context": selected_context,
+                        "screenshot_path": screenshot_path,
+                    }
                 # Multiple options - ask user to select
                 logger.info(f"[{run_id}] Multiple contexts detected ({len(options)} options) - asking user")
                 question_options = [

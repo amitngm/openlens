@@ -120,6 +120,23 @@ class RunContext(BaseModel):
     max_discovery_time_minutes: Optional[int] = Field(None, description="Maximum discovery time in minutes (default: 60)")
     close_browser_on_complete: bool = Field(default=False, description="Close browser automatically when tests complete")
 
+    auto_select_context: bool = Field(
+        default=True,
+        description=(
+            "If True, when multiple tenant/project/workspace options are detected, "
+            "pick the first and continue discovery without prompting."
+        ),
+    )
+
+    ask_test_intent_after_discovery: bool = Field(
+        default=False,
+        description=(
+            "If False (default), after discovery finishes, automatically run full test scope "
+            "(same as 'Test everything') without pausing. If True, pause at WAIT_TEST_INTENT "
+            "so the user can choose scope; use Ask QA Buddy for extra instructions either way."
+        ),
+    )
+
     login_attempt_count: int = Field(default=0, description="Number of login attempts made")
     seed_data: Optional[List[str]] = Field(default=None, description="User-provided seed data for search/filter tests")
     scraped_data_samples: Optional[List[str]] = Field(default=None, description="Real data values scraped from app during discovery")
