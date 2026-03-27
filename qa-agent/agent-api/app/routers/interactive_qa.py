@@ -80,7 +80,7 @@ class StartRunRequest(BaseModel):
     # CRUD operation gating — only checked operations execute during test run
     enabled_operations: Optional[Dict[str, bool]] = Field(
         None,
-        description="Which CRUD operations to execute. Default: only read. Keys: read, create, update, delete"
+        description="Which CRUD operations to execute. If omitted, run defaults apply; post-discovery intent also sets this. Keys: read, create, update, delete"
     )
 
     # Discovery configuration overrides (optional)
@@ -374,11 +374,48 @@ async def _execute_free_text_instruction(run_id: str, instruction: str):
                     base_url=context.base_url,
                     run_id=run_id,
                     artifacts_path=context.artifacts_path,
+                    skip_initial_navigation=True,
                 )
                 _run_store.update_run(run_id, current_url=page.url)
-                _run_store.transition_state(run_id, check_result["next_state"])
+                next_state = check_result["next_state"]
+                _run_store.transition_state(run_id, next_state)
                 if check_result.get("question"):
                     _run_store.update_run(run_id, question=check_result["question"])
+                elif next_state == RunState.LOGIN_DETECT:
+                    login_detector = get_login_detector()
+                    ctx = _run_store.get_run(run_id)
+                    detect_result = await login_detector.detect_login(
+                        run_id=run_id,
+                        context=ctx,
+                        keycloak_detected=check_result.get("auth_type") == "keycloak",
+                    )
+                    if detect_result.get("auth_updated"):
+                        _run_store.update_run(run_id, auth=ctx.auth)
+                    ns = detect_result["next_state"]
+                    _run_store.transition_state(run_id, ns)
+                    if detect_result.get("question"):
+                        _run_store.update_run(run_id, question=detect_result["question"])
+                    elif ns == RunState.LOGIN_ATTEMPT:
+                        ctx2 = _run_store.get_run(run_id)
+                        if (
+                            ctx2.auth
+                            and ctx2.auth.username
+                            and ctx2.auth.password
+                        ):
+                            login_executor = get_login_executor()
+                            login_result = await login_executor.attempt_login(
+                                page=page,
+                                run_id=run_id,
+                                base_url=ctx2.base_url,
+                                username=ctx2.auth.username,
+                                password=ctx2.auth.password,
+                                artifacts_path=ctx2.artifacts_path,
+                                ai_config=getattr(ctx2, "ai_config", None),
+                            )
+                            _run_store.update_run(run_id, current_url=page.url)
+                            _run_store.transition_state(run_id, login_result["next_state"])
+                            if login_result.get("question"):
+                                _run_store.update_run(run_id, question=login_result["question"])
             except Exception:
                 pass
 
@@ -1155,7 +1192,7 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
         # If transitioning to LOGIN_DETECT, perform login detection
         if next_state == RunState.LOGIN_DETECT:
             login_detector = get_login_detector()
-            keycloak_detected = check_result["status"] == "keycloak"
+            keycloak_detected = check_result.get("auth_type") == "keycloak"
             detect_result = await login_detector.detect_login(
                 run_id=run_id,
                 context=context,
@@ -2242,6 +2279,7 @@ async def answer_question(
                         base_url=context.base_url,
                         run_id=run_id,
                         artifacts_path=context.artifacts_path,
+                        skip_initial_navigation=True,
                     )
 
                     context = _run_store.update_run(run_id, current_url=page.url)
@@ -2250,6 +2288,51 @@ async def answer_question(
                     if check_result.get("question"):
                         context = _run_store.update_run(run_id, question=check_result["question"])
                         message = "Still need input to proceed"
+                    elif new_state == RunState.LOGIN_DETECT:
+                        login_detector = get_login_detector()
+                        ctx = _run_store.get_run(run_id)
+                        detect_result = await login_detector.detect_login(
+                            run_id=run_id,
+                            context=ctx,
+                            keycloak_detected=check_result.get("auth_type") == "keycloak",
+                        )
+                        if detect_result.get("auth_updated"):
+                            context = _run_store.update_run(run_id, auth=ctx.auth)
+                        ns = detect_result["next_state"]
+                        context = _run_store.transition_state(run_id, ns)
+                        if detect_result.get("question"):
+                            context = _run_store.update_run(run_id, question=detect_result["question"])
+                            message = "Login flow: need input"
+                        elif ns == RunState.LOGIN_ATTEMPT:
+                            ctx2 = _run_store.get_run(run_id)
+                            if (
+                                ctx2.auth
+                                and ctx2.auth.username
+                                and ctx2.auth.password
+                            ):
+                                login_executor = get_login_executor()
+                                login_result = await login_executor.attempt_login(
+                                    page=page,
+                                    run_id=run_id,
+                                    base_url=ctx2.base_url,
+                                    username=ctx2.auth.username,
+                                    password=ctx2.auth.password,
+                                    artifacts_path=ctx2.artifacts_path,
+                                    ai_config=getattr(ctx2, "ai_config", None),
+                                )
+                                context = _run_store.update_run(run_id, current_url=page.url)
+                                context = _run_store.transition_state(
+                                    run_id, login_result["next_state"]
+                                )
+                                if login_result.get("question"):
+                                    context = _run_store.update_run(
+                                        run_id, question=login_result["question"]
+                                    )
+                                message = "Proceeding after unexpected screen (login)"
+                            else:
+                                message = "Proceeding after unexpected screen"
+                        else:
+                            message = "Proceeding after unexpected screen"
                     else:
                         message = "Proceeding after unexpected screen"
                 except Exception as e:
@@ -2281,15 +2364,15 @@ async def answer_question(
             # Map human-friendly answers → (internal_intent, enabled_operations)
             INTENT_MAP = {
                 # New human options
-                "everything":   ("exploratory_15m", {"read": True, "create": True, "update": True, "delete": False}),
-                "write_focus":  ("crud_sanity",     {"read": True, "create": True, "update": True, "delete": False}),
+                "everything":   ("exploratory_15m", {"read": True, "create": True, "update": True, "delete": True}),
+                "write_focus":  ("crud_sanity",     {"read": True, "create": True, "update": True, "delete": True}),
                 "read_only":    ("smoke",            {"read": True, "create": False, "update": False, "delete": False}),
                 "quick_smoke":  ("smoke",            {"read": True, "create": False, "update": False, "delete": False}),
                 # Legacy options (keep backward compat)
                 "smoke":            ("smoke",            {"read": True, "create": False, "update": False, "delete": False}),
-                "crud_sanity":      ("crud_sanity",      {"read": True, "create": True, "update": True, "delete": False}),
-                "module_based":     ("module_based",     {"read": True, "create": True, "update": True, "delete": False}),
-                "exploratory_15m":  ("exploratory_15m",  {"read": True, "create": True, "update": True, "delete": False}),
+                "crud_sanity":      ("crud_sanity",      {"read": True, "create": True, "update": True, "delete": True}),
+                "module_based":     ("module_based",     {"read": True, "create": True, "update": True, "delete": True}),
+                "exploratory_15m":  ("exploratory_15m",  {"read": True, "create": True, "update": True, "delete": True}),
             }
 
             if raw_answer not in INTENT_MAP:

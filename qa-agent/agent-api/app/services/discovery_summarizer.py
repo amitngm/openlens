@@ -132,12 +132,12 @@ class DiscoverySummarizer:
                     QuestionOption(
                         id="everything",
                         label="🚀 Test everything",
-                        description="Navigate all pages + click every Create/Edit form and test submissions"
+                        description="DOM-wide coverage: listings, navigation, create/update flows, and delete where discovered (destructive steps may ask for confirmation)"
                     ),
                     QuestionOption(
                         id="write_focus",
                         label="📝 Forms & creation only",
-                        description="Focus on Create/Edit/Submit flows — fill forms, verify success & errors"
+                        description="Focus on Create/Edit/Submit flows — fill forms, verify success & errors; includes delete when the UI exposes it"
                     ),
                     QuestionOption(
                         id="read_only",
@@ -185,8 +185,8 @@ class DiscoverySummarizer:
                 type="select_one",
                 text="Discovery complete. What would you like me to test?",
                 options=[
-                    QuestionOption(id="everything", label="🚀 Test everything", description="Navigate all pages + test all Create/Edit forms"),
-                    QuestionOption(id="write_focus", label="📝 Forms & creation only", description="Focus on Create/Edit/Submit flows"),
+                    QuestionOption(id="everything", label="🚀 Test everything", description="Full DOM-driven coverage including create/update/delete where found"),
+                    QuestionOption(id="write_focus", label="📝 Forms & creation only", description="Create/Edit/Submit; delete when buttons are discovered"),
                     QuestionOption(id="read_only", label="👁️ Read only", description="Navigation, search, filters — no writes"),
                     QuestionOption(id="quick_smoke", label="⚡ Quick smoke", description="Verify key pages load correctly"),
                 ]

@@ -62,6 +62,11 @@ class SmartFormFiller:
         ("tag",              r"\b(tags?|labels?|keywords?)\b"),
         ("namespace",        r"\b(namespace|ns|prefix)\b"),
         ("cluster",          r"\b(cluster|node|server|host(?:name)?)\b"),
+        ("vpc",              r"\b(vpc|virtual\s*private\s*cloud)\b"),
+        ("subnet",           r"\b(subnet)\b"),
+        ("cidr",             r"\b(cidr|cidr\s*block|network\s*range|ip\s*range)\b"),
+        ("availability_zone", r"\b(az|availability[\-_\s]?zone)\b"),
+        ("region",           r"\b(region)\b"),
         ("name",             r"\bname\b"),          # generic "name" — keep last
         ("id_field",         r"\b(id|identifier|key|code|ref(?:erence)?)\b"),
     ]
@@ -95,6 +100,11 @@ class SmartFormFiller:
         "tag":              ["qa", "automation"],
         "namespace":        ["default", "test"],
         "cluster":          ["test-cluster", "qa-cluster"],
+        "vpc":              ["qa-buddy-vpc-01", "test-vpc-qa"],
+        "subnet":           ["subnet-qa-buddy-01", "subnet-test-01"],
+        "cidr":             ["10.0.0.0/16", "172.16.0.0/24"],
+        "availability_zone": ["us-east-1a", "eu-west-1a"],
+        "region":           ["us-east-1", "eu-west-1"],
         "name":             ["TestResource-01", "QABuddy-Item"],
         "id_field":         ["test-001", "qa-001"],
         "generic":          ["TestValue001", "QABuddy-001"],
@@ -227,6 +237,11 @@ class SmartFormFiller:
             "[aria-invalid='true']", ".form-error",
             ".notification-error", ".toast-error",
             "p:has-text('required')", "span:has-text('invalid')",
+            # MUI / Radix / common design systems
+            ".MuiAlert-root", ".MuiFormHelperText-root", ".Mui-error",
+            "[data-testid*='error']", "[data-test*='error']",
+            "[role='status']",
+            ".snackbar-error", ".SnackbarContent-root",
         ]
         errors: List[str] = []
         for sel in error_selectors:
@@ -505,7 +520,9 @@ class SmartFormFiller:
         opt_loc = select_element.locator("option")
         cnt = await opt_loc.count()
         _skip = {"", "0", "-1", "null", "undefined", "none",
-                 "select", "choose", "pick", "-- select --", "--"}
+                 "select", "choose", "pick", "-- select --", "--",
+                 "please select", "select...", "choose...", "any",
+                 "select an option", "select option"}
         for i in range(cnt):
             try:
                 el = opt_loc.nth(i)
@@ -578,17 +595,37 @@ class SmartFormFiller:
             options = await self._get_select_options(element)
         if not options:
             return None
-        # Prefer second option (skip first which is often a blank/placeholder)
-        target = options[1] if len(options) > 1 else options[0]
+        # Prefer first real option from the DOM (skip placeholders / empty values)
+        placeholder_re = re.compile(
+            r"^(select|choose|pick|please|--|\.\.\.|any|none)\b", re.I
+        )
+        target = None
+        for opt in options:
+            val = (opt.get("value") or "").strip()
+            txt = (opt.get("text") or "").strip()
+            if not val and not txt:
+                continue
+            if not val or val.lower() in {"", "-1", "0", "null", "undefined"}:
+                continue
+            if txt and placeholder_re.search(txt.strip()):
+                continue
+            target = opt
+            break
+        if target is None:
+            target = options[1] if len(options) > 1 else options[0]
         try:
             await element.select_option(value=target["value"])
-            return target["text"]
+            return target.get("text") or target["value"]
         except Exception:
             try:
                 await element.select_option(label=target["text"])
                 return target["text"]
             except Exception:
-                return None
+                try:
+                    await element.select_option(index=min(1, len(options) - 1))
+                    return options[min(1, len(options) - 1)].get("text", "")
+                except Exception:
+                    return None
 
     # ── Internal: intent detection ────────────────────────────────────────────
 
@@ -645,6 +682,10 @@ class SmartFormFiller:
         pool = self._POOL.get(intent)
         if pool:
             return pool[0]
+
+        # CIDR / network strings must look valid
+        if intent == "cidr":
+            return self._POOL["cidr"][0]
 
         # Long text for textarea / description intents
         if ftype == "textarea" or intent == "description":

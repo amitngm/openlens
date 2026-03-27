@@ -685,6 +685,7 @@ class TestExecutor:
         # Set up network capture listeners before step execution
         network_logs = []
         network_errors = []
+        failed_http_responses = []  # Response objects for 4xx/5xx — body read in finally
         
         def handle_request(request):
             try:
@@ -723,6 +724,10 @@ class TestExecutor:
                         "timestamp": datetime.utcnow().isoformat() + "Z"
                     })
                     log_entry["error"] = True
+                    try:
+                        failed_http_responses.append(response)
+                    except Exception:
+                        pass
                 
                 network_logs.append(log_entry)
             except Exception as e:
@@ -1208,7 +1213,7 @@ class TestExecutor:
                             form_selector=form_selector,
                             context_hint=context_hint
                         )
-                        fields_filled = result.get("fields_filled", 0)
+                        fields_filled = result.get("filled_count", result.get("fields_filled", 0))
                         logger.info(f"[{run_id}] SmartFormFiller filled {fields_filled} fields")
                         step_result["status"] = "passed" if fields_filled > 0 else "failed"
                         if fields_filled == 0:
@@ -1258,7 +1263,7 @@ class TestExecutor:
                     form_selector=form_selector,
                     context_hint=context_hint
                 )
-                fields_filled = result.get("fields_filled", 0)
+                fields_filled = result.get("filled_count", result.get("fields_filled", 0))
                 errors = result.get("errors", [])
                 logger.info(f"[{run_id}] smart_fill_form: {fields_filled} fields filled, {len(errors)} errors")
                 step_result["status"] = "passed" if fields_filled > 0 else "failed"
@@ -1334,7 +1339,7 @@ class TestExecutor:
                 fill_result = await filler.fill_form(
                     page, run_id=run_id, context_hint=context_hint
                 )
-                fields_filled = fill_result.get("fields_filled", 0)
+                fields_filled = fill_result.get("filled_count", fill_result.get("fields_filled", 0))
                 logger.info(f"[{run_id}] smart_create_resource: filled {fields_filled} fields")
 
                 # Step D: submit form
@@ -1481,12 +1486,45 @@ class TestExecutor:
             step_result["error"] = str(e)[:500]
         
         finally:
+            # Read failed response bodies while Response objects are still valid (before removing listeners)
+            failed_http_details: List[Dict[str, Any]] = []
+            try:
+                seen_keys = set()
+                for resp in failed_http_responses[:12]:
+                    try:
+                        key = (getattr(resp, "url", ""), getattr(resp, "status", 0))
+                        if key in seen_keys:
+                            continue
+                        seen_keys.add(key)
+                        txt = await resp.text()
+                        preview = str(self._redact_secrets(txt[:8000]))
+                        failed_http_details.append({
+                            "url": getattr(resp, "url", ""),
+                            "status": getattr(resp, "status", 0),
+                            "status_text": getattr(resp, "status_text", "") or "",
+                            "body_preview": preview,
+                        })
+                    except Exception as ex:
+                        failed_http_details.append({
+                            "url": getattr(resp, "url", ""),
+                            "status": getattr(resp, "status", 0),
+                            "body_preview": None,
+                            "read_error": str(ex)[:200],
+                        })
+                    if len(failed_http_details) >= 10:
+                        break
+            except Exception as ex:
+                logger.debug(f"[{run_id}] enrich failed HTTP bodies: {ex}")
+
+            if failed_http_details:
+                step_result["failed_http_bodies"] = failed_http_details
+
             # Remove network listeners
             try:
                 page.remove_listener("request", handle_request)
                 page.remove_listener("response", handle_response)
                 page.remove_listener("requestfailed", handle_request_failed)
-            except:
+            except Exception:
                 pass
             
             step_result["duration_ms"] = int((time.time() - start_time) * 1000)
@@ -1503,13 +1541,14 @@ class TestExecutor:
             if network_logs:
                 network_file = artifacts_dir / f"test_{test_index:03d}_step_{step_index:03d}_network.json"
                 try:
-                    with open(network_file, "w") as f:
+                    with open(network_file, "w", encoding="utf-8") as f:
                         json.dump({
                             "step_index": step_index,
                             "test_index": test_index,
                             "page_url": page.url,
                             "network_logs": network_logs,
                             "network_errors": network_errors,
+                            "failed_http_bodies": step_result.get("failed_http_bodies") or [],
                             "total_requests": len([l for l in network_logs if l.get("type") == "request"]),
                             "total_responses": len([l for l in network_logs if l.get("type") == "response"]),
                             "error_count": len(network_errors)
@@ -1521,7 +1560,8 @@ class TestExecutor:
                         "responses_count": len([l for l in network_logs if l.get("type") == "response"]),
                         "error_count": len(network_errors),
                         "logs": network_logs[-20:],  # Last 20 entries
-                        "errors": network_errors
+                        "errors": network_errors,
+                        "failed_http_bodies": step_result.get("failed_http_bodies") or [],
                     }
                     
                     # Add network errors to step result
@@ -1536,11 +1576,40 @@ class TestExecutor:
                 except Exception as e:
                     logger.warning(f"[{run_id}] Failed to save network logs: {e}")
             
-            # If step failed, capture failure screenshot
+            # If step failed, capture failure screenshot, UI errors, a11y snapshot, merge report text
             if step_result.get("status") == "failed":
                 failure_screenshot = await self._capture_step_screenshot(page, artifacts_dir, test_index, step_index, "failure")
                 if failure_screenshot:
                     step_result["evidence"].append(failure_screenshot)
+
+                try:
+                    from app.services.smart_form_filler import get_smart_form_filler
+                    filler = get_smart_form_filler()
+                    ui_msgs = await filler.check_for_validation_errors(page)
+                    if ui_msgs:
+                        step_result["ui_error_messages"] = ui_msgs[:8]
+                        for msg in ui_msgs[:8]:
+                            step_result["ui_observations"].append({
+                                "type": "ui_error_banner",
+                                "message": msg[:500],
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                            })
+                except Exception as e:
+                    logger.debug(f"[{run_id}] UI error banner capture: {e}")
+
+                try:
+                    snap = await page.accessibility.snapshot()
+                    a11y_path = artifacts_dir / f"test_{test_index:03d}_step_{step_index:03d}_failure_a11y.json"
+                    raw = json.dumps(snap, indent=2, default=str)
+                    if len(raw) > 400_000:
+                        raw = raw[:400_000] + "\n... truncated ...\n"
+                    with open(a11y_path, "w", encoding="utf-8") as f:
+                        f.write(raw)
+                    step_result["failure_accessibility_snapshot"] = str(
+                        a11y_path.relative_to(artifacts_dir)
+                    )
+                except Exception as e:
+                    logger.debug(f"[{run_id}] accessibility snapshot: {e}")
                 
                 # Add UI observation for failures
                 if step_result.get("error"):
@@ -1550,16 +1619,25 @@ class TestExecutor:
                         "timestamp": datetime.utcnow().isoformat() + "Z"
                     })
                 
-                # Combine UI and network error messages for comprehensive failure reporting
+                # Combine UI, network, and HTTP body previews for reporting
                 failure_reasons = []
                 if step_result.get("ui_observations"):
                     failure_reasons.extend([obs.get("message", "") for obs in step_result["ui_observations"]])
                 if step_result.get("network_errors"):
                     failure_reasons.extend(step_result["network_errors"])
+                for h in (step_result.get("failed_http_bodies") or [])[:3]:
+                    bp = h.get("body_preview") or ""
+                    st = h.get("status", "")
+                    if bp or st:
+                        failure_reasons.append(
+                            f"HTTP {st} {h.get('url', '')[:120]}: {(bp or '')[:320]}"
+                        )
                 
                 if failure_reasons:
                     step_result["failure_reasons"] = failure_reasons
-                    step_result["error"] = " | ".join(failure_reasons[:3])  # Combine first 3 reasons
+                    step_result["error"] = " | ".join(
+                        [r for r in failure_reasons[:5] if r]
+                    )[:2000]
         
         return step_result
     

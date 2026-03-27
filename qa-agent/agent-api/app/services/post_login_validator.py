@@ -45,8 +45,15 @@ class PostLoginValidator:
         try:
             # Step 1: Reload base_url once
             logger.info(f"[{run_id}] Post-login validation: Reloading base URL: {base_url}")
-            await page.goto(base_url, timeout=30000, wait_until="networkidle")
-            await asyncio.sleep(2)  # Wait for any redirects
+            # domcontentloaded first — SPAs often never reach "networkidle" (polling/WebSockets)
+            await page.goto(base_url, timeout=45000, wait_until="domcontentloaded")
+            try:
+                await page.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                logger.info(
+                    f"[{run_id}] Post-login: networkidle not reached in 15s (normal for many SPAs); continuing"
+                )
+            await asyncio.sleep(1.5)
             
             # Get current URL after reload
             current_url = page.url

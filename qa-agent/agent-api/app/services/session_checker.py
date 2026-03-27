@@ -1,6 +1,8 @@
 """Session check service for detecting login state."""
 
+import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -41,7 +43,8 @@ class SessionChecker:
         page,
         base_url: str,
         run_id: str,
-        artifacts_path: str
+        artifacts_path: str,
+        skip_initial_navigation: bool = False,
     ) -> Dict[str, Any]:
         """
         Check if user is already logged in or needs login.
@@ -51,6 +54,9 @@ class SessionChecker:
             base_url: Base application URL
             run_id: Run identifier
             artifacts_path: Path to artifacts directory
+            skip_initial_navigation: If True, do not call ``goto(base_url)`` — score the **current**
+                page only. Use after manual steps or free-text clicks so we do not reset SSO/IdP
+                navigation.
 
         Returns:
             Dict with:
@@ -61,12 +67,24 @@ class SessionChecker:
                 - auth_type: str ("keycloak" | "generic_form" | "none")
         """
         try:
-            logger.info(f"[{run_id}] Opening base URL: {base_url}")
-            await page.goto(base_url, timeout=30000, wait_until="networkidle")
-            await page.wait_for_load_state("domcontentloaded")
+            if not skip_initial_navigation:
+                logger.info(f"[{run_id}] Opening base URL: {base_url}")
+                await page.goto(base_url, timeout=30000, wait_until="networkidle")
+                await page.wait_for_load_state("domcontentloaded")
+            else:
+                logger.info(f"[{run_id}] Session check without navigation (current URL: {page.url})")
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    pass
+                try:
+                    await page.wait_for_load_state("domcontentloaded")
+                except Exception:
+                    pass
+                await asyncio.sleep(0.8)
 
             current_url = page.url
-            logger.info(f"[{run_id}] Current URL after navigation: {current_url}")
+            logger.info(f"[{run_id}] Current URL for session check: {current_url}")
 
             # Capture screenshot
             artifacts_dir = Path(artifacts_path)
@@ -234,7 +252,42 @@ class SessionChecker:
         except Exception:
             pass
 
+        # OAuth / SSO entry pages: only a "Login" / "Sign in" CTA, password field appears after click
+        score += await self._score_oauth_login_entry_boost(page)
+
         return min(score, 100)
+
+    async def _score_oauth_login_entry_boost(self, page) -> int:
+        """
+        Add score when the page is clearly an auth entry (button/link) but fields are on the next step.
+        Avoids classifying marketing landings as WAIT_UNEXPECTED_SCREEN when there is no password input yet.
+        """
+        try:
+            if await page.locator("input[type='password']").count() > 0:
+                return 0
+        except Exception:
+            pass
+        try:
+            for role in ("button", "link"):
+                loc = page.get_by_role(
+                    role, name=re.compile(r"^(login|sign in|log in)$", re.I)
+                )
+                if await loc.count() > 0:
+                    return 45
+            # Icon+label buttons (e.g. door icon + "Login") — match label substring
+            loc2 = page.get_by_role("button", name=re.compile(r"login|sign in|log in", re.I))
+            if await loc2.count() > 0:
+                return 45
+            for role in ("button", "link"):
+                su = page.get_by_role(role, name=re.compile(r"^sign up$", re.I))
+                if await su.count() > 0:
+                    return 40
+            su2 = page.get_by_role("link", name=re.compile(r"sign up", re.I))
+            if await su2.count() > 0:
+                return 40
+        except Exception as e:
+            logger.debug(f"OAuth login entry boost error: {e}")
+        return 0
 
     # ------------------------------------------------------------------
     # Legacy helper methods (kept as internal helpers used by _score_login_page)

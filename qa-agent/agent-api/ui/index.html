@@ -257,6 +257,79 @@
             font-size: 18px;
         }
 
+        /* Floating activity console (like a mini devtools log) */
+        .buddy-activity-panel {
+            position: fixed;
+            bottom: 16px;
+            right: 16px;
+            width: min(420px, calc(100vw - 32px));
+            max-height: min(320px, 40vh);
+            z-index: 10050;
+            display: flex;
+            flex-direction: column;
+            background: #0f172a;
+            color: #e2e8f0;
+            border-radius: 10px;
+            box-shadow: 0 12px 40px rgba(15, 23, 42, 0.45);
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 11px;
+            line-height: 1.45;
+        }
+        .buddy-activity-panel.hidden { display: none !important; }
+        .buddy-activity-panel.minimized .buddy-activity-log,
+        .buddy-activity-panel.minimized .buddy-activity-header { display: none; }
+        .buddy-activity-panel.minimized .buddy-activity-collapsed { display: flex !important; }
+        .buddy-activity-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: rgba(30, 41, 59, 0.95);
+            border-radius: 10px 10px 0 0;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+            flex-shrink: 0;
+        }
+        .buddy-activity-title { font-weight: 700; color: #f8fafc; }
+        .buddy-activity-hint { flex: 1; color: #94a3b8; font-size: 10px; font-weight: 400; }
+        .buddy-activity-actions { display: flex; gap: 4px; }
+        .buddy-activity-btn {
+            background: rgba(51, 65, 85, 0.9);
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            color: #e2e8f0;
+            border-radius: 6px;
+            padding: 2px 8px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+        .buddy-activity-btn:hover { background: rgba(71, 85, 105, 0.95); }
+        .buddy-activity-log {
+            overflow-y: auto;
+            padding: 8px 10px 10px;
+            max-height: 260px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .buddy-activity-line { margin-bottom: 6px; border-left: 2px solid #334155; padding-left: 8px; }
+        .buddy-activity-line .ts { color: #64748b; margin-right: 6px; }
+        .buddy-activity-line.state { border-left-color: #38bdf8; }
+        .buddy-activity-line.event { border-left-color: #4ade80; }
+        .buddy-activity-collapsed {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 10px 14px;
+            width: 100%;
+            background: rgba(30, 41, 59, 0.98);
+            border: none;
+            border-radius: 10px;
+            color: #e2e8f0;
+            font-size: 12px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .buddy-activity-collapsed:hover { background: rgba(51, 65, 85, 0.98); }
+
         .form-group {
             margin-bottom: 16px;
         }
@@ -1956,13 +2029,14 @@
                                 <option value="none">None</option>
                                 <option value="keycloak" selected>Keycloak</option>
                             </select>
+                            <p id="auth_fields_hint" style="font-size: 12px; color: var(--text-secondary); margin: 8px 0 0 0; line-height: 1.45;"></p>
                         </div>
 
                         <div class="form-group" id="auth_fields">
                             <label for="username">Username</label>
-                            <input type="text" id="username" placeholder="Enter username">
+                            <input type="text" id="username" placeholder="Enter username (optional if None)">
                             <label for="password" style="margin-top: 12px;">Password</label>
-                            <input type="password" id="password" placeholder="Enter password">
+                            <input type="password" id="password" placeholder="Enter password (optional if None)">
                         </div>
 
                         <!-- Document Upload Section -->
@@ -2144,7 +2218,7 @@
                             <div style="display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: rgba(37,99,235,0.05); border-radius: 8px; border: 1px solid rgba(37,99,235,0.15);">
                                 <span style="font-size: 18px; line-height: 1;">🤖</span>
                                 <p style="margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
-                                    Buddy will <strong style="color: var(--text-primary);">observe the UI like a human</strong> — it finds every button, form, and flow automatically. After discovery it will ask you exactly what to test (read-only, forms, everything).
+                                    Buddy <strong style="color: var(--text-primary);">walks the whole app surface</strong>: it records the <strong>full DOM</strong> on each page and every <strong>route and navigation path</strong> it can reach — not limited to buttons, tables, or forms; those are just examples. Links, modals, drawers, lists, inputs, and other interactive nodes are all in scope. Tests are built from that complete picture. After discovery it asks what to emphasize (read-only, writes, full coverage), including delete actions only when you allow them.
                                 </p>
                             </div>
                         </div>
@@ -2820,6 +2894,20 @@
         </div>
     </div>
 
+    <!-- Floating activity console (live state + discovery events) -->
+    <div id="buddy_activity_panel" class="buddy-activity-panel hidden" aria-live="polite">
+        <div class="buddy-activity-header">
+            <span class="buddy-activity-title">📟 Activity</span>
+            <span class="buddy-activity-hint">What Buddy is doing</span>
+            <div class="buddy-activity-actions">
+                <button type="button" class="buddy-activity-btn" onclick="clearBuddyActivityLog()" title="Clear">Clear</button>
+                <button type="button" class="buddy-activity-btn" onclick="toggleBuddyActivityPanel()" title="Minimize">−</button>
+            </div>
+        </div>
+        <div id="buddy_activity_log" class="buddy-activity-log"></div>
+        <button type="button" id="buddy_activity_collapsed_tab" class="buddy-activity-collapsed hidden" onclick="toggleBuddyActivityPanel(true)" title="Show activity">📟 Activity</button>
+    </div>
+
     <script>
         // Configuration
         const API_BASE = window.location.origin;
@@ -2832,7 +2920,82 @@
         let currentQuestion = null;
         let currentAppUrl = null;
         let eventsCursor = parseInt(localStorage.getItem('eventsCursor_' + currentRunId) || '0');
+        let lastBuddyLoggedState = null;
         let discoveredPages = [];
+
+        /** Human-readable backend state for the activity console */
+        const BUDDY_STATE_HINTS = {
+            'START': 'Starting run…',
+            'OPEN_URL': 'Opening browser and loading app…',
+            'SESSION_CHECK': 'Checking session (login vs logged-in)…',
+            'LOGIN_DETECT': 'Detecting login flow…',
+            'WAIT_LOGIN_INPUT': 'Waiting for credentials in chat/API…',
+            'WAIT_LOGIN_CONFIRM': 'Needs confirmation: are you logged in?',
+            'LOGIN_ATTEMPT': 'Submitting login…',
+            'POST_LOGIN_VALIDATE': 'Validating session after login (reload app)…',
+            'CONTEXT_DETECT': 'Detecting tenant / context / workspace…',
+            'WAIT_CONTEXT_INPUT': 'Waiting for context selection…',
+            'WAIT_UNEXPECTED_SCREEN': 'Unexpected screen — use Action Required or manual steps…',
+            'DISCOVERY_RUN': 'Discovery running — crawling pages and DOM…',
+            'DISCOVERY_SUMMARY': 'Building discovery summary…',
+            'WAIT_TEST_INTENT': 'Discovery done — choose what to test…',
+            'WAIT_TEST_INTENT_MODULE': 'Choose a module to test…',
+            'TEST_PLAN_BUILD': 'Building test plan…',
+            'TEST_EXECUTE': 'Executing tests…',
+            'REPORT_GENERATE': 'Generating report…',
+            'DONE': 'Finished.',
+            'FAILED': 'Failed.',
+            'CANCELLED': 'Cancelled.'
+        };
+
+        function appendBuddyActivityLine(text, kind) {
+            const panel = document.getElementById('buddy_activity_panel');
+            const log = document.getElementById('buddy_activity_log');
+            if (!panel || !log) return;
+            panel.classList.remove('hidden');
+            const line = document.createElement('div');
+            line.className = 'buddy-activity-line ' + (kind === 'state' ? 'state' : 'event');
+            const ts = new Date().toLocaleTimeString();
+            line.innerHTML = `<span class="ts">[${ts}]</span>${escapeHtml(String(text))}`;
+            log.appendChild(line);
+            log.scrollTop = log.scrollHeight;
+            while (log.children.length > 200) log.removeChild(log.firstChild);
+        }
+
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        function clearBuddyActivityLog() {
+            const log = document.getElementById('buddy_activity_log');
+            if (log) log.innerHTML = '';
+        }
+
+        function toggleBuddyActivityPanel(show) {
+            const panel = document.getElementById('buddy_activity_panel');
+            const tab = document.getElementById('buddy_activity_collapsed_tab');
+            if (!panel) return;
+            if (show === true) {
+                panel.classList.remove('minimized');
+                if (tab) tab.classList.add('hidden');
+                return;
+            }
+            const nextMin = !panel.classList.contains('minimized');
+            panel.classList.toggle('minimized');
+            if (tab) {
+                if (nextMin) tab.classList.remove('hidden');
+                else tab.classList.add('hidden');
+            }
+        }
+
+        function logBuddyStateChange(state) {
+            if (!state || state === lastBuddyLoggedState) return;
+            lastBuddyLoggedState = state;
+            const hint = BUDDY_STATE_HINTS[state] || 'Working…';
+            appendBuddyActivityLine(`State: ${state} — ${hint}`, 'state');
+        }
         let selectedPageIndex = null;
         let uploadedImages = [];
         let uploadedVideos = [];
@@ -3218,10 +3381,18 @@
             }
         }
 
-        // Auth type change
-        document.getElementById('auth_type').addEventListener('change', function() {
-            document.getElementById('auth_fields').style.display = this.value === 'none' ? 'none' : 'block';
-        });
+        function updateAuthHint() {
+            const t = document.getElementById('auth_type').value;
+            const hint = document.getElementById('auth_fields_hint');
+            if (!hint) return;
+            if (t === 'none') {
+                hint.textContent = 'Username and password stay available: use them if the app still shows a login screen (SSO, Keycloak, or a generic form). Leave blank only when the app is truly public.';
+            } else {
+                hint.textContent = 'Enter credentials for Keycloak or a compatible login. If the app uses a different login, pick None and fill username/password here.';
+            }
+        }
+        document.getElementById('auth_type').addEventListener('change', updateAuthHint);
+        updateAuthHint();
 
         // Start run
         async function startRun() {
@@ -3288,12 +3459,12 @@
             if (!isNaN(maxTime) && maxTime > 0) payload.max_discovery_time_minutes = maxTime;
 
             const authType = document.getElementById('auth_type').value;
-            if (authType === 'keycloak') {
-                const username = document.getElementById('username').value.trim();
-                const password = document.getElementById('password').value.trim();
-                if (username && password) {
-                    payload.auth = { type: 'keycloak', username, password };
-                }
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+            if (authType === 'keycloak' && username && password) {
+                payload.auth = { type: 'keycloak', username, password };
+            } else if (authType === 'none' && username && password) {
+                payload.auth = { type: 'none', username, password };
             }
 
             // Show message if images are being used
@@ -3383,6 +3554,18 @@
                 // Reset events cursor for new run
                 eventsCursor = 0;
                 localStorage.setItem('eventsCursor_' + currentRunId, '0');
+
+                lastBuddyLoggedState = null;
+                clearBuddyActivityLog();
+                (function showBuddyPanel() {
+                    const bpanel = document.getElementById('buddy_activity_panel');
+                    const btab = document.getElementById('buddy_activity_collapsed_tab');
+                    if (bpanel) {
+                        bpanel.classList.remove('hidden', 'minimized');
+                        if (btab) btab.classList.add('hidden');
+                    }
+                })();
+                appendBuddyActivityLine(`Run ${currentRunId} — session starting (login, validation, then discovery). Watch states below.`, 'state');
 
                 // Reset discovery status
                 updateDiscoveryStatus('not_started', null);
@@ -4013,8 +4196,15 @@
                 message = `⏭️ Skipped (disabled op): ${event.data.test_name}`;
             } else if (event.type === 'execution_aborted') {
                 message = `🛑 Execution aborted: ${event.data.reason} (stopped at test ${event.data.stopped_at_index})`;
+            } else {
+                try {
+                    message = `• ${event.type}` + (event.data ? ': ' + JSON.stringify(event.data).slice(0, 200) : '');
+                } catch (e) {
+                    message = `• ${event.type}`;
+                }
             }
             entry.innerHTML = `<span style="color: #999; margin-right: 8px;">${timestamp}</span>${message}`;
+            appendBuddyActivityLine(message, 'event');
             
             // Add to both feeds (right panel and app panel)
             if (feed) {
@@ -5715,12 +5905,16 @@
         }
 
         function updateStatus(data) {
-            document.getElementById('run_id_display')?.textContent || (document.getElementById('status_content').innerHTML = `
+            const statusContent = document.getElementById('status_content');
+            if (statusContent) {
+                statusContent.innerHTML = `
                 <div style="margin-bottom: 8px;"><strong>Run ID:</strong> ${data.run_id || '-'}</div>
                 <div style="margin-bottom: 8px;"><strong>State:</strong> ${data.state || '-'}</div>
                 <div style="margin-bottom: 8px;"><strong>URL:</strong> ${data.current_url || '-'}</div>
                 <div class="progress-bar"><div class="progress-fill" style="width: ${data.progress || 0}%"></div></div>
-            `);
+            `;
+            }
+            if (data.state) logBuddyStateChange(data.state);
             
             const badge = document.getElementById('status_badge');
             if (badge) {
@@ -5952,6 +6146,9 @@
             if (currentRunId) {
                 console.log('📌 Using run ID:', currentRunId);
                 updateCurrentRunIndicator();
+                const bpanel = document.getElementById('buddy_activity_panel');
+                if (bpanel) bpanel.classList.remove('hidden');
+                appendBuddyActivityLine(`Resumed run ${currentRunId} — loading status…`, 'state');
 
                 // Reset cursor to 0 to replay all events from beginning (ensures we don't miss anything on refresh)
                 eventsCursor = 0;
@@ -6010,9 +6207,9 @@
         }
 
         function updateOperations() {
-            // Buddy determines what to test based on user's post-discovery answer
-            // Default: read-only until buddy asks and user confirms write operations
-            return { read: true, create: false, update: false, delete: false };
+            // Initial gate before discovery; post-discovery intent (e.g. Test everything) overrides this.
+            // Default: allow full CRUD so list/create/update/delete tests are not skipped when generated.
+            return { read: true, create: true, update: true, delete: true };
         }
 
         function getSeedData() {
