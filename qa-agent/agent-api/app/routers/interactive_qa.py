@@ -31,7 +31,14 @@ from app.services.test_plan_builder import get_test_plan_builder
 from app.services.test_executor import get_test_executor
 from app.services.report_generator import get_report_generator
 from app.services.image_analyzer import get_image_analyzer
-from app.services.human_like_agent import parse_agent_goal, run_goal_loop
+from app.services.human_like_agent import (
+    QA_BUDDY_FULL_COVERAGE_GOAL,
+    infer_plain_language_goal,
+    parse_agent_instruction,
+    run_goal_loop,
+    run_rules_based_goal,
+    should_use_llm_for_goal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -364,17 +371,44 @@ async def _execute_free_text_instruction(run_id: str, instruction: str):
         except Exception as e:
             quick_result = f"Quick command failed: {str(e)[:200]}"
 
-        # Human-like agent: sees page snapshot + LLM picks next actions (prefix: agent:, human:, goal:)
+        # Goal-driven instructions: rules-first unless AI mode is 'ai' or prefix agent:
+        # - normal + human:/goal: → rules only (SmartFormFiller + nav matching)
+        # - hybrid → rules, then LLM if rules did not finish
+        # - ai → LLM human-like loop
+        # - agent: → always LLM (requires AI)
         if quick_result is None:
-            goal = parse_agent_goal(cmd)
-            if goal:
-                agent_result = await run_goal_loop(
-                    page,
-                    goal,
-                    run_id,
-                    getattr(context, "ai_config", None),
-                )
-                quick_result = agent_result.get("summary", "Human-like agent finished")
+            parsed = parse_agent_instruction(cmd) or infer_plain_language_goal(cmd)
+            if parsed:
+                goal = parsed["goal"]
+                kind = parsed["kind"]
+                ai_cfg = getattr(context, "ai_config", None)
+                plain_inferred = parse_agent_instruction(cmd) is None
+
+                agent_result: Dict[str, Any] = {}
+
+                if goal == QA_BUDDY_FULL_COVERAGE_GOAL:
+                    agent_result = await run_rules_based_goal(page, goal, run_id)
+                    strategy = "full_coverage_guidance"
+                else:
+                    strategy = should_use_llm_for_goal(kind, ai_cfg)
+                    if strategy == "force_llm":
+                        agent_result = await run_goal_loop(
+                            page, goal, run_id, ai_cfg
+                        )
+                    elif strategy == "llm_only":
+                        agent_result = await run_goal_loop(
+                            page, goal, run_id, ai_cfg
+                        )
+                    elif strategy == "rules_then_maybe_llm":
+                        agent_result = await run_rules_based_goal(page, goal, run_id)
+                        if not agent_result.get("ok"):
+                            agent_result = await run_goal_loop(
+                                page, goal, run_id, ai_cfg
+                            )
+                    else:
+                        agent_result = await run_rules_based_goal(page, goal, run_id)
+
+                quick_result = agent_result.get("summary", "Goal runner finished")
                 try:
                     _run_store.update_run(run_id, current_url=page.url)
                 except Exception:
@@ -389,10 +423,13 @@ async def _execute_free_text_instruction(run_id: str, instruction: str):
                                     "type": "human_like_agent",
                                     "data": {
                                         "goal": goal,
+                                        "kind": kind,
+                                        "strategy": strategy,
                                         "summary": quick_result,
                                         "ok": agent_result.get("ok"),
-                                        "steps": agent_result.get("steps", [])[:25],
+                                        "steps": agent_result.get("steps", [])[:40],
                                         "url": page.url,
+                                        "plain_language_inferred": plain_inferred,
                                     },
                                 },
                                 default=str,
@@ -1304,6 +1341,91 @@ async def delete_run(run_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to delete run: {str(e)}")
 
 
+async def _context_detect_and_discovery_pipeline(page, run_id: str) -> None:
+    """
+    Run tenant/context detection then discovery + summary.
+    Call when run state is CONTEXT_DETECT (e.g. after session check says logged-in, or post-login validate).
+    """
+    context = _run_store.get_run(run_id)
+    if not context:
+        logger.error(f"[{run_id}] context_detect_and_discovery: run not found")
+        return
+
+    context_detector = get_context_detector()
+    detect_result = await context_detector.detect_context(
+        page=page,
+        run_id=run_id,
+        artifacts_path=context.artifacts_path,
+        auto_select_context=getattr(context, "auto_select_context", True),
+    )
+
+    if detect_result.get("selected_context"):
+        _run_store.update_run(run_id, selected_context=detect_result["selected_context"])
+
+    _run_store.transition_state(run_id, detect_result["next_state"])
+
+    if detect_result.get("question"):
+        _run_store.update_run(run_id, question=detect_result["question"])
+        return
+
+    if detect_result["next_state"] != RunState.DISCOVERY_RUN:
+        return
+
+    context = _run_store.get_run(run_id)
+    image_hints = await _load_image_analysis_hints(
+        context.uploaded_images,
+        context.artifacts_path,
+    )
+    document_analysis = await _load_document_analysis(
+        context.uploaded_documents,
+        context.artifacts_path,
+    )
+
+    config_overrides: Dict[str, Any] = {}
+    if getattr(context, "max_pages", None):
+        config_overrides["max_pages"] = context.max_pages
+    if getattr(context, "max_forms_per_page", None):
+        config_overrides["max_forms_per_page"] = context.max_forms_per_page
+    if getattr(context, "max_table_rows_to_click", None):
+        config_overrides["max_table_rows_to_click"] = context.max_table_rows_to_click
+    if getattr(context, "max_discovery_time_minutes", None):
+        config_overrides["max_discovery_time_minutes"] = context.max_discovery_time_minutes
+
+    discovery_runner = get_discovery_runner()
+    discovery_result = await discovery_runner.run_discovery(
+        page=page,
+        run_id=run_id,
+        base_url=context.base_url,
+        artifacts_path=context.artifacts_path,
+        debug=getattr(context, "discovery_debug", False),
+        image_hints=image_hints,
+        document_analysis=document_analysis,
+        phase=context.test_phase,
+        config_overrides=config_overrides if config_overrides else None,
+        ai_config=getattr(context, "ai_config", None),
+        app_type=getattr(context, "app_type", None),
+        seed_data=getattr(context, "seed_data", None),
+    )
+
+    _run_store.update_run(
+        run_id,
+        discovery_summary=discovery_result.get("summary", {}),
+    )
+    _run_store.transition_state(run_id, RunState.DISCOVERY_SUMMARY)
+
+    discovery_summarizer = get_discovery_summarizer()
+    summary_result = await discovery_summarizer.generate_summary(
+        page=page,
+        run_id=run_id,
+        artifacts_path=context.artifacts_path,
+    )
+    _run_store.update_run(
+        run_id,
+        discovery_summary=summary_result["summary"],
+    )
+    await _after_discovery_summary(run_id, summary_result)
+
+
 @router.post("/start", response_model=StartRunResponse, summary="Start a new interactive QA run")
 async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
     """
@@ -1382,6 +1504,12 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
         # Transition to next state based on check result
         next_state = check_result["next_state"]
         context = _run_store.transition_state(run_id, next_state)
+
+        # Already logged in (or no login UI) → session_checker sends CONTEXT_DETECT but we must
+        # run context detection + discovery here (otherwise the run stuck forever on CONTEXT_DETECT).
+        if next_state == RunState.CONTEXT_DETECT:
+            logger.info(f"[{run_id}] Session check → CONTEXT_DETECT; running context + discovery pipeline")
+            await _context_detect_and_discovery_pipeline(page, run_id)
         
         # If transitioning to LOGIN_DETECT, perform login detection
         if next_state == RunState.LOGIN_DETECT:
@@ -1466,94 +1594,7 @@ async def start_run(request: StartRunRequest = Body(...)) -> StartRunResponse:
                         if validation_result["question"]:
                             context = _run_store.update_run(run_id, question=validation_result["question"])
                         else:
-                            # If transitioning to CONTEXT_DETECT, perform context detection
-                            if validation_result["next_state"] == RunState.CONTEXT_DETECT:
-                                context_detector = get_context_detector()
-                                detect_result = await context_detector.detect_context(
-                                    page=page,
-                                    run_id=run_id,
-                                    artifacts_path=context.artifacts_path,
-                                    auto_select_context=getattr(
-                                        context, "auto_select_context", True
-                                    ),
-                                )
-                                
-                                # Update selected context if single option
-                                if detect_result.get("selected_context"):
-                                    context = _run_store.update_run(run_id, selected_context=detect_result["selected_context"])
-                                
-                                # Transition to next state
-                                next_state = detect_result["next_state"]
-                                context = _run_store.transition_state(run_id, next_state)
-                                
-                                # Update question if multiple options
-                                if detect_result["question"]:
-                                    context = _run_store.update_run(run_id, question=detect_result["question"])
-                                else:
-                                    # If transitioning to DISCOVERY_RUN, execute discovery
-                                    if detect_result["next_state"] == RunState.DISCOVERY_RUN:
-                                        # Load image/document analysis hints
-                                        image_hints = await _load_image_analysis_hints(
-                                            context.uploaded_images,
-                                            context.artifacts_path
-                                        )
-                                        document_analysis = await _load_document_analysis(
-                                            context.uploaded_documents,
-                                            context.artifacts_path
-                                        )
-
-                                        # Prepare config overrides if provided
-                                        config_overrides = {}
-                                        if hasattr(context, 'max_pages') and context.max_pages:
-                                            config_overrides['max_pages'] = context.max_pages
-                                        if hasattr(context, 'max_forms_per_page') and context.max_forms_per_page:
-                                            config_overrides['max_forms_per_page'] = context.max_forms_per_page
-                                        if hasattr(context, 'max_table_rows_to_click') and context.max_table_rows_to_click:
-                                            config_overrides['max_table_rows_to_click'] = context.max_table_rows_to_click
-                                        if hasattr(context, 'max_discovery_time_minutes') and context.max_discovery_time_minutes:
-                                            config_overrides['max_discovery_time_minutes'] = context.max_discovery_time_minutes
-
-                                        discovery_runner = get_discovery_runner()
-                                        discovery_result = await discovery_runner.run_discovery(
-                                            page=page,
-                                            run_id=run_id,
-                                            base_url=context.base_url,
-                                            artifacts_path=context.artifacts_path,
-                                            debug=getattr(context, "discovery_debug", False),
-                                            image_hints=image_hints,
-                                            document_analysis=document_analysis,
-                                            phase=context.test_phase,
-                                            config_overrides=config_overrides if config_overrides else None,
-                                            ai_config=getattr(context, "ai_config", None),  # Pass AI config if available
-                                            app_type=getattr(context, "app_type", None),  # Pass app type hint
-                                            seed_data=getattr(context, "seed_data", None)  # Pass user seed data
-                                        )
-                                        
-                                        # Store discovery summary in context
-                                        context = _run_store.update_run(
-                                            run_id,
-                                            discovery_summary=discovery_result.get("summary", {})
-                                        )
-                                        
-                                        # Transition to DISCOVERY_SUMMARY
-                                        context = _run_store.transition_state(run_id, RunState.DISCOVERY_SUMMARY)
-                                        
-                                        # Generate discovery summary and transition to WAIT_TEST_INTENT
-                                        discovery_summarizer = get_discovery_summarizer()
-                                        summary_result = await discovery_summarizer.generate_summary(
-                                            page=page,
-                                            run_id=run_id,
-                                            artifacts_path=context.artifacts_path
-                                        )
-                                        
-                                        # Store detailed summary in context
-                                        context = _run_store.update_run(
-                                            run_id,
-                                            discovery_summary=summary_result["summary"]
-                                        )
-                                        
-                                        # WAIT_TEST_INTENT or auto-run full test scope (default)
-                                        await _after_discovery_summary(run_id, summary_result)
+                            await _context_detect_and_discovery_pipeline(page, run_id)
             else:
                 # Update question if ambiguous (from SESSION_CHECK)
                 if check_result["question"]:
@@ -2103,87 +2144,16 @@ async def answer_question(
                                 context = _run_store.update_run(run_id, question=validation_result["question"])
                                 message = "Session not established - bounced back to Keycloak"
                             else:
-                                # Session validated - perform context detection
-                                if validation_result["next_state"] == RunState.CONTEXT_DETECT:
-                                    context_detector = get_context_detector()
-                                    detect_result = await context_detector.detect_context(
-                                        page=page,
-                                        run_id=run_id,
-                                        artifacts_path=context.artifacts_path,
-                                        auto_select_context=getattr(
-                                            context, "auto_select_context", True
-                                        ),
+                                await _context_detect_and_discovery_pipeline(page, run_id)
+                                context = _run_store.get_run(run_id)
+                                if context and context.question:
+                                    message = "Multiple contexts detected - please select one"
+                                elif context and context.discovery_summary:
+                                    s = context.discovery_summary
+                                    message = (
+                                        f"Discovery completed: {s.get('pages_count', '?')} pages, "
+                                        f"{s.get('forms_count', '?')} forms found"
                                     )
-                                    
-                                    # Update selected context if single option
-                                    if detect_result.get("selected_context"):
-                                        context = _run_store.update_run(run_id, selected_context=detect_result["selected_context"])
-                                    
-                                    # Transition to next state
-                                    new_state = detect_result["next_state"]
-                                    context = _run_store.transition_state(run_id, new_state)
-                                    
-                                    # Update question if multiple options
-                                    if detect_result["question"]:
-                                        context = _run_store.update_run(run_id, question=detect_result["question"])
-                                        message = "Multiple contexts detected - please select one"
-                                    else:
-                                        # Context selected - proceed to discovery
-                                        if detect_result["next_state"] == RunState.DISCOVERY_RUN:
-                                            # Load image/document analysis hints
-                                            image_hints = await _load_image_analysis_hints(
-                                                context.uploaded_images,
-                                                context.artifacts_path
-                                            )
-                                            document_analysis = await _load_document_analysis(
-                                                context.uploaded_documents,
-                                                context.artifacts_path
-                                            )
-
-                                            discovery_runner = get_discovery_runner()
-                                            discovery_result = await discovery_runner.run_discovery(
-                                                ai_config=getattr(context, "ai_config", None),
-                                                page=page,
-                                                run_id=run_id,
-                                                base_url=context.base_url,
-                                                artifacts_path=context.artifacts_path,
-                                                debug=getattr(context, "discovery_debug", False),
-                                                image_hints=image_hints,
-                                                document_analysis=document_analysis,
-                                                phase=context.test_phase,
-                                                app_type=getattr(context, "app_type", None),  # Pass app type hint
-                                                seed_data=getattr(context, "seed_data", None)  # Pass user seed data
-                                            )
-                                            
-                                            # Store discovery summary in context
-                                            context = _run_store.update_run(
-                                                run_id,
-                                                discovery_summary=discovery_result.get("summary", {})
-                                            )
-                                            
-                                            # Transition to DISCOVERY_SUMMARY
-                                            context = _run_store.transition_state(run_id, RunState.DISCOVERY_SUMMARY)
-                                            
-                                            # Generate discovery summary and transition to WAIT_TEST_INTENT
-                                            discovery_summarizer = get_discovery_summarizer()
-                                            summary_result = await discovery_summarizer.generate_summary(
-                                                page=page,
-                                                run_id=run_id,
-                                                artifacts_path=context.artifacts_path
-                                            )
-                                            
-                                            # Store detailed summary in context
-                                            context = _run_store.update_run(
-                                                run_id,
-                                                discovery_summary=summary_result["summary"]
-                                            )
-                                            
-                                            # WAIT_TEST_INTENT or auto-run full test scope (default)
-                                            await _after_discovery_summary(run_id, summary_result)
-                                            
-                                            message = f"Discovery completed: {summary_result['summary']['pages_count']} pages, {summary_result['summary']['forms_count']} forms found"
-                                        else:
-                                            message = f"Login successful and context detected: {detect_result.get('selected_context', 'default')}"
                                 else:
                                     message = "Login successful and session validated"
                         else:
@@ -2338,7 +2308,18 @@ async def answer_question(
                             context = _run_store.update_run(run_id, question=validation_result["question"])
                             message = "Session still not established. Please retry login."
                         else:
-                            message = "Manual login confirmed. Continuing."
+                            await _context_detect_and_discovery_pipeline(page, run_id)
+                            ctx_after = _run_store.get_run(run_id)
+                            if ctx_after and ctx_after.question:
+                                message = "Multiple contexts detected - please select one"
+                            elif ctx_after and ctx_after.discovery_summary:
+                                s = ctx_after.discovery_summary
+                                message = (
+                                    f"Manual login confirmed. Discovery completed: "
+                                    f"{s.get('pages_count', '?')} pages, {s.get('forms_count', '?')} forms."
+                                )
+                            else:
+                                message = "Manual login confirmed. Continuing."
                     except Exception as e:
                         logger.error(f"[{run_id}] Human login bypass validation failed: {e}", exc_info=True)
                         question = Question(
@@ -2351,85 +2332,30 @@ async def answer_question(
                         context = _run_store.update_run(run_id, question=question)
                         message = "Manual login validation failed"
                 else:
-                    # User says they are logged in - proceed to context detection
+                    # User says they are logged in - proceed to context detection + discovery
                     new_state = RunState.CONTEXT_DETECT
                     context = _run_store.transition_state(run_id, new_state)
-                    
-                    # Perform context detection
+
                     browser_manager = get_browser_manager()
-                    context_detector = get_context_detector()
-                    
                     try:
                         page = await browser_manager.get_page(
                             run_id,
                             headless=context.headless,
                             debug=getattr(context, "discovery_debug", False),
-                            artifacts_path=context.artifacts_path
-                        )
-                        detect_result = await context_detector.detect_context(
-                            page=page,
-                            run_id=run_id,
                             artifacts_path=context.artifacts_path,
-                            auto_select_context=getattr(
-                                context, "auto_select_context", True
-                            ),
                         )
-
-                        # Update selected context if single option
-                        if detect_result.get("selected_context"):
-                            context = _run_store.update_run(run_id, selected_context=detect_result["selected_context"])
-
-                        # Transition to next state
-                        new_state = detect_result["next_state"]
-                        context = _run_store.transition_state(run_id, new_state)
-
-                        # Update question if multiple options
-                        if detect_result["question"]:
-                            context = _run_store.update_run(run_id, question=detect_result["question"])
+                        await _context_detect_and_discovery_pipeline(page, run_id)
+                        context = _run_store.get_run(run_id)
+                        if context and context.question:
                             message = "Multiple contexts detected - please select one"
+                        elif context and context.discovery_summary:
+                            s = context.discovery_summary
+                            message = (
+                                f"Discovery completed: {s.get('pages_count', '?')} pages, "
+                                f"{s.get('forms_count', '?')} forms found"
+                            )
                         else:
-                            # Context selected - proceed to discovery
-                            if detect_result["next_state"] == RunState.DISCOVERY_RUN:
-                                discovery_runner = get_discovery_runner()
-                                discovery_result = await discovery_runner.run_discovery(
-                                    page=page,
-                                    run_id=run_id,
-                                    base_url=context.base_url,
-                                    artifacts_path=context.artifacts_path,
-                                    debug=getattr(context, "discovery_debug", False),
-                                    app_type=getattr(context, "app_type", None),  # Pass app type hint
-                                    seed_data=getattr(context, "seed_data", None)  # Pass user seed data
-                                )
-
-                                # Store discovery summary in context
-                                context = _run_store.update_run(
-                                    run_id,
-                                    discovery_summary=discovery_result.get("summary", {})
-                                )
-
-                                # Transition to DISCOVERY_SUMMARY
-                                context = _run_store.transition_state(run_id, RunState.DISCOVERY_SUMMARY)
-
-                                # Generate discovery summary and transition to WAIT_TEST_INTENT
-                                discovery_summarizer = get_discovery_summarizer()
-                                summary_result = await discovery_summarizer.generate_summary(
-                                    page=page,
-                                    run_id=run_id,
-                                    artifacts_path=context.artifacts_path
-                                )
-
-                                # Store detailed summary in context
-                                context = _run_store.update_run(
-                                    run_id,
-                                    discovery_summary=summary_result["summary"]
-                                )
-
-                                # WAIT_TEST_INTENT or auto-run full test scope (default)
-                                await _after_discovery_summary(run_id, summary_result)
-
-                                message = f"Discovery completed: {summary_result['summary']['pages_count']} pages, {summary_result['summary']['forms_count']} forms found"
-                            else:
-                                message = f"Proceeding with existing session. Context: {detect_result.get('selected_context', 'default')}"
+                            message = "Proceeding with existing session."
                     except Exception as e:
                         logger.error(f"[{run_id}] Context detection failed: {e}", exc_info=True)
                         new_state = RunState.DISCOVERY_RUN
@@ -2542,6 +2468,9 @@ async def answer_question(
                                 message = "Proceeding after unexpected screen"
                         else:
                             message = "Proceeding after unexpected screen"
+                    elif new_state == RunState.CONTEXT_DETECT:
+                        await _context_detect_and_discovery_pipeline(page, run_id)
+                        message = "Proceeding after unexpected screen (context + discovery)"
                     else:
                         message = "Proceeding after unexpected screen"
                 except Exception as e:

@@ -28,6 +28,112 @@ SECRET_PATTERNS = [
 ]
 
 
+def _buddy_messages_for_test_result(
+    test_name: str,
+    status: str,
+    error: Optional[str],
+) -> Dict[str, Any]:
+    """Plain EN + HI lines for Live Progress when a single test finishes."""
+    name = (test_name or "").lower()
+    err = (error or "").lower()
+    failure_kind = ""
+
+    if status == "passed":
+        if any(k in name for k in ("delete", "remove", "trash")):
+            return {
+                "buddy_message_en": "Passed — delete/remove flow completed (item should be gone from list).",
+                "buddy_message_hi": "Pass — delete/remove ho gaya (list se item hatna chahiye).",
+                "failure_kind": "",
+            }
+        if any(k in name for k in ("create", "add", "new", "insert")):
+            return {
+                "buddy_message_en": "Passed — create/add flow completed.",
+                "buddy_message_hi": "Pass — create/add flow ho gaya.",
+                "failure_kind": "",
+            }
+        if any(k in name for k in ("edit", "update", "modify")):
+            return {
+                "buddy_message_en": "Passed — edit/update flow completed.",
+                "buddy_message_hi": "Pass — edit/update ho gaya.",
+                "failure_kind": "",
+            }
+        if "search" in name:
+            return {
+                "buddy_message_en": "Passed — search behaviour looks OK.",
+                "buddy_message_hi": "Pass — search theek laga.",
+                "failure_kind": "",
+            }
+        if "filter" in name:
+            return {
+                "buddy_message_en": "Passed — filter behaviour looks OK.",
+                "buddy_message_hi": "Pass — filter theek laga.",
+                "failure_kind": "",
+            }
+        if "list" in name or "table" in name or "pagination" in name:
+            return {
+                "buddy_message_en": "Passed — listing/table/pagination check OK.",
+                "buddy_message_hi": "Pass — list/table/pagination theek.",
+                "failure_kind": "",
+            }
+        return {
+            "buddy_message_en": "Passed — all steps completed.",
+            "buddy_message_hi": "Pass — saare steps theek.",
+            "failure_kind": "",
+        }
+
+    if status == "skipped":
+        return {
+            "buddy_message_en": "Skipped — operation disabled or not applicable.",
+            "buddy_message_hi": "Skip — operation band hai ya apply nahi hota.",
+            "failure_kind": "skipped",
+        }
+
+    if "timeout" in err or "waiting until" in err or "not found" in err or "no visible" in err:
+        failure_kind = "automation_or_ui_changed"
+        return {
+            "buddy_message_en": (
+                "Failed — element not found or timeout (selectors/UI may have changed; "
+                "not always an app bug)."
+            ),
+            "buddy_message_hi": (
+                "Fail — element nahi mila ya timeout (UI change ho sakta hai; "
+                "har baar app ki galti nahi)."
+            ),
+            "failure_kind": failure_kind,
+        }
+
+    if any(
+        x in err
+        for x in (
+            "required",
+            "invalid",
+            "error",
+            "failed",
+            "403",
+            "401",
+            "500",
+            "forbidden",
+            "unauthorized",
+        )
+    ):
+        failure_kind = "app_error_suspected"
+        return {
+            "buddy_message_en": (
+                "Failed — app showed validation or server error (check app logs or test data)."
+            ),
+            "buddy_message_hi": (
+                "Fail — app ne validation ya server error dikhaya (app logs / data check karo)."
+            ),
+            "failure_kind": failure_kind,
+        }
+
+    return {
+        "buddy_message_en": f"Failed — {error[:180] if error else 'see report'}",
+        "buddy_message_hi": f"Fail — detail report mein dekho.",
+        "failure_kind": "unknown",
+    }
+
+
 class TestExecutor:
     """Service for executing test plans."""
     
@@ -210,6 +316,11 @@ class TestExecutor:
                     report["tests"].append(test_result)
 
                     # Emit test completed event
+                    _bm = _buddy_messages_for_test_result(
+                        test_name,
+                        test_result.get("status") or "",
+                        test_result.get("error"),
+                    )
                     self._emit_event(run_id, artifacts_path, "test_completed", {
                         "test_index": idx + 1,
                         "test_id": test_id,
@@ -218,7 +329,10 @@ class TestExecutor:
                         "duration_ms": test_result.get('duration_ms', 0),
                         "steps_passed": len([s for s in test_result.get('steps', []) if s.get('status') == 'passed']),
                         "steps_failed": len([s for s in test_result.get('steps', []) if s.get('status') == 'failed']),
-                        "error": test_result.get('error')
+                        "error": test_result.get('error'),
+                        "buddy_message_en": _bm.get("buddy_message_en"),
+                        "buddy_message_hi": _bm.get("buddy_message_hi"),
+                        "failure_kind": _bm.get("failure_kind"),
                     })
 
                     # Update counters
@@ -392,6 +506,21 @@ class TestExecutor:
             logger.info(f"[{run_id}] Summary: {report['passed']} passed, {report['failed']} failed, {report['skipped']} skipped")
             logger.info(f"[{run_id}] Total tests executed: {len(report['tests'])}")
             logger.info(f"[{run_id}] Report saved to: {report_file}")
+
+            self._emit_event(run_id, artifacts_path, "test_execution_completed", {
+                "passed": report["passed"],
+                "failed": report["failed"],
+                "skipped": report["skipped"],
+                "total": len(report["tests"]),
+                "buddy_message_en": (
+                    f"Test run finished: {report['passed']} passed, {report['failed']} failed, "
+                    f"{report['skipped']} skipped. Open Report for details."
+                ),
+                "buddy_message_hi": (
+                    f"Test run khatam: {report['passed']} pass, {report['failed']} fail, "
+                    f"{report['skipped']} skip. Report kholo."
+                ),
+            })
             
             # Check if HTML report already exists
             html_report = artifacts_dir / "report.html"

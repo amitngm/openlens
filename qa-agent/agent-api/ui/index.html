@@ -1898,6 +1898,18 @@
                                 <div class="stat-value" id="app_progress_actions">0</div>
                                 <div class="stat-label">Actions</div>
                             </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="app_progress_tests">0</div>
+                                <div class="stat-label">Test cases</div>
+                            </div>
+                        </div>
+                        <div id="buddy_how_to_done_hint" style="margin-bottom: 16px; padding: 14px 16px; background: linear-gradient(135deg, rgba(20,184,166,0.08), rgba(59,130,246,0.06)); border: 1px solid var(--border); border-radius: 10px; font-size: 13px; line-height: 1.55; color: var(--text-secondary);">
+                            <strong style="color: var(--text-primary);">How do you know QA Buddy is done?</strong>
+                            <ul style="margin: 8px 0 0 18px; padding: 0;">
+                                <li><strong>Discovery:</strong> green toast “Discovery completed”, status badge shows <em>Completed</em>, and <strong>Test cases</strong> count updates.</li>
+                                <li><strong>Test run:</strong> event “Test run finished” in the feed with pass/fail counts.</li>
+                                <li><strong>Ask QA Buddy (<code>human:</code>):</strong> line shows <em>Goal finished</em> with pass or incomplete.</li>
+                            </ul>
                         </div>
                     </div>
                     <div id="app_progress_feed" class="discovery-feed" style="max-height: calc(100vh - 280px); background: white; border-radius: 12px; padding: 16px;">
@@ -2138,9 +2150,9 @@
                                             <option value="ai">AI-Powered (AI only)</option>
                                         </select>
                                         <p style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px;">
-                                            <strong>Normal:</strong> Traditional rule-based generation (fast, predictable)<br>
-                                            <strong>Hybrid:</strong> Combines rule-based and AI for best results<br>
-                                            <strong>AI-Powered:</strong> Pure AI generation (requires model setup)
+                                            <strong>Normal:</strong> Rules only for navigation, login, and “human:/goal:” chat goals (no LLM).<br>
+                                            <strong>Hybrid:</strong> Rules first; LLM assists login/submit and continues chat goals if rules stall.<br>
+                                            <strong>AI-Powered:</strong> LLM drives chat goals (<code>human:</code>/<code>goal:</code>). Prefix <code>agent:</code> always forces the LLM when AI is enabled.
                                         </p>
                                     </div>
 
@@ -2313,7 +2325,7 @@
                             <div id="buddy_quick_next_steps_buttons" class="question-options" style="display: flex; flex-direction: column; gap: 8px;"></div>
                         </div>
                         <div style="display: flex; gap: 8px;">
-                            <textarea id="free_text_input" placeholder="Human-like agent (AI on): agent: open Settings then save&#10;Quick: click Sign in | goto https://... | login&#10;Or describe tests: search for X, test table rows…" rows="3" style="flex: 1;"></textarea>
+                            <textarea id="free_text_input" placeholder="Plain English OK: complete create file system wizard with name &quot;qa-test-fs-01&quot; and submit&#10;Full app: complete UI testing for all resources (Buddy explains the run flow)&#10;Prefixes optional: human: … | agent: … (AI) | Quick: click … | goto https://…" rows="3" style="flex: 1;"></textarea>
                             <button onclick="submitFreeText()" style="align-self: flex-end;">Send</button>
                         </div>
                     </div>
@@ -3563,6 +3575,8 @@
                 document.getElementById('app_progress_pages').textContent = '0';
                 document.getElementById('app_progress_forms').textContent = '0';
                 document.getElementById('app_progress_actions').textContent = '0';
+                const t0 = document.getElementById('app_progress_tests');
+                if (t0) t0.textContent = '0';
 
                 // Reset events cursor for new run
                 eventsCursor = 0;
@@ -3722,6 +3736,14 @@
             }
         }
 
+        /** Stop only SSE-style events polling (Live Progress / Buddy log). Status polling may still run. */
+        function stopEventsPolling() {
+            if (eventsPollingInterval) {
+                clearInterval(eventsPollingInterval);
+                eventsPollingInterval = null;
+            }
+        }
+
         function startEventsPolling() {
             // Don't start polling if no run ID exists
             if (!currentRunId) {
@@ -3769,6 +3791,14 @@
                                     actionsCount.textContent = a + (event.data.actions_count || 0);
                                     a = a + (event.data.actions_count || 0);
                                 }
+                            }
+                            if (event.type === 'test_cases_generated' && event.data && event.data.total_test_cases != null) {
+                                const tcEl = document.getElementById('app_progress_tests');
+                                if (tcEl) tcEl.textContent = String(event.data.total_test_cases);
+                            }
+                            if (event.type === 'discovery_completed' && event.data && event.data.total_test_cases != null) {
+                                const tcEl2 = document.getElementById('app_progress_tests');
+                                if (tcEl2) tcEl2.textContent = String(event.data.total_test_cases);
                             }
                         });
                         if (currentRunId && (p > 0 || f > 0 || a > 0)) {
@@ -3983,6 +4013,7 @@
         }
 
         function processEvents(events) {
+            const batchHasHumanLike = events.some(e => e.type === 'human_like_agent');
             events.forEach(event => {
                 addEventToLog(event);
                 if (event.type === 'page_discovered') {
@@ -4021,6 +4052,9 @@
                 } else if (event.type === 'discovery_completed') {
                     updateDiscoveryStatus('completed', event.data);
                     updateDiscoveryStats(event.data);
+                    const tcDone = event.data.total_test_cases != null ? event.data.total_test_cases : null;
+                    const tcElDisc = document.getElementById('app_progress_tests');
+                    if (tcElDisc && tcDone != null) tcElDisc.textContent = String(tcDone);
                     if (currentRunId) {
                         const baseUrl = (document.getElementById('base_url') && document.getElementById('base_url').value) || '';
                         const cached = (window._cachedRunList || []).find(r => r.run_id === currentRunId);
@@ -4028,7 +4062,7 @@
                             base_url: baseUrl || (cached && cached.base_url),
                             pages_count: event.data.pages_count ?? event.data.pages_discovered ?? 0,
                             forms_count: event.data.forms_count ?? 0,
-                            test_cases_count: (cached && cached.test_cases_count) || 0,
+                            test_cases_count: tcDone != null ? tcDone : ((cached && cached.test_cases_count) || 0),
                             status: 'Completed'
                         });
                     }
@@ -4041,8 +4075,7 @@
                     // Stop polling once discovery is complete
                     stopEventsPolling();
                     stopPolling();
-                    // Show completion in a prominent way
-                    showCompletionNotification('🎉 Discovery completed! View test cases and report.', 'success');
+                    showCompletionNotification('🎉 ' + (event.data.buddy_message_en || 'Discovery completed! Open Test Cases tab.'), 'success');
                     // Auto-switch to test cases tab after a delay
                     setTimeout(() => {
                         const testCasesTab = document.querySelector('.app-tab[onclick*="testcases"]');
@@ -4093,9 +4126,19 @@
                 } else if (event.type === 'free_text_execution_error') {
                     showFreeTextExecutionError(event.data);
                 } else if (event.type === 'human_like_agent') {
-                    const g = event.data && event.data.goal ? event.data.goal : '';
-                    const s = event.data && event.data.summary ? event.data.summary : '';
-                    appendBuddyActivityLine(`Human-like agent: ${g.slice(0, 80)}${g.length > 80 ? '…' : ''} — ${s.slice(0, 120)}`, 'event');
+                    const d = event.data || {};
+                    const s = (d.summary || '').trim();
+                    if (s) {
+                        showMessage(s.length > 420 ? s.slice(0, 420) + '…' : s, 'success');
+                    }
+                } else if (event.type === 'free_text_quick_command' && !batchHasHumanLike) {
+                    const r = (event.data && event.data.result) ? String(event.data.result).trim() : '';
+                    if (r) {
+                        showMessage(r.length > 420 ? r.slice(0, 420) + '…' : r, 'success');
+                    }
+                } else if (event.type === 'test_execution_completed') {
+                    const en = (event.data && event.data.buddy_message_en) || '';
+                    showCompletionNotification(en || 'Test run finished.', (event.data && event.data.failed) > 0 ? 'error' : 'success');
                 } else if (event.type === 'execution_progress') {
                     // Update progress in state if available
                     if (typeof testExecutionState !== 'undefined') {
@@ -4174,7 +4217,23 @@
             } else if (event.type === 'discovery_progress') {
                 message = `⏳ Discovery in progress: ${event.data.pages_discovered} pages, ${event.data.elapsed_minutes}min elapsed`;
             } else if (event.type === 'discovery_completed') {
-                message = `✅ Discovery completed: ${event.data.pages_count || 0} pages, ${event.data.forms_count || 0} forms, ${event.data.api_endpoints_count || 0} APIs`;
+                const d = event.data || {};
+                const tc = d.total_test_cases != null ? `, ${d.total_test_cases} test cases generated` : '';
+                const bm = d.buddy_message_en ? ` — ${d.buddy_message_en.slice(0, 220)}` : '';
+                message = `✅ Discovery DONE${tc}: ${d.pages_count || 0} pages, ${d.forms_count || 0} forms${bm}`;
+            } else if (event.type === 'test_completed') {
+                const d = event.data || {};
+                const st = d.status;
+                const icon = st === 'passed' ? '✅' : (st === 'skipped' ? '⏭️' : '❌');
+                const en = d.buddy_message_en || '';
+                message = `${icon} ${d.test_name || 'Test'} (${st}): ${en}`;
+            } else if (event.type === 'test_execution_completed') {
+                const d = event.data || {};
+                message = `🏁 Test run DONE: ${d.passed} pass, ${d.failed} fail, ${d.skipped} skip — ${d.buddy_message_en || ''}`;
+            } else if (event.type === 'human_like_agent') {
+                const d = event.data || {};
+                const ok = d.ok === true;
+                message = `${ok ? '✅' : '⚠️'} Buddy goal ${ok ? 'OK' : 'incomplete'}: ${(d.goal || '').slice(0, 80)} — ${(d.summary || '').slice(0, 160)}`;
             } else if (event.type === 'discovery_failed') {
                 message = `❌ Discovery failed: ${event.data.error || 'Unknown error'}`;
             } else if (event.type === 'health_check_started') {
@@ -6091,7 +6150,22 @@
                 });
                 if (!response.ok) throw new Error(await response.text());
                 input.value = '';
-                showMessage('Message sent', 'success');
+                showMessage('Message sent — fetching Buddy reply…', 'success');
+                // Discovery completion stops events polling; restart so guidance (e.g. "test everything") shows up.
+                startEventsPolling();
+                try {
+                    const evRes = await fetch(`${API_BASE}/runs/${currentRunId}/events?after=${eventsCursor}`);
+                    if (evRes.ok) {
+                        const evData = await evRes.json();
+                        if (evData.events && evData.events.length > 0) {
+                            processEvents(evData.events);
+                            eventsCursor = evData.next_cursor;
+                            localStorage.setItem('eventsCursor_' + currentRunId, eventsCursor.toString());
+                        }
+                    }
+                } catch (e) {
+                    console.warn('events fetch after free text', e);
+                }
             } catch (error) {
                 showMessage(`Failed: ${error.message}`, 'error');
             }

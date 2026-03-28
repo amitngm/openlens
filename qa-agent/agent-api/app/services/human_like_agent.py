@@ -11,11 +11,57 @@ import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.services.ai.provider_factory import get_llm_provider
 
 logger = logging.getLogger(__name__)
+
+# Words stripped from free-text goals when matching navigation (rules-based path)
+_GOAL_STOP_WORDS = frozenset(
+    {
+        "test",
+        "fully",
+        "thoroughly",
+        "complete",
+        "check",
+        "verify",
+        "validate",
+        "the",
+        "a",
+        "an",
+        "to",
+        "and",
+        "or",
+        "go",
+        "open",
+        "please",
+        "run",
+        "execute",
+        "navigate",
+        "goto",
+        "into",
+        "on",
+        "in",
+        "for",
+        "all",
+        "every",
+        "thing",
+        "things",
+        "poora test karo",
+        "poora test karna",
+    }
+)
+
+_CLICK_SKIP_SUBSTRINGS = (
+    "delete",
+    "remove",
+    "logout",
+    "log out",
+    "sign out",
+    "cancel",
+    "close",
+)
 
 # Hard ceiling for human-like loop (matches AIConfig.human_like_max_steps le=)
 _HUMAN_LIKE_CAP = 2000
@@ -264,6 +310,15 @@ async def _execute_one_action(page, action: Dict[str, Any]) -> str:
                     return f"filled field (label ~ {ts[:40]})"
             except Exception as e:
                 logger.debug(f"fill label: {e}")
+            try:
+                rgx = re.compile(re.escape(ts[:80]), re.IGNORECASE)
+                role_box = page.get_by_role("textbox", name=rgx)
+                if await role_box.count() > 0:
+                    await role_box.first.click(timeout=3000)
+                    await role_box.first.fill(val, timeout=8000)
+                    return f"filled field (role=textbox name ~ {ts[:40]})"
+            except Exception as e:
+                logger.debug(f"fill role textbox: {e}")
         try:
             box = page.locator("input:visible, textarea:visible").first
             await box.fill(val, timeout=8000)
@@ -283,15 +338,350 @@ async def _execute_one_action(page, action: Dict[str, Any]) -> str:
     return f"error: unknown action '{a}'"
 
 
-def parse_agent_goal(instruction: str) -> Optional[str]:
+def parse_agent_instruction(instruction: str) -> Optional[Dict[str, str]]:
     """
-    Extract goal from: 'agent: ...', 'human: ...', 'goal: ...' (case-insensitive).
+    Parse operator instructions:
+    - agent: <goal>  → always use LLM human-like loop (requires AI + provider).
+    - human: / goal: → rules-first; LLM only when AI mode is 'ai', or as fallback when 'hybrid'.
+    Also accepts ``human <goal>`` (space, no colon).
     """
     s = instruction.strip()
     m = re.match(r"^(?i)(agent|human|goal)\s*:\s*(.+)$", s)
     if m:
-        return m.group(2).strip()
+        return {"kind": m.group(1).lower(), "goal": m.group(2).strip()}
     m = re.match(r"^(?i)(agent|human)\s+(.+)$", s)
     if m:
-        return m.group(2).strip()
+        return {"kind": m.group(1).lower(), "goal": m.group(2).strip()}
     return None
+
+
+def parse_agent_goal(instruction: str) -> Optional[str]:
+    """Backward compat: goal text only."""
+    p = parse_agent_instruction(instruction)
+    return p["goal"] if p else None
+
+
+# Sentinel goal: user asked for full-app resource coverage (handled as guidance, not a single click path)
+QA_BUDDY_FULL_COVERAGE_GOAL = "__QA_BUDDY_FULL_COVERAGE__"
+
+
+def infer_plain_language_goal(instruction: str) -> Optional[Dict[str, str]]:
+    """
+    Treat natural language as a ``human:`` goal when the user does not add a prefix.
+
+    Examples that match:
+    - "complete the create file system wizard with name \\"qa-test-fs-01\\" and submit"
+    - "open storage and create a new bucket"
+    - "complete UI testing for all resources"
+    """
+    s = instruction.strip()
+    if len(s) < 10:
+        return None
+    lower = s.lower()
+
+    # Broad "test everything" intent → discovery + test run is the source of truth
+    if any(
+        phrase in lower
+        for phrase in (
+            "all resources",
+            "every resource",
+            "all resource",
+            "complete ui testing",
+            "full ui test",
+            "test everything",
+            "entire ui",
+            "full coverage",
+            "whole ui",
+            "every page",
+            "all pages",
+            "all modules",
+            "saare resource",
+            "sab resources",
+            "poora ui",
+            "khud sure",
+            "sure yourself",
+            "be sure",
+            "self verify",
+        )
+    ):
+        return {"kind": "human", "goal": QA_BUDDY_FULL_COVERAGE_GOAL}
+
+    # Single-task / wizard style (imperative)
+    task_markers = (
+        "complete ",
+        "finish ",
+        "fill ",
+        "submit",
+        "wizard",
+        "create ",
+        "add ",
+        "new ",
+        "open ",
+        "navigate ",
+        "go to ",
+        "goto ",
+        "test the ",
+        "verify ",
+        "enter ",
+        "run through",
+        "walk through",
+        "save ",
+        "update ",
+        "edit ",
+        "delete ",
+        "remove ",
+    )
+    if any(m in lower for m in task_markers):
+        return {"kind": "human", "goal": s}
+
+    # Quoted value + form-ish words → likely a wizard instruction
+    if ("name" in lower or "wizard" in lower or "form" in lower) and (
+        '"' in s or "'" in s
+    ):
+        return {"kind": "human", "goal": s}
+
+    return None
+
+
+def _seed_strings_from_goal(goal: str) -> List[str]:
+    """Pull quoted literals and `name ...` fragments for SmartFormFiller seed_data."""
+    if not goal or goal == QA_BUDDY_FULL_COVERAGE_GOAL:
+        return []
+    out: List[str] = []
+    out.extend(re.findall(r'"([^"]{1,200})"', goal))
+    out.extend(re.findall(r"'([^']{1,200})'", goal))
+    m = re.search(
+        r"(?i)\bname\s+(?:is\s+)?[:=]?\s*([A-Za-z0-9][A-Za-z0-9._\-]{1,120})",
+        goal,
+    )
+    if m:
+        out.append(m.group(1).strip())
+    # de-dupe preserving order
+    seen = set()
+    uniq: List[str] = []
+    for x in out:
+        x = x.strip()
+        if x and x.lower() not in seen:
+            seen.add(x.lower())
+            uniq.append(x)
+    return uniq
+
+
+def _goal_tokens(goal: str) -> List[str]:
+    words = re.findall(r"[a-z0-9]+", goal.lower())
+    return [w for w in words if w not in _GOAL_STOP_WORDS and len(w) > 1]
+
+
+async def _rules_collect_click_candidates(page) -> List[Dict[str, Any]]:
+    try:
+        return await page.evaluate(
+            """() => {
+              const out = [];
+              const sel = 'a[href], button, [role="button"], [role="menuitem"], [role="tab"]';
+              document.querySelectorAll(sel).forEach((el) => {
+                if (!el.offsetParent) return;
+                const t = (el.innerText || el.value || el.getAttribute('aria-label') || '').trim();
+                if (!t || t.length > 120) return;
+                const tl = t.toLowerCase();
+                out.push({ text: t, lower: tl });
+              });
+              return out;
+            }"""
+        )
+    except Exception as e:
+        logger.debug(f"rules collect candidates failed: {e}")
+        return []
+
+
+def _score_nav_text(lower_text: str, tokens: List[str]) -> int:
+    if not tokens:
+        return 0
+    score = 0
+    for tok in tokens:
+        if tok in lower_text:
+            score += 3
+        elif any(tok in w or w in tok for w in lower_text.split() if len(w) > 2):
+            score += 1
+    return score
+
+
+async def run_rules_based_goal(page, goal: str, run_id: str) -> Dict[str, Any]:
+    """
+    Deterministic navigation + SmartFormFiller for goals like "test file storage fully".
+    Does not call an LLM.
+    """
+    from app.services.smart_form_filler import SmartFormFiller
+
+    gstrip = goal.strip()
+    if gstrip == QA_BUDDY_FULL_COVERAGE_GOAL:
+        return {
+            "ok": True,
+            "steps": [],
+            "summary": (
+                "Full UI coverage for all resources is built into the main run: "
+                "(1) Start run → discovery walks navigation and pages. "
+                "(2) Test cases are auto-generated per area (list, search, filter, forms, actions). "
+                "(3) Open Test Cases → Run to execute. "
+                "Turn on create/update/delete under Operations if you want write tests. "
+                "— Hindi: Sab resources ke liye Start Run → discovery, phir Test Cases run karo; "
+                "yahi systematic 'poora UI sure' karna hai."
+            ),
+        }
+
+    seed_for_fill = _seed_strings_from_goal(goal)
+    seed_kw = seed_for_fill if seed_for_fill else None
+
+    tokens = _goal_tokens(goal)
+    steps_out: List[Dict[str, Any]] = []
+    filler = SmartFormFiller()
+    modal_miss = 0
+
+    async def visible_modal_scope() -> Optional[str]:
+        for sel in ("[role='dialog']", "[role='alertdialog']", ".modal:visible"):
+            try:
+                loc = page.locator(sel).first
+                if await loc.count() > 0 and await loc.is_visible():
+                    return sel
+            except Exception:
+                continue
+        return None
+
+    for step_i in range(18):
+        scope = await visible_modal_scope()
+        if scope:
+            res = await filler.fill_form(
+                page,
+                run_id,
+                form_selector=scope,
+                context_hint=goal,
+                seed_data=seed_kw,
+            )
+            steps_out.append(
+                {"step": step_i + 1, "action": "smart_fill", "scope": scope, "result": res}
+            )
+            if res.get("filled_count", 0) > 0:
+                modal_miss = 0
+                submitted = await filler.find_and_click_submit(page, scope)
+                steps_out.append(
+                    {
+                        "step": step_i + 1,
+                        "action": "submit",
+                        "result": "clicked" if submitted else "no_submit_button",
+                    }
+                )
+                await page.wait_for_timeout(1200)
+                errs = await filler.check_for_validation_errors(page)
+                if not errs:
+                    return {
+                        "ok": True,
+                        "steps": steps_out,
+                        "summary": f"Rules path: filled form in {scope} and submitted ({res.get('filled_count')} fields).",
+                    }
+                if step_i > 8:
+                    return {
+                        "ok": False,
+                        "steps": steps_out,
+                        "summary": f"Rules path: validation still failing: {errs[:2]}",
+                    }
+            else:
+                modal_miss += 1
+                if modal_miss >= 4:
+                    return {
+                        "ok": False,
+                        "steps": steps_out,
+                        "summary": "Rules path: dialog visible but no fillable fields were detected.",
+                        "error": "rules_modal_no_fields",
+                    }
+            continue
+
+        created = await filler.find_and_click_create_button(page)
+        if created:
+            steps_out.append(
+                {"step": step_i + 1, "action": "click_create", "result": created}
+            )
+            await page.wait_for_timeout(1000)
+            continue
+
+        candidates = await _rules_collect_click_candidates(page)
+        best: Optional[Tuple[int, str]] = None
+        for c in candidates:
+            text = c.get("text") or ""
+            low = c.get("lower") or text.lower()
+            if any(bad in low for bad in _CLICK_SKIP_SUBSTRINGS):
+                continue
+            sc = _score_nav_text(low, tokens)
+            if sc <= 0:
+                continue
+            if best is None or sc > best[0]:
+                best = (sc, text)
+
+        if best:
+            _, label = best
+            try:
+                await page.get_by_text(label, exact=True).first.click(timeout=6000)
+            except Exception:
+                await page.get_by_text(label, exact=False).first.click(timeout=6000)
+            steps_out.append({"step": step_i + 1, "action": "click_nav", "target": label})
+            await page.wait_for_timeout(1200)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
+            continue
+
+        if not tokens:
+            break
+        low_url = page.url.lower()
+        if any(t in low_url for t in tokens):
+            res = await filler.fill_form(
+                page,
+                run_id,
+                form_selector=None,
+                context_hint=goal,
+                seed_data=seed_kw,
+            )
+            steps_out.append({"step": step_i + 1, "action": "smart_fill_page", "result": res})
+            if res.get("filled_count", 0) > 0:
+                await filler.find_and_click_submit(page, None)
+                return {
+                    "ok": True,
+                    "steps": steps_out,
+                    "summary": "Rules path: filled fields on current page matching goal URL.",
+                }
+        break
+
+    return {
+        "ok": False,
+        "steps": steps_out,
+        "summary": (
+            "Rules-based goal runner could not complete the goal "
+            f"(tokens={tokens!r}). Try AI mode 'hybrid' or 'ai', or prefix with agent: for LLM-only."
+        ),
+        "error": "rules_incomplete",
+    }
+
+
+def should_use_llm_for_goal(
+    kind: str,
+    ai_config: Any,
+) -> str:
+    """
+    Returns 'force_llm' | 'llm_only' | 'rules_then_maybe_llm' | 'rules_only'.
+    """
+    enabled = bool(ai_config and getattr(ai_config, "enabled", False))
+    provider = getattr(ai_config, "provider", "none") if ai_config else "none"
+    ai_on = enabled and provider and str(provider).lower() != "none"
+    mode = getattr(ai_config, "mode", "normal") if ai_config else "normal"
+
+    if kind == "agent":
+        # Always invoke LLM path so disabled/misconfigured AI returns a clear error to the user.
+        return "force_llm"
+
+    if kind in ("human", "goal"):
+        if mode == "ai" and ai_on:
+            return "llm_only"
+        if mode == "hybrid" and ai_on:
+            return "rules_then_maybe_llm"
+        return "rules_only"
+
+    return "rules_only"

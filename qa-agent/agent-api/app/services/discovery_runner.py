@@ -49,6 +49,38 @@ class DiscoveryConfig:
         self.ask_before_destructive_forms = ask_before_destructive_forms
 
 
+def _buddy_test_coverage_summary(all_test_cases: List[Any]) -> Dict[str, Any]:
+    """Short EN/HI messages for UI: confirms test cases exist and what areas they cover."""
+    counts: Dict[str, int] = {}
+    for tc in all_test_cases:
+        ft = getattr(tc, "feature_type", None) or "unknown"
+        counts[ft] = counts.get(ft, 0) + 1
+
+    labels = {
+        "search": "Search",
+        "filter": "Filter",
+        "listing": "List / table",
+        "form": "Forms / create-update",
+        "modal": "Dialogs / modals",
+        "pagination": "Pagination",
+        "navigation": "Navigation",
+        "button_actions": "Buttons (save / edit / delete)",
+        "tabs": "Tabs",
+    }
+    areas = [f"{labels[k]} ({counts[k]} tests)" for k in labels if counts.get(k)]
+    n = len(all_test_cases)
+    areas_txt = "; ".join(areas[:12]) if areas else "general UI checks"
+    en = (
+        f"Yes — {n} automated test cases were generated. They cover: {areas_txt}. "
+        "Open the Test Cases tab and click Run to execute them."
+    )
+    hi = (
+        f"Haan — {n} test cases ban gaye. Inme shamil hai: {areas_txt}. "
+        "Ab 'Test Cases' tab khol kar Run dabao."
+    )
+    return {"counts": counts, "coverage_areas": areas, "buddy_message_en": en, "buddy_message_hi": hi}
+
+
 class DiscoveryRunner:
     """Service for running discovery on a logged-in session with live event streaming."""
 
@@ -118,7 +150,9 @@ class DiscoveryRunner:
         self.trace_writers: Dict[str, Any] = {}  # run_id -> file handle
         self.trace_step_no: Dict[str, int] = {}  # run_id -> step counter
         self.modal_forms: Dict[str, List[Dict]] = {}  # run_id -> list of forms from modals
-    
+        # Per run: normalized URLs where we already ran create-button exploration (avoid create↔listing loops)
+        self._create_explore_done_urls: Dict[str, Set[str]] = {}
+
     def _get_event_writer(self, run_id: str, artifacts_path: str):
         """Get or create event writer for a run."""
         if run_id not in self.event_writers:
@@ -849,7 +883,84 @@ class DiscoveryRunner:
         """Check if an action is destructive."""
         text_lower = text.lower()
         return any(keyword in text_lower for keyword in self.DESTRUCTIVE_KEYWORDS)
-    
+
+    async def _element_dom_nav_context(self, locator) -> Dict[str, Any]:
+        """
+        Classify an element using DOM structure (landmarks, roles), not link text keywords.
+        Used so navigation targets and 'resource' highlights follow semantic HTML/ARIA.
+        """
+        try:
+            return await locator.evaluate(
+                """el => {
+                    const inChrome = el.closest(
+                        'footer, [role="contentinfo"], [aria-label*="cookie" i], .cookie-banner, #cookie-consent'
+                    );
+                    if (inChrome) {
+                        return { in_nav_landmark: false, landmark: null, is_submenu_item: false, in_chrome: true };
+                    }
+                    const root = el.closest(
+                        'nav, aside, [role="navigation"], [role="menubar"], [role="directory"], header nav, [data-navigation]'
+                    );
+                    if (!root) {
+                        return { in_nav_landmark: false, landmark: null, is_submenu_item: false, in_chrome: false };
+                    }
+                    const role = root.getAttribute('role');
+                    const tag = root.tagName.toLowerCase();
+                    const landmark = role || tag;
+                    const li = el.closest('li, [role="menuitem"]');
+                    let isSubmenu = false;
+                    if (li && li.parentElement) {
+                        const parentItem = li.parentElement.closest('li, [role="menuitem"]');
+                        isSubmenu = !!parentItem;
+                    }
+                    return {
+                        in_nav_landmark: true,
+                        landmark,
+                        is_submenu_item: isSubmenu,
+                        in_chrome: false
+                    };
+                }"""
+            )
+        except Exception:
+            return {
+                "in_nav_landmark": False,
+                "landmark": None,
+                "is_submenu_item": False,
+                "in_chrome": False,
+            }
+
+    def _is_resource_from_dom(self, dom_ctx: Dict[str, Any]) -> bool:
+        """Whether this item is primary app navigation (DOM-defined), for events and prioritization."""
+        return bool(dom_ctx.get("in_nav_landmark")) and not dom_ctx.get("in_chrome")
+
+    async def _dom_suggests_create_action(self, locator) -> bool:
+        """
+        Prefer DOM hints (href, data-*, aria) for 'create' flows; avoids relying on visible text alone.
+        """
+        try:
+            matched = await locator.evaluate(
+                """el => {
+                    const href = (el.getAttribute('href') || '').toLowerCase();
+                    const al = (el.getAttribute('aria-label') || '').toLowerCase();
+                    const tit = (el.getAttribute('title') || '').toLowerCase();
+                    const dt = (el.getAttribute('data-testid') || '').toLowerCase();
+                    const da = (el.getAttribute('data-action') || '').toLowerCase();
+                    const id = (el.getAttribute('id') || '').toLowerCase();
+                    if (el.closest('footer, [role="contentinfo"], [aria-label*="cookie" i]')) return false;
+                    const pathHints = ['/new', '/create', '/add', 'action=create', 'mode=create', 'operation=create'];
+                    if (href && pathHints.some(h => href.includes(h))) return true;
+                    const blob = al + ' ' + tit + ' ' + dt + ' ' + da + ' ' + id;
+                    const hints = ['create-', 'add-new', 'new-', 'invite', 'import', 'upload', 'register'];
+                    if (hints.some(h => blob.includes(h))) return true;
+                    return false;
+                }"""
+            )
+            if matched:
+                return True
+        except Exception:
+            pass
+        return False
+
     async def run_discovery(
         self,
         page,
@@ -928,6 +1039,8 @@ class DiscoveryRunner:
                 if trace_file.exists():
                     trace_file.unlink()
                 self.trace_step_no[run_id] = 0
+
+            self._create_explore_done_urls[run_id] = set()
 
             self._emit_event(run_id, artifacts_path, "discovery_started", {
                 "base_url": base_url,
@@ -1147,7 +1260,7 @@ class DiscoveryRunner:
             )
             result["navigation_items"] = nav_items
             # Extract resources from navigation
-            resources = [item for item in nav_items if item.get("is_resource") or "resource" in item.get("text", "").lower()]
+            resources = [item for item in nav_items if item.get("is_resource")]
             
             self._emit_event(run_id, artifacts_path, "navigation_discovered", {
                 "count": len(nav_items),
@@ -1470,7 +1583,7 @@ class DiscoveryRunner:
                     # Extract resources from navigation items
                     resources = []
                     for nav_item in nav_items:
-                        if nav_item.get("is_resource") or "resource" in nav_item.get("text", "").lower():
+                        if nav_item.get("is_resource"):
                             resources.append({
                                 "name": nav_item.get("text", ""),
                                 "url": nav_item.get("full_url", ""),
@@ -1584,6 +1697,7 @@ class DiscoveryRunner:
                 json.dump(appmap, f, indent=2, default=str)
             
             # Collect and save all generated test cases using ENHANCED generator
+            saved_test_cases_for_buddy: Optional[List[Any]] = None
             try:
                 logger.info(f"[{run_id}] Generating comprehensive test cases using enhanced generator...")
 
@@ -1680,17 +1794,42 @@ class DiscoveryRunner:
                         "gaps": coverage_report['coverage_gaps'][:5]  # Top 5 gaps
                     })
 
+                saved_test_cases_for_buddy = all_test_cases
+
             except Exception as tc_error:
                 logger.error(f"[{run_id}] Failed to save test cases: {tc_error}", exc_info=True)
 
+            buddy_discovery: Dict[str, Any] = {
+                "total_test_cases": 0,
+                "coverage_areas": [],
+                "buddy_message_en": (
+                    "Discovery finished, but saving test cases failed — check server logs. "
+                    "Pages and forms were still recorded."
+                ),
+                "buddy_message_hi": (
+                    "Discovery khatam, par test cases save nahi ho paye — server logs dekho. "
+                    "Pages/forms record ho chuke hain."
+                ),
+            }
+            if saved_test_cases_for_buddy:
+                _bs = _buddy_test_coverage_summary(saved_test_cases_for_buddy)
+                buddy_discovery = {
+                    "total_test_cases": len(saved_test_cases_for_buddy),
+                    "coverage_areas": _bs.get("coverage_areas", []),
+                    "buddy_message_en": _bs["buddy_message_en"],
+                    "buddy_message_hi": _bs["buddy_message_hi"],
+                }
+
             self._emit_event(run_id, artifacts_path, "discovery_completed", {
                 "pages_count": len(visited_pages),
+                "pages_discovered": len(visited_pages),
                 "forms_count": len(forms_found),
                 "api_endpoints_count": len(api_requests),
                 "dropdowns_count": len(dropdowns_found),
                 "contexts_explored": len(context_discoveries) if context_discoveries else 0,
                 "api_endpoints_tested": len(sanity_results) if sanity_results else 0,
-                "summary": result["summary"]
+                "summary": result["summary"],
+                **buddy_discovery,
             })
 
             # Phase 1: Execute health checks on all discovered pages
@@ -2892,17 +3031,20 @@ class DiscoveryRunner:
 
                                                 if (parsed.netloc == base_domain or parsed.netloc == "") and href not in discovered_urls:
                                                     nav_path = text.strip()
+                                                    dom_ctx = await self._element_dom_nav_context(item)
                                                     nav_items.append({
                                                         "text": text.strip()[:100],
                                                         "href": href,
                                                         "full_url": full_url,
                                                         "nav_path": nav_path,
                                                         "submenu_items": submenu_items,
-                                                        "is_resource": "RESOURCE" in text.upper() or "RESOURCES" in text.upper() or any(word in text.lower() for word in ["virtual", "machine", "network", "storage", "image", "instance"])
+                                                        "is_resource": self._is_resource_from_dom(dom_ctx),
+                                                        "dom": dom_ctx,
                                                     })
                                                     discovered_urls.add(href)
                                             elif is_button or await item.get_attribute("role") in ["button", "menuitem", "tab"]:
                                                 # Add clickable items without href (buttons, menu items)
+                                                dom_ctx = await self._element_dom_nav_context(item)
                                                 nav_items.append({
                                                     "text": text.strip()[:100],
                                                     "href": None,
@@ -2910,7 +3052,8 @@ class DiscoveryRunner:
                                                     "nav_path": text.strip(),
                                                     "element": menu_sel,  # Store selector for clicking
                                                     "submenu_items": submenu_items,
-                                                    "is_resource": any(word in text.lower() for word in ["virtual", "machine", "network", "storage", "image", "instance", "compute", "volume"])
+                                                    "is_resource": self._is_resource_from_dom(dom_ctx),
+                                                    "dom": dom_ctx,
                                                 })
 
                                         # Add submenu items
@@ -2925,7 +3068,12 @@ class DiscoveryRunner:
                                                     "full_url": sub_item["full_url"],
                                                     "nav_path": nav_path,
                                                     "submenu_items": [],
-                                                    "is_resource": True
+                                                    "is_resource": True,
+                                                    "dom": {
+                                                        "in_nav_landmark": True,
+                                                        "landmark": "submenu",
+                                                        "is_submenu_item": True,
+                                                    },
                                                 })
                                     except Exception as e:
                                         logger.debug(f"[{run_id}] Error processing nav item {i}: {e}")
@@ -2961,13 +3109,15 @@ class DiscoveryRunner:
                                 except Exception:
                                     link_text = full_parsed.path
                                 if link_text and not self._is_destructive(link_text):
+                                    dom_ctx = await self._element_dom_nav_context(link)
                                     nav_items.append({
                                         "text": link_text or full_parsed.path,
                                         "href": href,
                                         "full_url": full_url,
                                         "nav_path": link_text or full_parsed.path,
                                         "submenu_items": [],
-                                        "is_resource": False,
+                                        "is_resource": self._is_resource_from_dom(dom_ctx),
+                                        "dom": dom_ctx,
                                         "source": "organic_link_discovery"
                                     })
                                     organic_added += 1
@@ -3047,15 +3197,15 @@ class DiscoveryRunner:
                                         parsed = urlparse(full_url)
 
                                         if parsed.netloc == base_domain or parsed.netloc == "":
-                                            is_resource = any(word in text.lower() for word in ["virtual", "machine", "network", "storage", "image", "instance", "compute", "volume", "server", "database", "container"])
-
+                                            dom_ctx = await self._element_dom_nav_context(link)
                                             sidebar_elements_found.append({
                                                 "text": text[:100],
                                                 "href": href,
                                                 "full_url": full_url,
                                                 "nav_path": text,
                                                 "submenu_items": [],
-                                                "is_resource": is_resource
+                                                "is_resource": True,
+                                                "dom": {**dom_ctx, "visual_sidebar_region": True},
                                             })
                                             logger.debug(f"[{run_id}] Fallback: Sidebar link '{text}' -> {href}")
                                     else:
@@ -3064,16 +3214,16 @@ class DiscoveryRunner:
                                         role = await link.get_attribute("role")
 
                                         if tag_name == "button" or role in ["button", "menuitem", "tab"]:
-                                            is_resource = any(word in text.lower() for word in ["virtual", "machine", "network", "storage", "image", "instance", "compute", "volume"])
-
+                                            dom_ctx = await self._element_dom_nav_context(link)
                                             sidebar_elements_found.append({
                                                 "text": text[:100],
                                                 "href": None,
                                                 "full_url": page.url,
                                                 "nav_path": text,
                                                 "submenu_items": [],
-                                                "is_resource": is_resource,
-                                                "clickable_element": True
+                                                "is_resource": True,
+                                                "clickable_element": True,
+                                                "dom": {**dom_ctx, "visual_sidebar_region": True},
                                             })
                                             logger.debug(f"[{run_id}] Fallback: Sidebar button '{text}'")
 
@@ -3088,16 +3238,16 @@ class DiscoveryRunner:
                     nav_items.extend(sidebar_elements_found)
                     logger.info(f"[{run_id}] Strategy A (Visual): {len(sidebar_elements_found)} items found")
 
-                # STRATEGY B: Text-content search if visual detection found nothing/little
+                # STRATEGY B: DOM landmark scan if visual detection found nothing/little
                 if len(nav_items) < 5:  # Less than 5 items suggests we missed the real sidebar
-                    logger.warning(f"[{run_id}] Visual detection found only {len(nav_items)} items. Trying text-content search...")
+                    logger.warning(f"[{run_id}] Visual detection found only {len(nav_items)} items. Trying DOM landmark navigation scan...")
 
-                    text_based_items = await self._find_navigation_by_text_content(
+                    dom_nav_items = await self._find_navigation_by_dom_landmarks(
                         page, run_id, base_domain, discovered_texts
                     )
 
-                    nav_items.extend(text_based_items)
-                    logger.info(f"[{run_id}] After text search: {len(nav_items)} total items")
+                    nav_items.extend(dom_nav_items)
+                    logger.info(f"[{run_id}] After DOM landmark scan: {len(nav_items)} total items")
 
                 # STRATEGY C: If still nothing, collect ALL clickable links and buttons on the page
                 if len(nav_items) == 0:
@@ -3141,27 +3291,15 @@ class DiscoveryRunner:
 
                                 # Only add same-domain links
                                 if parsed.netloc == base_domain or parsed.netloc == "":
-                                    # Detect if it's a resource based on comprehensive keywords
-                                    navigation_keywords = [
-                                        # Resources
-                                        "virtual", "machine", "instance", "compute", "server",
-                                        "network", "storage", "volume", "image", "snapshot",
-                                        "database", "container", "cluster", "node", "pod",
-                                        # Common navigation
-                                        "dashboard", "overview", "monitor", "admin", "settings",
-                                        "users", "groups", "roles", "permissions", "access",
-                                        # Actions/views
-                                        "list", "view", "manage", "create", "edit"
-                                    ]
-                                    is_resource = any(word in text.lower() for word in navigation_keywords)
-
+                                    dom_ctx = await self._element_dom_nav_context(link)
                                     nav_items.append({
                                         "text": text[:100],
                                         "href": href,
                                         "full_url": full_url,
                                         "nav_path": text,
                                         "submenu_items": [],
-                                        "is_resource": is_resource
+                                        "is_resource": self._is_resource_from_dom(dom_ctx),
+                                        "dom": dom_ctx,
                                     })
                                     logger.debug(f"[{run_id}] Fallback: Added link '{text}' -> {href}")
                             else:
@@ -3170,24 +3308,15 @@ class DiscoveryRunner:
                                 role = await link.get_attribute("role")
 
                                 if tag_name == "button" or role in ["button", "menuitem", "tab"]:
-                                    # Use same comprehensive keywords for buttons
-                                    navigation_keywords = [
-                                        "virtual", "machine", "instance", "compute", "server",
-                                        "network", "storage", "volume", "image", "snapshot",
-                                        "database", "container", "cluster", "node", "pod",
-                                        "dashboard", "overview", "monitor", "admin", "settings",
-                                        "users", "groups", "roles", "permissions", "access",
-                                        "list", "view", "manage", "create", "edit"
-                                    ]
-                                    is_resource = any(word in text.lower() for word in navigation_keywords)
-
+                                    dom_ctx = await self._element_dom_nav_context(link)
                                     nav_items.append({
                                         "text": text[:100],
                                         "href": None,
                                         "full_url": page.url,
                                         "nav_path": text,
                                         "submenu_items": [],
-                                        "is_resource": is_resource,
+                                        "is_resource": self._is_resource_from_dom(dom_ctx),
+                                        "dom": dom_ctx,
                                         "clickable_element": True
                                     })
                                     logger.debug(f"[{run_id}] Fallback: Added clickable button '{text}'")
@@ -3204,7 +3333,7 @@ class DiscoveryRunner:
         logger.info(f"[{run_id}] === TOTAL NAVIGATION ITEMS: {len(nav_items)} ===")
         return nav_items
 
-    async def _find_navigation_by_text_content(
+    async def _find_navigation_by_dom_landmarks(
         self,
         page,
         run_id: str,
@@ -3212,75 +3341,70 @@ class DiscoveryRunner:
         discovered_texts: Set[str]
     ) -> List[Dict[str, Any]]:
         """
-        Strategy B: Find navigation elements by searching for resource-related text.
-
-        Uses JavaScript to scan entire page for elements containing navigation keywords.
+        Strategy B: Collect navigation candidates only inside DOM navigation landmarks
+        (nav, aside, role=navigation/menubar, header nav, data-navigation).
         """
-        nav_items = []
+        nav_items: List[Dict[str, Any]] = []
 
-        # Keywords that suggest navigation/resource items
-        navigation_keywords = [
-            "virtual", "machine", "instance", "compute",
-            "network", "storage", "volume", "image",
-            "database", "container", "server", "cluster",
-            "dashboard", "overview", "monitor", "settings"
-        ]
+        logger.info(f"[{run_id}] Strategy B: Scanning DOM navigation landmarks...")
 
-        logger.info(f"[{run_id}] Strategy B: Searching by text content...")
-
-        # Use JavaScript to find ALL elements containing these keywords
-        js_code = """
-        (keywords) => {
-            const results = [];
-
-            // Get all clickable elements
-            const elements = document.querySelectorAll('a, button, [role="button"], [role="menuitem"], [role="tab"], div[onclick]');
-
-            for (const el of elements) {
-                const text = el.innerText || el.textContent || '';
-                const textLower = text.toLowerCase().trim();
-
-                // Check if element text contains any navigation keyword
-                for (const keyword of keywords) {
-                    if (textLower.includes(keyword) && textLower.length < 100) {
-                        results.push({
-                            text: text.trim(),
-                            href: el.href || null,
-                            tagName: el.tagName.toLowerCase(),
-                            role: el.getAttribute('role'),
-                            visible: el.offsetParent !== null
-                        });
-                        break;  // Don't add same element multiple times
+        js_collect = """
+        () => {
+            const roots = document.querySelectorAll(
+                'nav, aside, [role="navigation"], [role="menubar"], [data-navigation], header nav'
+            );
+            const out = [];
+            const seen = new Set();
+            for (const root of roots) {
+                const landmark = root.getAttribute('role') || root.tagName.toLowerCase();
+                const clickable = root.querySelectorAll(
+                    'a[href], button, [role="button"], [role="menuitem"], [role="tab"]'
+                );
+                for (const el of clickable) {
+                    if (!el.offsetParent) continue;
+                    const text = (el.innerText || el.textContent || '').trim();
+                    if (!text || text.length > 100) continue;
+                    let href = el.getAttribute('href');
+                    if (el.tagName.toLowerCase() === 'a' && el.href) {
+                        href = el.getAttribute('href');
                     }
+                    const key = (href || '') + '|' + text.toLowerCase();
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    out.push({
+                        text: text,
+                        href: href || null,
+                        landmark: landmark,
+                        isSubmenu: !!(el.closest('li') && el.closest('li').parentElement &&
+                            el.closest('li').parentElement.closest('li'))
+                    });
                 }
             }
-
-            return results;
+            return out;
         }
         """
 
         try:
-            # Execute JavaScript to find elements
-            found_elements = await page.evaluate(js_code, navigation_keywords)
+            found = await page.evaluate(js_collect)
+            logger.info(f"[{run_id}] Strategy B: Found {len(found)} elements under navigation landmarks")
 
-            logger.info(f"[{run_id}] Strategy B: Found {len(found_elements)} elements with navigation keywords")
-
-            for elem_data in found_elements:
-                text = elem_data['text']
+            for row in found:
+                text = row.get("text") or ""
                 text_key = text.lower()
-
-                # Skip duplicates
-                if text_key in discovered_texts:
+                if not text_key or text_key in discovered_texts:
                     continue
-
                 discovered_texts.add(text_key)
 
-                href = elem_data.get('href')
-                if href:
-                    # It's a link
+                href = row.get("href")
+                dom_meta = {
+                    "in_nav_landmark": True,
+                    "landmark": row.get("landmark"),
+                    "is_submenu_item": bool(row.get("isSubmenu")),
+                    "in_chrome": False,
+                }
+                if href and not str(href).startswith("#") and not str(href).lower().startswith("javascript"):
                     full_url = urljoin(page.url, href)
                     parsed = urlparse(full_url)
-
                     if parsed.netloc == base_domain or parsed.netloc == "":
                         nav_items.append({
                             "text": text[:100],
@@ -3288,12 +3412,11 @@ class DiscoveryRunner:
                             "full_url": full_url,
                             "nav_path": text,
                             "submenu_items": [],
-                            "is_resource": True,  # Found via resource keywords
-                            "source": "text_content_search"
+                            "is_resource": True,
+                            "dom": dom_meta,
+                            "source": "dom_landmarks",
                         })
-                        logger.debug(f"[{run_id}] Strategy B: Added '{text}' -> {href}")
                 else:
-                    # It's a button/clickable element
                     nav_items.append({
                         "text": text[:100],
                         "href": None,
@@ -3302,14 +3425,14 @@ class DiscoveryRunner:
                         "submenu_items": [],
                         "is_resource": True,
                         "clickable_element": True,
-                        "source": "text_content_search"
+                        "dom": dom_meta,
+                        "source": "dom_landmarks",
                     })
-                    logger.debug(f"[{run_id}] Strategy B: Added button '{text}'")
 
         except Exception as e:
-            logger.error(f"[{run_id}] Strategy B failed: {e}")
+            logger.error(f"[{run_id}] Strategy B (DOM landmarks) failed: {e}")
 
-        logger.info(f"[{run_id}] Strategy B: Collected {len(nav_items)} navigation items")
+        logger.info(f"[{run_id}] Strategy B: Collected {len(nav_items)} navigation items from landmarks")
         return nav_items
 
     async def _expand_collapsible_sections(self, sidebar, page, run_id: str, artifacts_path: str, discovery_dir: Path, debug: bool):
@@ -4384,11 +4507,21 @@ class DiscoveryRunner:
     
     async def _explore_create_buttons(self, page, run_id: str, page_url: str) -> List[Dict[str, Any]]:
         """
-        Human-like exploration: find every visible Create/Add/New/+ button on the page,
-        click it, capture the form/modal that appears, then close it.
-        Returns a list of discovered form dicts (same shape as _get_forms_detailed).
+        Human-like exploration: find visible Create/Add/New/+ buttons on the page,
+        click, capture the form/modal, then close or navigate back.
+
+        Limited to one full-page (navigating) create flow per URL per run — otherwise
+        apps like "VM list → Create VM → back to list" repeat for every similar button
+        and look like an infinite loop.
         """
         discovered_forms: List[Dict[str, Any]] = []
+        norm_url = self._normalize_url(page_url)
+        done_set = self._create_explore_done_urls.setdefault(run_id, set())
+        if norm_url in done_set:
+            logger.info(
+                f"[{run_id}] Skipping create-button exploration (already done for this URL in this run): {page_url}"
+            )
+            return []
 
         # Keywords that indicate a "create" action
         CREATE_KEYWORDS = ["create", "add", "new", "register", "invite", "import", "upload"]
@@ -4402,12 +4535,19 @@ class DiscoveryRunner:
         ]
 
         seen_texts: set = set()
+        full_page_create_done = 0  # max 1 navigate-away create per page (prevents list↔create oscillation)
+        modal_creates_done = 0
+        MAX_MODAL_CREATES = 4
 
         for sel in CLICKABLE_SELECTORS:
             try:
                 elements = page.locator(sel)
                 count = await elements.count()
                 for i in range(min(count, 30)):
+                    if full_page_create_done >= 1:
+                        break
+                    if modal_creates_done >= MAX_MODAL_CREATES:
+                        break
                     try:
                         el = elements.nth(i)
                         # Only visible elements
@@ -4421,8 +4561,9 @@ class DiscoveryRunner:
                             continue
 
                         text_lower = text.lower()
-                        # Must contain a create keyword; skip if already seen
-                        if not any(kw in text_lower for kw in CREATE_KEYWORDS):
+                        dom_create = await self._dom_suggests_create_action(el)
+                        # Prefer DOM (href / data-* / aria); fall back to visible text keywords
+                        if not dom_create and not any(kw in text_lower for kw in CREATE_KEYWORDS):
                             continue
                         # Skip destructive/navigation buttons
                         if any(bad in text_lower for bad in ["delete", "remove", "cancel", "close", "back", "logout"]):
@@ -4460,6 +4601,9 @@ class DiscoveryRunner:
                             pass
 
                         if modal_visible:
+                            modal_creates_done += 1
+                            if modal_creates_done > MAX_MODAL_CREATES:
+                                continue
                             # Extract all input fields from the modal
                             inputs = modal.locator("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea")
                             inp_count = await inputs.count()
@@ -4517,6 +4661,7 @@ class DiscoveryRunner:
                             await page.wait_for_timeout(500)
 
                         elif navigated:
+                            full_page_create_done += 1
                             # Page navigated — a full-page form opened
                             inputs = page.locator("input:not([type='hidden']):not([type='submit']):not([type='button']), select, textarea")
                             inp_count = await inputs.count()
@@ -4546,7 +4691,7 @@ class DiscoveryRunner:
                                     "discovered_via": "create_button_click",
                                 })
 
-                            # Navigate back
+                            # Navigate back to listing
                             try:
                                 await page.go_back(timeout=4000)
                                 await page.wait_for_timeout(800)
@@ -4556,13 +4701,18 @@ class DiscoveryRunner:
                                     await page.wait_for_timeout(800)
                                 except Exception:
                                     pass
+                            # Only one full-route create per analyze pass (avoid ping-pong with other Create/* buttons)
+                            break
 
                     except Exception as btn_err:
                         logger.debug(f"[{run_id}] Error exploring button: {btn_err}")
                         continue
+                if full_page_create_done >= 1:
+                    break
             except Exception:
                 continue
 
+        done_set.add(norm_url)
         return discovered_forms
 
     async def _get_primary_actions(self, page) -> List[Dict[str, Any]]:

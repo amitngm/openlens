@@ -17,6 +17,16 @@ logger = logging.getLogger(__name__)
 MAX_LOGIN_ATTEMPTS = 3
 
 
+def login_ai_fallback_allowed(ai_config: Optional[AIConfig]) -> bool:
+    """LLM-assisted login entry/submit only when AI is on and mode is hybrid or ai (not 'normal')."""
+    if not ai_config or not ai_config.enabled:
+        return False
+    if getattr(ai_config, "provider", "none") in (None, "none"):
+        return False
+    mode = getattr(ai_config, "mode", "hybrid")
+    return mode in ("hybrid", "ai")
+
+
 class LoginExecutor:
     """Service for executing login attempts against generic and Keycloak login forms."""
 
@@ -190,7 +200,7 @@ class LoginExecutor:
                 if opened:
                     username_filled = await self._fill_first_match(page, run_id, self.USERNAME_SELECTORS, username, "username")
 
-            if not username_filled and ai_config and ai_config.enabled and ai_config.provider != "none":
+            if not username_filled and login_ai_fallback_allowed(ai_config):
                 # AI fallback: choose the best "login entry" candidate to click.
                 try:
                     ai_clicked = await self._ai_try_open_login_form(
@@ -523,28 +533,63 @@ class LoginExecutor:
 
         return None
 
+    async def _username_visible_anywhere(self, page) -> bool:
+        """True if a username/email field is visible in main page or iframes."""
+        for selector in self.USERNAME_SELECTORS[:18]:
+            try:
+                loc = await self._first_locator_any_frame(page, selector)
+                if loc and await loc.is_visible():
+                    return True
+            except Exception:
+                continue
+        return False
+
     async def _try_open_login_form(self, page, run_id: str) -> bool:
+        """
+        Click Login/Sign-in entry points until username field appears (SPA / SSO landing pages).
+        """
         try:
+            if await self._username_visible_anywhere(page):
+                return True
+
+            candidates: List = []
             for selector in self.LOGIN_ENTRY_SELECTORS:
                 try:
-                    loc = page.locator(selector).first
-                    count = await loc.count()
-                    if count <= 0:
+                    loc = page.locator(selector)
+                    n = await loc.count()
+                    for i in range(min(n, 4)):
+                        candidates.append(loc.nth(i))
+                except Exception:
+                    continue
+
+            for frame in page.frames:
+                if frame == page.main_frame:
+                    continue
+                for selector in self.LOGIN_ENTRY_SELECTORS[:14]:
+                    try:
+                        loc = frame.locator(selector)
+                        n = await loc.count()
+                        for i in range(min(n, 2)):
+                            candidates.append(loc.nth(i))
+                    except Exception:
                         continue
-                    try:
-                        await loc.scroll_into_view_if_needed()
-                    except Exception:
-                        pass
+
+            for loc in candidates[:35]:
+                try:
+                    if not await loc.is_visible():
+                        continue
+                    await loc.scroll_into_view_if_needed()
                     await loc.click(timeout=5000)
-                    logger.info(f"[{run_id}] Clicked login entry using: {selector}")
+                    logger.info(f"[{run_id}] Clicked login entry candidate")
                     try:
-                        await page.wait_for_load_state("networkidle", timeout=15000)
+                        await page.wait_for_load_state("networkidle", timeout=12000)
                     except Exception:
                         pass
-                    await asyncio.sleep(1)
-                    return True
+                    await asyncio.sleep(1.2)
+                    if await self._username_visible_anywhere(page):
+                        return True
                 except Exception as e:
-                    logger.debug(f"[{run_id}] Login entry selector {selector} failed: {e}")
+                    logger.debug(f"[{run_id}] Login entry click failed: {e}")
         except Exception as e:
             logger.debug(f"[{run_id}] Error trying to open login form: {e}")
         return False
@@ -633,7 +678,7 @@ class LoginExecutor:
             logger.debug(f"[{run_id}] Form submit fallback failed: {e}")
 
         # Strategy 4: AI fallback pick best submit button text and click it
-        if ai_config and ai_config.enabled and ai_config.provider != "none":
+        if login_ai_fallback_allowed(ai_config):
             try:
                 candidates = await self._collect_login_submit_candidates(page)
                 if candidates:

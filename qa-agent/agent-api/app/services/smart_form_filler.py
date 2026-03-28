@@ -670,6 +670,21 @@ class SmartFormFiller:
         if intent == "search" and seed_data:
             return seed_data[0]
 
+        # Explicit names from user prompts (e.g. wizard: name "qa-test-fs-01")
+        if seed_data and intent in (
+            "name",
+            "full_name",
+            "title",
+            "namespace",
+            "cluster",
+            "id_field",
+            "username",
+            "subject",
+        ):
+            candidates = [s.strip() for s in seed_data if s and str(s).strip()]
+            if candidates:
+                return max(candidates, key=len)
+
         # HTML-type overrides
         if ftype == "email":
             return self._POOL["email"][0]
