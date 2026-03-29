@@ -293,6 +293,18 @@ func (h *RunHandler) UpdateBenchmark(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "benchmark updated"})
 }
 
+// CloseBrowser handles POST /runs/:id/close-browser
+// Explicitly closes the Playwright browser for a completed run.
+func (h *RunHandler) CloseBrowser(c *gin.Context) {
+	runID := c.Param("id")
+	if _, ok := h.runStore.Get(runID); !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "run not found"})
+		return
+	}
+	h.runner.CloseBrowser(runID)
+	c.JSON(http.StatusOK, gin.H{"status": "browser closed"})
+}
+
 // Health handles GET /health
 func (h *RunHandler) Health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{

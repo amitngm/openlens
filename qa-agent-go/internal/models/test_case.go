@@ -26,6 +26,7 @@ const (
 	FeatureDragDrop     FeatureType = "drag_drop"
 	FeatureChart        FeatureType = "chart"
 	FeatureNotification FeatureType = "notification"
+	FeatureResourceCRUD FeatureType = "resource_crud" // resource list page with CRUD actions
 )
 
 // Severity of a test case

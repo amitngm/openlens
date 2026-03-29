@@ -80,12 +80,23 @@ func (r *Registry) GenerateTestCases(feature discovery.DetectedFeature, pageURL 
 			Status:           models.TestStatusPending,
 		}
 
-		// Instantiate steps with real selector
+		// Instantiate steps with real selectors + detail values
 		steps := make([]models.TestStep, len(rule.Steps))
 		for i, s := range rule.Steps {
 			step := s
-			if strings.Contains(step.Selector, "{{selector}}") {
-				step.Selector = strings.ReplaceAll(step.Selector, "{{selector}}", feature.Selector)
+			// Replace {{selector}} with feature's primary selector
+			step.Selector = strings.ReplaceAll(step.Selector, "{{selector}}", feature.Selector)
+			step.Value = strings.ReplaceAll(step.Value, "{{page_url}}", pageURL)
+			// Replace {{detail:key}} with values from feature.Details map
+			if feature.Details != nil {
+				for k, v := range feature.Details {
+					placeholder := "{{detail:" + k + "}}"
+					if val, ok := v.(string); ok {
+						step.Selector = strings.ReplaceAll(step.Selector, placeholder, val)
+						step.Value = strings.ReplaceAll(step.Value, placeholder, val)
+						step.Description = strings.ReplaceAll(step.Description, placeholder, val)
+					}
+				}
 			}
 			steps[i] = step
 		}
@@ -142,6 +153,7 @@ func severityPriority(s models.Severity) int {
 // allSchemas returns all built-in feature schemas
 func allSchemas() []FeatureSchema {
 	return []FeatureSchema{
+		resourceCRUDSchema(), // CRUD first — highest priority
 		searchSchema(),
 		paginationSchema(),
 		filterSchema(),
@@ -162,6 +174,152 @@ func allSchemas() []FeatureSchema {
 		dragDropSchema(),
 		chartSchema(),
 		notificationSchema(),
+	}
+}
+
+// resourceCRUDSchema generates comprehensive CRUD test cases for resource list pages.
+// Selectors use {{detail:key}} to pull real selectors found during discovery.
+func resourceCRUDSchema() FeatureSchema {
+	nav := func(desc string) models.TestStep {
+		return models.TestStep{Action: models.ActionNavigate, Value: "{{page_url}}", Description: desc}
+	}
+	wait := func(ms int) models.TestStep {
+		return models.TestStep{Action: models.ActionWait, Value: fmt.Sprintf("%d", ms), Description: "Wait for UI to settle"}
+	}
+	assertVisible := func(sel, desc string) models.TestStep {
+		return models.TestStep{Action: models.ActionAssert, Selector: sel, AssertType: models.AssertVisible, Description: desc}
+	}
+	click := func(sel, desc string) models.TestStep {
+		return models.TestStep{Action: models.ActionClick, Selector: sel, Description: desc}
+	}
+	fill := func(sel, val, desc string) models.TestStep {
+		return models.TestStep{Action: models.ActionFill, Selector: sel, Value: val, Description: desc}
+	}
+
+	return FeatureSchema{
+		FeatureType: models.FeatureResourceCRUD,
+		Rules: []ValidationRule{
+			// ── LIST ──
+			{
+				ID: "crud_list_loads", Name: "Resource list loads with data",
+				Category: "positive", Severity: models.SeverityCritical,
+				Steps: []models.TestStep{
+					nav("Navigate to resource list page"),
+					assertVisible("{{detail:table_sel}}", "List/table is visible"),
+					{Action: models.ActionAssert, Selector: "{{detail:table_sel}} tr, {{detail:table_sel}} [role=\"row\"]",
+						AssertType: models.AssertCount, Value: ">0", Description: "At least one row present"},
+				},
+				Expected: "Resource list loads and displays rows",
+			},
+			// ── SEARCH ──
+			{
+				ID: "crud_search", Name: "Search filters resource list",
+				Category: "positive", Severity: models.SeverityHigh,
+				Steps: []models.TestStep{
+					nav("Navigate to resource list page"),
+					assertVisible("{{detail:search_sel}}", "Search input visible"),
+					fill("{{detail:search_sel}}", "test", "Type search term"),
+					wait(600),
+					{Action: models.ActionAssert, Selector: "{{detail:table_sel}}", AssertType: models.AssertVisible, Description: "List updates with filtered results"},
+					{Action: models.ActionFill, Selector: "{{detail:search_sel}}", Value: "", Description: "Clear search"},
+					wait(400),
+					assertVisible("{{detail:table_sel}}", "Full list restored after clearing search"),
+				},
+				Expected: "Search filters the list and clearing restores all results",
+			},
+			// ── CREATE ──
+			{
+				ID: "crud_create", Name: "Create new resource",
+				Category: "positive", Severity: models.SeverityCritical,
+				Steps: []models.TestStep{
+					nav("Navigate to resource list page"),
+					assertVisible("{{detail:add_sel}}", "Add/Create button visible"),
+					click("{{detail:add_sel}}", "Click Create/Add button"),
+					wait(500),
+					{Action: models.ActionAssert, Selector: "form, [role=\"dialog\"], [role=\"form\"]",
+						AssertType: models.AssertVisible, Description: "Create form or modal opens"},
+					fill("input[type=\"text\"]:first-of-type, input[type=\"email\"]:first-of-type, textarea:first-of-type",
+						"QA Test Item", "Fill first required field with test value"),
+					{Action: models.ActionClick,
+						Selector: "button[type=\"submit\"], input[type=\"submit\"], button:last-of-type",
+						Description: "Submit the create form"},
+					wait(800),
+					{Action: models.ActionAssert, Selector: "{{detail:table_sel}}",
+						AssertType: models.AssertVisible, Description: "Redirected back to list or success state"},
+				},
+				Expected: "Create form opens, submission succeeds, returns to list",
+			},
+			// ── EDIT ──
+			{
+				ID: "crud_edit", Name: "Edit existing resource",
+				Category: "positive", Severity: models.SeverityHigh,
+				Steps: []models.TestStep{
+					nav("Navigate to resource list page"),
+					assertVisible("{{detail:table_sel}}", "List is visible"),
+					click("{{detail:edit_sel}}", "Click Edit on first row"),
+					wait(500),
+					{Action: models.ActionAssert, Selector: "form, [role=\"dialog\"]",
+						AssertType: models.AssertVisible, Description: "Edit form opens"},
+					{Action: models.ActionFill,
+						Selector: "input[type=\"text\"]:first-of-type, textarea:first-of-type",
+						Value: "QA Edited Value", Description: "Modify a field"},
+					{Action: models.ActionClick,
+						Selector: "button[type=\"submit\"], input[type=\"submit\"], button:last-of-type",
+						Description: "Save changes"},
+					wait(600),
+					assertVisible("{{detail:table_sel}}", "Returned to list after edit"),
+				},
+				Expected: "Edit form opens for first item, changes can be saved",
+			},
+			// ── DELETE ──
+			{
+				ID: "crud_delete", Name: "Delete resource with confirmation",
+				Category: "positive", Severity: models.SeverityHigh,
+				Steps: []models.TestStep{
+					nav("Navigate to resource list page"),
+					assertVisible("{{detail:table_sel}}", "List is visible"),
+					{Action: models.ActionAssert, Selector: "{{detail:table_sel}} tr",
+						AssertType: models.AssertCount, Value: ">0", Description: "At least one row exists to delete"},
+					click("{{detail:delete_sel}}", "Click Delete on first row"),
+					wait(400),
+					{Action: models.ActionClick,
+						Selector: "button:has-text(\"Confirm\"), button:has-text(\"Yes\"), button:has-text(\"Delete\"), button:has-text(\"OK\"), [data-testid*=\"confirm\"]",
+						Description: "Confirm deletion in dialog (if shown)"},
+					wait(800),
+					assertVisible("{{detail:table_sel}}", "List still loads after deletion"),
+				},
+				Expected: "Delete action works, confirmation handled, item removed from list",
+			},
+			// ── FILTER ──
+			{
+				ID: "crud_filter", Name: "Filter resource list by category",
+				Category: "positive", Severity: models.SeverityMedium,
+				Steps: []models.TestStep{
+					nav("Navigate to resource list page"),
+					assertVisible("{{detail:filter_sel}}", "Filter control visible"),
+					{Action: models.ActionSelect, Selector: "{{detail:filter_sel}}", Value: "1",
+						Description: "Select first filter option"},
+					wait(600),
+					assertVisible("{{detail:table_sel}}", "List updates with filtered results"),
+				},
+				Expected: "Filter control updates the displayed resource list",
+			},
+			// ── EMPTY SEARCH ──
+			{
+				ID: "crud_empty_search", Name: "Search with no results shows empty state",
+				Category: "negative", Severity: models.SeverityMedium,
+				Steps: []models.TestStep{
+					nav("Navigate to resource list page"),
+					assertVisible("{{detail:search_sel}}", "Search input visible"),
+					fill("{{detail:search_sel}}", "zzz_no_match_xyx_999", "Search for non-existent term"),
+					wait(800),
+					{Action: models.ActionAssert,
+						Selector: "[class*=\"empty\"], [class*=\"no-result\"], [class*=\"not-found\"], td[colspan]",
+						AssertType: models.AssertVisible, Description: "Empty state message shown"},
+				},
+				Expected: "Searching for non-existent term shows empty state",
+			},
+		},
 	}
 }
 

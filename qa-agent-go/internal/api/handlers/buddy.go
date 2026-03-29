@@ -4,7 +4,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/qabuddy/agent/internal/ai"
 	"github.com/qabuddy/agent/internal/engine"
 	"github.com/qabuddy/agent/internal/models"
 	"github.com/qabuddy/agent/internal/store"
@@ -13,22 +12,17 @@ import (
 // BuddyHandler handles /runs/:id/buddy endpoints
 type BuddyHandler struct {
 	runStore *store.RunStore
-	buddies  map[string]*ai.Buddy // runID -> Buddy
+	runner   *engine.Runner // used to get the live Buddy for a run
 	answers  *engine.AnswerChan
 }
 
 // NewBuddyHandler creates a new BuddyHandler
-func NewBuddyHandler(s *store.RunStore, answers *engine.AnswerChan) *BuddyHandler {
+func NewBuddyHandler(s *store.RunStore, runner *engine.Runner, answers *engine.AnswerChan) *BuddyHandler {
 	return &BuddyHandler{
 		runStore: s,
-		buddies:  make(map[string]*ai.Buddy),
+		runner:   runner,
 		answers:  answers,
 	}
-}
-
-// RegisterBuddy registers a Buddy instance for a run (called by the runner)
-func (h *BuddyHandler) RegisterBuddy(runID string, buddy *ai.Buddy) {
-	h.buddies[runID] = buddy
 }
 
 // Chat handles POST /runs/:id/buddy
@@ -67,8 +61,8 @@ func (h *BuddyHandler) Chat(c *gin.Context) {
 		}
 	}
 
-	// Use registered buddy if available
-	buddy, hasBuddy := h.buddies[runID]
+	// Get the live Buddy from the runner
+	buddy, hasBuddy := h.runner.GetBuddy(runID)
 	if hasBuddy {
 		response, err := buddy.HandleMessage(c.Request.Context(), req.Message)
 		if err != nil {
@@ -106,7 +100,7 @@ func (h *BuddyHandler) GetHints(c *gin.Context) {
 	var hints []string
 	if rc.QuestionHints != nil {
 		hints = rc.QuestionHints
-	} else if buddy, ok := h.buddies[runID]; ok {
+	} else if buddy, ok := h.runner.GetBuddy(runID); ok {
 		hints = buddy.GetHints(rc.State)
 	} else {
 		hints = defaultHints(rc.State)
@@ -121,7 +115,9 @@ func (h *BuddyHandler) GetHints(c *gin.Context) {
 func defaultHints(state models.RunState) []string {
 	switch state {
 	case models.StateWaitLoginInput:
-		return []string{"Skip login", "Enter credentials", "Test without auth"}
+		return []string{"admin:password", "user@example.com:secret", "skip - no login needed"}
+	case models.StateWaitManualLogin:
+		return []string{"done", "skip - continue without login"}
 	case models.StateDiscoveryRun:
 		return []string{"Stop discovery", "Focus on forms", "Check navigation only"}
 	case models.StateWaitTestIntent:

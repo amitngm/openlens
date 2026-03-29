@@ -189,55 +189,175 @@ func (b *Buddy) AutoDismissBlocker(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// ObservePage returns a text description of the current page for AI context
+// ObservePage returns a deep, rich description of the current page for AI context.
+// It reads all real DOM content: headings, buttons, forms, tables, dropdowns, links.
 func (b *Buddy) ObservePage() (string, error) {
 	script := `() => {
 		const url = window.location.href;
 		const title = document.title;
-		const h1 = document.querySelector('h1,h2')?.textContent?.trim() || '';
+		const headings = Array.from(document.querySelectorAll('h1,h2,h3'))
+			.slice(0,4).map(h => h.textContent.trim()).filter(Boolean);
 
-		const buttons = Array.from(document.querySelectorAll('button:not([disabled]), a[role="button"]'))
+		// All visible buttons and links
+		const buttons = Array.from(document.querySelectorAll('button:not([disabled]), a[role="button"], [role="button"]'))
+			.filter(el => el.offsetParent !== null)
+			.slice(0, 15).map(el => el.textContent.trim()).filter(Boolean);
+
+		// All visible links in nav and main
+		const navLinks = Array.from(document.querySelectorAll('nav a, [role="navigation"] a, aside a, .sidebar a'))
+			.filter(el => el.offsetParent !== null)
+			.slice(0, 12).map(el => ({ text: el.textContent.trim(), href: el.getAttribute('href') || '' }))
+			.filter(l => l.text);
+
+		// All visible content links
+		const contentLinks = Array.from(document.querySelectorAll('main a, [role="main"] a, .content a'))
+			.filter(el => el.offsetParent !== null)
 			.slice(0, 10).map(el => el.textContent.trim()).filter(Boolean);
 
-		const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([disabled]), textarea'))
-			.slice(0, 5).map(el => {
-				const label = document.querySelector('label[for="' + el.id + '"]');
-				return label ? label.textContent.trim() : (el.placeholder || el.name || el.type);
-			}).filter(Boolean);
+		// All form fields with real labels and values
+		const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([disabled]), textarea, select'))
+			.filter(el => el.offsetParent !== null)
+			.slice(0, 12).map(el => {
+				const label = el.id
+					? (document.querySelector('label[for="' + el.id + '"]')?.textContent?.trim() || '')
+					: '';
+				const placeholder = el.placeholder || '';
+				const name = el.name || el.id || '';
+				const type = el.tagName === 'SELECT' ? 'select' : (el.type || 'text');
+				let options = [];
+				if (el.tagName === 'SELECT') {
+					options = Array.from(el.options).slice(0, 8).map(o => o.text.trim()).filter(Boolean);
+				}
+				return { label, placeholder, name, type, options };
+			});
 
-		const links = Array.from(document.querySelectorAll('nav a, [role="navigation"] a'))
-			.slice(0, 8).map(el => el.textContent.trim()).filter(Boolean);
+		// All visible tables: headers + row count + sample data
+		const tables = Array.from(document.querySelectorAll('table'))
+			.filter(el => el.offsetParent !== null)
+			.slice(0, 3).map(table => {
+				const headers = Array.from(table.querySelectorAll('th')).map(th => th.textContent.trim()).filter(Boolean);
+				const rows = table.querySelectorAll('tbody tr').length;
+				const sample = Array.from(table.querySelectorAll('tbody tr:first-child td'))
+					.slice(0,5).map(td => td.textContent.trim()).filter(Boolean);
+				return { headers, rows, sample };
+			});
 
-		const alerts = Array.from(document.querySelectorAll('[role="alert"], .error, .alert'))
-			.slice(0, 3).map(el => el.textContent.trim()).filter(Boolean);
+		// Row action buttons in tables (edit, delete, view)
+		const rowActions = Array.from(document.querySelectorAll('td button, td a, [role="row"] button'))
+			.filter(el => el.offsetParent !== null)
+			.slice(0, 8).map(el => el.textContent.trim() || el.getAttribute('aria-label') || '').filter(Boolean);
 
-		return { url, title, h1, buttons, inputs, links, alerts };
+		// Visible alerts / messages
+		const alerts = Array.from(document.querySelectorAll('[role="alert"], .error, .alert, .notification, .toast, .message'))
+			.filter(el => el.offsetParent !== null)
+			.slice(0, 5).map(el => el.textContent.trim()).filter(Boolean);
+
+		// Main visible text content
+		const bodyText = (document.querySelector('main, [role="main"], #content, .content') || document.body)
+			?.innerText?.replace(/\s+/g, ' ')?.trim()?.slice(0, 500) || '';
+
+		return { url, title, headings, buttons, navLinks, contentLinks, inputs, tables, rowActions, alerts, bodyText };
 	}`
 
 	res, err := b.page.Evaluate(script)
 	if err != nil {
-		return "", err
+		return "URL: " + b.page.URL(), err
 	}
 	m, _ := res.(map[string]interface{})
 
 	parts := []string{
+		"=== PAGE SNAPSHOT ===",
 		"URL: " + strVal(m["url"]),
 		"Title: " + strVal(m["title"]),
 	}
-	if h1 := strVal(m["h1"]); h1 != "" {
-		parts = append(parts, "Heading: "+h1)
+
+	if hdgs := joinList(m["headings"]); hdgs != "" {
+		parts = append(parts, "Headings: "+hdgs)
 	}
 	if btns := joinList(m["buttons"]); btns != "" {
 		parts = append(parts, "Buttons: "+btns)
 	}
-	if inputs := joinList(m["inputs"]); inputs != "" {
-		parts = append(parts, "Inputs: "+inputs)
+	if rowAct := joinList(m["rowActions"]); rowAct != "" {
+		parts = append(parts, "Row actions (in table): "+rowAct)
 	}
-	if links := joinList(m["links"]); links != "" {
-		parts = append(parts, "Nav links: "+links)
+
+	// Nav links
+	if navLinks, ok := m["navLinks"].([]interface{}); ok && len(navLinks) > 0 {
+		labels := []string{}
+		for _, l := range navLinks {
+			if lm, ok := l.(map[string]interface{}); ok {
+				if txt := strVal(lm["text"]); txt != "" {
+					labels = append(labels, txt)
+				}
+			}
+		}
+		if len(labels) > 0 {
+			parts = append(parts, "Nav links: "+strings.Join(labels, ", "))
+		}
 	}
+	if cLinks := joinList(m["contentLinks"]); cLinks != "" {
+		parts = append(parts, "Content links: "+cLinks)
+	}
+
+	// Form fields with real labels
+	if inputs, ok := m["inputs"].([]interface{}); ok && len(inputs) > 0 {
+		fieldDescs := []string{}
+		for _, inp := range inputs {
+			if im, ok := inp.(map[string]interface{}); ok {
+				label := strVal(im["label"])
+				ph := strVal(im["placeholder"])
+				typ := strVal(im["type"])
+				name := strVal(im["name"])
+				desc := label
+				if desc == "" {
+					desc = ph
+				}
+				if desc == "" {
+					desc = name
+				}
+				if desc == "" {
+					desc = typ
+				}
+				if typ == "select" {
+					opts := joinList(im["options"])
+					if opts != "" {
+						desc += " [options: " + opts + "]"
+					}
+				}
+				if desc != "" {
+					fieldDescs = append(fieldDescs, "("+typ+") "+desc)
+				}
+			}
+		}
+		if len(fieldDescs) > 0 {
+			parts = append(parts, "Form fields: "+strings.Join(fieldDescs, " | "))
+		}
+	}
+
+	// Tables
+	if tables, ok := m["tables"].([]interface{}); ok && len(tables) > 0 {
+		for i, tbl := range tables {
+			if tm, ok := tbl.(map[string]interface{}); ok {
+				hdrs := joinList(tm["headers"])
+				rows := strVal(tm["rows"])
+				sample := joinList(tm["sample"])
+				desc := fmt.Sprintf("Table %d: %s rows", i+1, rows)
+				if hdrs != "" {
+					desc += " | columns: " + hdrs
+				}
+				if sample != "" {
+					desc += " | first row: " + sample
+				}
+				parts = append(parts, desc)
+			}
+		}
+	}
+
 	if alerts := joinList(m["alerts"]); alerts != "" {
-		parts = append(parts, "Alerts: "+alerts)
+		parts = append(parts, "⚠️ Alerts: "+alerts)
+	}
+	if bodyText := strVal(m["bodyText"]); bodyText != "" {
+		parts = append(parts, "Page text: "+bodyText)
 	}
 
 	return strings.Join(parts, "\n"), nil
@@ -300,7 +420,8 @@ func (b *Buddy) TakeScreenshotBase64() string {
 // GetHints returns context-aware hint chips for the UI
 func (b *Buddy) GetHints(state models.RunState) []string {
 	hintMap := map[models.RunState][]string{
-		models.StateWaitLoginInput:    {"Skip login", "I'll enter credentials"},
+		models.StateWaitLoginInput:    {"admin:password", "user@example.com:secret", "skip - no login needed"},
+		models.StateWaitManualLogin:   {"done", "skip - continue without login"},
 		models.StateDiscoveryRun:      {"Focus on forms only", "Stop discovery now", "Skip current page"},
 		models.StateWaitTestIntent:    {"Run smoke tests", "Test all forms", "Check navigation", "Full exploratory", "Custom scenario"},
 		models.StateWaitBuddyGuidance: {"Click Accept Cookies", "Close popup", "Press Enter", "Skip this screen", "Go to next page", "Scroll down"},

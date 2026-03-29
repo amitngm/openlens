@@ -39,10 +39,18 @@ func NewServer(
 
 	// Handlers
 	runHandler := handlers.NewRunHandler(s, runner, answers, db, cfg)
-	buddyHandler := handlers.NewBuddyHandler(s, answers)
+	buddyHandler := handlers.NewBuddyHandler(s, runner, answers)
+	aiHandler := handlers.NewAIHandler(cfg)
 
 	// Health check
 	router.GET("/health", runHandler.Health)
+
+	// AI provider info
+	aiGroup := router.Group("/ai")
+	{
+		aiGroup.GET("/providers", aiHandler.GetProviders)
+		aiGroup.GET("/ollama/models", aiHandler.GetOllamaModels)
+	}
 
 	// Run endpoints
 	runs := router.Group("/runs")
@@ -54,6 +62,7 @@ func NewServer(
 		runs.POST("/:id/answer", runHandler.Answer)
 		runs.GET("/:id/events", runHandler.StreamEvents)    // SSE
 		runs.POST("/:id/cancel", runHandler.CancelRun)
+		runs.POST("/:id/close-browser", runHandler.CloseBrowser)
 		runs.GET("/:id/report", runHandler.GetReport)
 		runs.GET("/:id/report.html", runHandler.GetReportHTML)
 		runs.POST("/:id/benchmark", runHandler.UpdateBenchmark)

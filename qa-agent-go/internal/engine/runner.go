@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
@@ -20,19 +21,29 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// LoginInfo describes what login-related elements were found on the current page.
+type LoginInfo struct {
+	HasForm   bool   // password input (or login form) present on current page
+	HasButton bool   // a login link/button found — needs to be clicked first
+	ButtonSel string // CSS selector to click
+	LoginURL  string // href of the login link, if available
+	PageDesc  string // human-readable summary of what was found
+}
+
 // Runner orchestrates a complete QA run
 type Runner struct {
-	runStore *store.RunStore
-	browsers *browser.Manager
-	sm       *StateMachine
-	answers  *AnswerChan
-	registry *rules.Registry
-	scorer   *qa_testing.QualityScorer
-	aiProv   ai.Provider
-	db       *database.DB
-	cfg      *config.Config
+	runStore  *store.RunStore
+	browsers  *browser.Manager
+	sm        *StateMachine
+	answers   *AnswerChan
+	registry  *rules.Registry
+	scorer    *qa_testing.QualityScorer
+	aiProv    ai.Provider // global fallback provider
+	db        *database.DB
+	cfg       *config.Config
 	reportGen *report.Generator
 	cancelFns map[string]context.CancelFunc
+	buddies   sync.Map // map[runID string] -> *ai.Buddy
 }
 
 // NewRunner creates a new Runner
@@ -104,13 +115,18 @@ func (r *Runner) run(ctx context.Context, runID string) error {
 	if err != nil {
 		return fmt.Errorf("create browser: %w", err)
 	}
-	defer r.browsers.CloseContext(runID)
+	// NOTE: Do NOT defer CloseContext here — browser stays alive after DONE
+	// so user can review results. Closed by Cancel(), close-browser endpoint,
+	// or the 30-min idle timer started after DONE.
 
 	page := bCtx.Page
 	stuckDet := NewStuckDetector(nil, r.cfg.StuckTimeoutSec)
 
-	// Create buddy for this run
-	buddy := ai.NewBuddy(r.aiProv, page, runID, r.runStore, r.db, r.cfg)
+	// Create buddy for this run using per-run AI provider
+	prov := r.providerForRun(rc)
+	buddy := ai.NewBuddy(prov, page, runID, r.runStore, r.db, r.cfg)
+	r.buddies.Store(runID, buddy)
+	defer r.buddies.Delete(runID)
 	stuckDet.buddy = buddy
 
 	r.answers.Register(runID)
@@ -146,53 +162,124 @@ func (r *Runner) run(ctx context.Context, runID string) error {
 
 	if !loggedIn {
 		// --- LOGIN_DETECT ---
-		r.sm.Transition(runID, models.StateLoginDetect, "Checking for login form...")
-		hasLogin := r.detectLoginForm(page)
+		r.sm.Transition(runID, models.StateLoginDetect, "Checking for login elements...")
+		loginInfo := r.detectLoginInfo(page)
 
-		if hasLogin {
-			// Get credentials
+		// If login button/link found but no form yet — click to navigate to login page
+		if loginInfo.HasButton && !loginInfo.HasForm {
+			r.publishLog(runID, "Login button found: "+loginInfo.PageDesc+". Clicking to navigate...")
+			if err := r.clickLoginButton(page, loginInfo); err != nil {
+				log.Warn().Err(err).Msg("failed to click login button")
+			} else {
+				time.Sleep(600 * time.Millisecond)
+				loginInfo = r.detectLoginInfo(page) // re-probe after navigation
+			}
+		}
+
+		if loginInfo.HasForm {
+			// ── Obtain credentials ──
 			var username, password string
 			if rc.Auth != nil && rc.Auth.Username != "" {
 				username, password = rc.Auth.Username, rc.Auth.Password
 			} else {
-				// Always ask for credentials when login is detected — even in auto mode
-				r.sm.Transition(runID, models.StateWaitLoginInput, "I found a login form. Please provide credentials or type 'skip' to continue without login.")
-				r.sm.SetQuestion(runID, "I found a login form. Please enter credentials or skip.", "login",
-					[]string{"Skip login", "Test without login"})
+				r.sm.Transition(runID, models.StateWaitLoginInput,
+					"I found a login form ("+loginInfo.PageDesc+"). Please provide credentials or type 'skip'.")
+				r.sm.SetQuestion(runID,
+					"Found a login form. Enter credentials or type 'skip' to continue without login.",
+					"login",
+					[]string{"admin:password123", "user@example.com:secret", "skip - no login needed"})
 
 				answer, err := r.answers.Wait(runID, 15*time.Minute)
 				if err != nil {
-					r.sm.Transition(runID, models.StateDiscoveryRun, "Proceeding without login...")
+					r.sm.Transition(runID, models.StateDiscoveryRun, "Timed out waiting — proceeding without login...")
 					goto discovery
 				}
-				if answer.Data != nil {
-					username = answer.Data["username"]
-					password = answer.Data["password"]
-				} else if answer.Answer == "skip" || strings.Contains(strings.ToLower(answer.Answer), "skip") {
+				lower := strings.ToLower(strings.TrimSpace(answer.Answer))
+				if lower == "skip" || strings.Contains(lower, "no login") || lower == "" {
 					goto discovery
-				} else if strings.Contains(answer.Answer, ":") {
-					// "username:password" shorthand
-					parts := strings.SplitN(answer.Answer, ":", 2)
-					username, password = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+				}
+				username, password = parseCredentials(answer)
+				if username == "" {
+					// Couldn't parse — ask user via buddy guidance
+					r.publishLog(runID, "Couldn't parse credentials from: '"+answer.Answer+"'. Type 'skip' to continue without login.")
+					goto discovery
 				}
 			}
 
 			if username != "" {
-				// --- LOGIN_ATTEMPT ---
-				r.sm.Transition(runID, models.StateLoginAttempt, "Attempting login...")
-				if err := r.attemptLogin(ctx, page, username, password); err != nil {
-					log.Warn().Err(err).Msg("login failed")
-					r.sm.Transition(runID, models.StateWaitLoginInput, "Login failed. Please check credentials.")
-					// Try once more or skip
-				}
+				// ── LOGIN_ATTEMPT #1 ──
+				r.sm.Transition(runID, models.StateLoginAttempt, "Attempting login as '"+username+"'...")
+				_ = r.attemptLogin(ctx, page, username, password)
 				buddy.AutoDismissBlocker(ctx)
 				time.Sleep(1 * time.Second)
 
-				// --- POST_LOGIN_VALIDATE ---
-				r.sm.Transition(runID, models.StatePostLoginValidate, "Validating login success...")
+				// ── POST_LOGIN_VALIDATE ──
+				r.sm.Transition(runID, models.StatePostLoginValidate, "Validating login...")
 				if !r.validateLoginSuccess(page) {
-					log.Warn().Msg("login validation failed")
+					log.Warn().Msg("login attempt 1 failed, retrying...")
+					// ── LOGIN_ATTEMPT #2 ──
+					r.sm.Transition(runID, models.StateLoginAttempt, "Login failed — retrying once more...")
+					_ = r.attemptLogin(ctx, page, username, password)
+					buddy.AutoDismissBlocker(ctx)
+					time.Sleep(1 * time.Second)
+
+					r.sm.Transition(runID, models.StatePostLoginValidate, "Validating login (retry)...")
+					if !r.validateLoginSuccess(page) {
+						// ── Both attempts failed → ask user to log in manually ──
+						desc := r.observePage(page)
+						r.sm.Transition(runID, models.StateWaitManualLogin,
+							"Automated login failed twice. "+desc+"\nPlease log in manually in the browser, then type 'done'.")
+						r.sm.SetQuestion(runID,
+							"Automated login failed. Please log in manually in the browser window, then type 'done'.",
+							"manual_login",
+							[]string{"done", "skip - continue without login"})
+						answer, _ := r.answers.Wait(runID, 30*time.Minute)
+						if strings.Contains(strings.ToLower(answer.Answer), "skip") {
+							goto discovery
+						}
+						// User typed 'done' or anything else → assume they logged in
+					}
 				}
+			}
+
+		} else {
+			// ── Neither form nor button found — describe page and ask user ──
+			desc := r.observePage(page)
+			screenshot := takeScreenshotBase64(page)
+			log.Info().Str("page_desc", desc).Msg("no login elements detected")
+
+			r.sm.SetStuck(runID,
+				"No login form or button detected. I see: "+desc+
+					"\n\nType 'skip' to proceed without login, 'manual' if you need to log in manually, "+
+					"or give me instructions (e.g. 'click the Login link in the top right').",
+				screenshot,
+				[]string{"skip - no login needed", "manual - I'll log in myself", "click Sign In button", "navigate to /login"})
+
+			answer, err := r.answers.Wait(runID, 15*time.Minute)
+			if err == nil {
+				lower := strings.ToLower(strings.TrimSpace(answer.Answer))
+				switch {
+				case lower == "skip" || strings.Contains(lower, "no login"):
+					r.sm.Transition(runID, models.StateDiscoveryRun, "Proceeding without login...")
+					goto discovery
+				case lower == "manual" || lower == "done":
+					// User has logged in manually — continue
+					r.sm.Transition(runID, models.StateContextDetect, "Manual login confirmed, continuing...")
+				default:
+					// Execute user instruction via buddy
+					_ = buddy.HandleStuck(ctx, "no login elements found", answer.Answer)
+					time.Sleep(500 * time.Millisecond)
+					// Re-check login state after instruction
+					loginInfo2 := r.detectLoginInfo(page)
+					if loginInfo2.HasForm {
+						// Now there's a form — re-enter login flow
+						r.sm.Transition(runID, models.StateLoginDetect, "Login form now detected after instruction")
+					}
+				}
+			} else {
+				// Timeout — proceed without login
+				r.sm.Transition(runID, models.StateDiscoveryRun, "Timed out — proceeding without login...")
+				goto discovery
 			}
 		}
 	}
@@ -228,6 +315,41 @@ discovery:
 	// --- DISCOVERY_SUMMARY ---
 	r.sm.Transition(runID, models.StateDiscoverySummary, fmt.Sprintf("Found %d pages, %d modules, %d test cases",
 		len(discoveryResult.Pages), len(discoveryResult.Modules), len(discoveryResult.TestCases)))
+
+	// --- CRUD_EXPLORE ---
+	// For every resource list page found during discovery, autonomously navigate to it,
+	// probe the real DOM, and perform Create → Edit → Delete using context-aware values.
+	r.sm.Transition(runID, models.StateCRUDExplore, "Exploring CRUD operations on each resource module...")
+	crudExplorer := NewCRUDExplorer(page, prov, runID, r.runStore, r.cfg)
+	crudResults := crudExplorer.ExploreAll(ctx, discoveryResult.Pages)
+	for _, res := range crudResults {
+		parts := []string{res.ResourceName + ":"}
+		if res.CreateAttempted {
+			if res.CreateSuccess {
+				parts = append(parts, "Create ✓")
+			} else {
+				parts = append(parts, "Create ✗")
+			}
+		}
+		if res.EditAttempted {
+			if res.EditSuccess {
+				parts = append(parts, "Edit ✓")
+			} else {
+				parts = append(parts, "Edit ✗")
+			}
+		}
+		if res.DeleteAttempted {
+			if res.DeleteSuccess {
+				parts = append(parts, "Delete ✓")
+			} else {
+				parts = append(parts, "Delete ✗")
+			}
+		}
+		r.publishLog(runID, strings.Join(parts, " "))
+	}
+	if len(crudResults) == 0 {
+		r.publishLog(runID, "No resource CRUD pages detected — skipping CRUD exploration")
+	}
 
 	// --- WAIT_TEST_INTENT ---
 	intent := qa_testing.IntentExploratory
@@ -310,7 +432,273 @@ discovery:
 		"coverage": rc.CoveragePercent,
 	}))
 
+	// Keep browser alive so user can review. Auto-close after 30 minutes.
+	go func() {
+		timer := time.NewTimer(30 * time.Minute)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			r.browsers.CloseContext(runID)
+			log.Info().Str("run_id", runID).Msg("browser auto-closed after 30-min idle")
+		case <-ctx.Done():
+			// ctx cancelled by Cancel() — browser already closed there
+		}
+	}()
+
 	return nil
+}
+
+// CloseBrowser explicitly closes the browser for a run (called by API endpoint or idle timer).
+func (r *Runner) CloseBrowser(runID string) {
+	r.browsers.CloseContext(runID)
+}
+
+// GetBuddy returns the live Buddy for a run (nil if not running).
+func (r *Runner) GetBuddy(runID string) (*ai.Buddy, bool) {
+	val, ok := r.buddies.Load(runID)
+	if !ok {
+		return nil, false
+	}
+	return val.(*ai.Buddy), true
+}
+
+// providerForRun returns the AI provider for a specific run.
+// Uses the run's AI config if set, otherwise falls back to the global provider.
+func (r *Runner) providerForRun(rc *models.RunContext) ai.Provider {
+	if !rc.AI.Enabled {
+		return &ai.NoneProvider{}
+	}
+	if rc.AI.Provider == "" {
+		return r.aiProv
+	}
+	baseURL := rc.AI.BaseURL
+	if baseURL == "" {
+		baseURL = r.cfg.OllamaBaseURL
+	}
+	p, err := ai.NewProvider(ai.Config{
+		Provider:   rc.AI.Provider,
+		ModelName:  rc.AI.ModelName,
+		APIKey:     rc.AI.APIKey,
+		BaseURL:    baseURL,
+		TimeoutSec: 30,
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("provider", rc.AI.Provider).Msg("could not create run provider, falling back")
+		return r.aiProv
+	}
+	return p
+}
+
+// detectLoginInfo probes the current page for any login-related elements.
+// Priority: password form > login link by href > login button by text.
+func (r *Runner) detectLoginInfo(page playwright.Page) LoginInfo {
+	script := `() => {
+		// 1. Check for password input (form already on page)
+		const pwEl = document.querySelector('input[type="password"], input[name="password"]');
+		if (pwEl) return { hasForm: true, hasButton: false, buttonSel: '', loginURL: '', pageDesc: 'login form with password field' };
+
+		// Check for form action pointing to login
+		const formEl = document.querySelector('form[action*="login" i], form[action*="signin" i]');
+		if (formEl) return { hasForm: true, hasButton: false, buttonSel: '', loginURL: '', pageDesc: 'login form (action=' + formEl.getAttribute('action') + ')' };
+
+		// Check data-testid
+		const tdEl = document.querySelector('[data-testid*="login"], [data-testid*="signin"]');
+		if (tdEl && tdEl.tagName === 'INPUT') return { hasForm: true, hasButton: false, buttonSel: '', loginURL: '', pageDesc: 'login input via data-testid' };
+
+		// 2. Login links by href
+		const linkSels = ['a[href*="login" i]', 'a[href*="signin" i]', 'a[href*="/auth"]', 'a[href*="/account/login"]'];
+		for (const sel of linkSels) {
+			const el = document.querySelector(sel);
+			if (el) {
+				const href = el.getAttribute('href') || '';
+				return { hasForm: false, hasButton: true, buttonSel: sel, loginURL: href, pageDesc: 'login link "' + el.textContent.trim() + '" → ' + href };
+			}
+		}
+
+		// 3. Buttons/links with login-related text
+		const loginWords = ['login', 'log in', 'sign in', 'signin', 'get started', 'continue'];
+		const els = Array.from(document.querySelectorAll('button, a, [role="button"], input[type="submit"]'));
+		for (const el of els) {
+			const text = (el.textContent || el.value || '').trim().toLowerCase();
+			if (loginWords.some(w => text === w || text.endsWith(w))) {
+				const href = el.getAttribute('href') || '';
+				const id = el.id ? '#' + el.id : null;
+				const sel = id || el.tagName.toLowerCase() + (href ? '[href="' + href + '"]' : ':first-of-type');
+				return { hasForm: false, hasButton: true, buttonSel: sel, loginURL: href, pageDesc: 'login button "' + el.textContent.trim() + '"' };
+			}
+		}
+
+		return { hasForm: false, hasButton: false, buttonSel: '', loginURL: '', pageDesc: 'no login elements found' };
+	}`
+
+	res, err := page.Evaluate(script)
+	if err != nil {
+		return LoginInfo{PageDesc: "error probing page"}
+	}
+	m, ok := res.(map[string]interface{})
+	if !ok {
+		return LoginInfo{PageDesc: "no login elements found"}
+	}
+	hasForm, _ := m["hasForm"].(bool)
+	hasButton, _ := m["hasButton"].(bool)
+	buttonSel, _ := m["buttonSel"].(string)
+	loginURL, _ := m["loginURL"].(string)
+	pageDesc, _ := m["pageDesc"].(string)
+	return LoginInfo{
+		HasForm:   hasForm,
+		HasButton: hasButton,
+		ButtonSel: buttonSel,
+		LoginURL:  loginURL,
+		PageDesc:  pageDesc,
+	}
+}
+
+// clickLoginButton clicks the detected login button/link and waits for page load.
+func (r *Runner) clickLoginButton(page playwright.Page, info LoginInfo) error {
+	// Try primary selector from JS probe
+	if info.ButtonSel != "" {
+		loc := page.Locator(info.ButtonSel).First()
+		if visible, _ := loc.IsVisible(); visible {
+			if err := loc.Click(); err == nil {
+				page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+					State:   playwright.LoadStateDomcontentloaded,
+					Timeout: playwright.Float(10000),
+				})
+				return nil
+			}
+		}
+	}
+	// Fallback: Playwright text selectors (works for SPA buttons)
+	for _, textSel := range []string{"text=Login", "text=Log in", "text=Sign in", "text=Sign In", "text=Log In"} {
+		loc := page.Locator(textSel).First()
+		if visible, _ := loc.IsVisible(); visible {
+			if err := loc.Click(); err == nil {
+				page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+					State:   playwright.LoadStateDomcontentloaded,
+					Timeout: playwright.Float(10000),
+				})
+				return nil
+			}
+		}
+	}
+	// Fallback: direct navigation if href is available
+	if info.LoginURL != "" {
+		_, err := page.Goto(info.LoginURL, playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			Timeout:   playwright.Float(15000),
+		})
+		return err
+	}
+	return fmt.Errorf("could not interact with login button")
+}
+
+// observePage returns a human-readable description of what is currently visible.
+func (r *Runner) observePage(page playwright.Page) string {
+	script := `() => {
+		const title = document.title || '';
+		const h1 = (document.querySelector('h1') || {}).textContent || '';
+		const h2 = (document.querySelector('h2') || {}).textContent || '';
+		const url = location.href;
+		const btns = Array.from(document.querySelectorAll('button, [role="button"]'))
+			.slice(0, 5).map(b => b.textContent.trim()).filter(Boolean);
+		const inputs = Array.from(document.querySelectorAll('input'))
+			.slice(0, 5).map(i => i.type || 'text');
+		const alert = (document.querySelector('[role="alert"], .error, .alert') || {}).textContent || '';
+		return {
+			url, title,
+			heading: (h1 || h2).trim(),
+			buttons: btns,
+			inputs,
+			alert: alert.trim().slice(0, 100),
+		};
+	}`
+	res, err := page.Evaluate(script)
+	if err != nil {
+		return "URL: " + page.URL()
+	}
+	m, ok := res.(map[string]interface{})
+	if !ok {
+		return "URL: " + page.URL()
+	}
+	url, _ := m["url"].(string)
+	title, _ := m["title"].(string)
+	heading, _ := m["heading"].(string)
+	alert, _ := m["alert"].(string)
+
+	parts := []string{"URL: " + url}
+	if title != "" {
+		parts = append(parts, "Title: "+title)
+	}
+	if heading != "" && heading != title {
+		parts = append(parts, "Heading: "+heading)
+	}
+	if btns, ok := m["buttons"].([]interface{}); ok && len(btns) > 0 {
+		labels := make([]string, 0, len(btns))
+		for _, b := range btns {
+			if s, ok := b.(string); ok {
+				labels = append(labels, s)
+			}
+		}
+		if len(labels) > 0 {
+			parts = append(parts, "Buttons: "+strings.Join(labels, ", "))
+		}
+	}
+	if alert != "" {
+		parts = append(parts, "Alert: "+alert)
+	}
+	return strings.Join(parts, " | ")
+}
+
+// parseCredentials extracts username+password from an AnswerRequest.
+// Supports: structured Data map, key:value text, delimited shorthand.
+func parseCredentials(answer models.AnswerRequest) (username, password string) {
+	// Structured data from UI form (highest priority)
+	if answer.Data != nil {
+		u, p := strings.TrimSpace(answer.Data["username"]), strings.TrimSpace(answer.Data["password"])
+		if u != "" {
+			return u, p
+		}
+	}
+	raw := strings.TrimSpace(answer.Answer)
+	lower := strings.ToLower(raw)
+
+	// Key-value pattern: "username: foo password: bar", "email: a pass: b"
+	userKeys := []string{"username:", "user:", "login:", "email:"}
+	passKeys := []string{"password:", "pass:", "pwd:", "passwd:"}
+	kv := map[string]string{}
+	for _, k := range userKeys {
+		if idx := strings.Index(lower, k); idx != -1 {
+			rest := strings.Fields(raw[idx+len(k):])
+			if len(rest) > 0 {
+				kv["user"] = rest[0]
+			}
+		}
+	}
+	for _, k := range passKeys {
+		if idx := strings.Index(lower, k); idx != -1 {
+			rest := strings.Fields(raw[idx+len(k):])
+			if len(rest) > 0 {
+				kv["pass"] = rest[0]
+			}
+		}
+	}
+	if kv["user"] != "" && kv["pass"] != "" {
+		return kv["user"], kv["pass"]
+	}
+
+	// Delimiter pattern: "user / pass", "user | pass", "user:pass"
+	for _, sep := range []string{" / ", " | ", ":"} {
+		if idx := strings.Index(raw, sep); idx != -1 {
+			parts := strings.SplitN(raw, sep, 2)
+			if len(parts) == 2 {
+				u, p := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+				if u != "" && p != "" {
+					return u, p
+				}
+			}
+		}
+	}
+	return "", ""
 }
 
 func (r *Runner) checkAlreadyLoggedIn(page playwright.Page) bool {
@@ -322,19 +710,6 @@ func (r *Runner) checkAlreadyLoggedIn(page playwright.Page) bool {
 			document.querySelector('[data-testid*="user-menu"]') ||
 			document.querySelector('.user-avatar') ||
 			document.querySelector('.user-menu'));
-	}`
-	res, _ := page.Evaluate(script)
-	b, _ := res.(bool)
-	return b
-}
-
-func (r *Runner) detectLoginForm(page playwright.Page) bool {
-	script := `() => {
-		return !!(document.querySelector('input[type="password"]') ||
-			document.querySelector('input[name="password"]') ||
-			document.querySelector('form[action*="login"]') ||
-			document.querySelector('form[action*="signin"]') ||
-			document.querySelector('[data-testid*="login"]'));
 	}`
 	res, _ := page.Evaluate(script)
 	b, _ := res.(bool)

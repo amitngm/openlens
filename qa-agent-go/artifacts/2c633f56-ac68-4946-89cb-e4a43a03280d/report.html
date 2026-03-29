@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA Buddy Report — https://auth-dev.coredge.internal/auth/realms/coredge-cloud/protocol/openid-connect/auth?client_id=controller&redirect_uri=https%3A%2F%2Fconsole-dev.coredge.internal%2F&state=a8931a9a-e1d0-4e2e-8089-e8cb800b834b&response_mode=fragment&response_type=code&scope=openid&nonce=a4002ed5-b661-4efb-bc04-c539d6ae1729&code_challenge=i9Tr3qxYmMTlcNKpdyFUYRp74Kw3p70ZpDb4-ktJxvc&code_challenge_method=S256</title>
+<style>
+  :root {
+    --indigo: #6366f1; --green: #22c55e; --red: #ef4444; --yellow: #f59e0b;
+    --gray: #6b7280; --dark: #1e1b4b; --light: #f8fafc;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', -apple-system, sans-serif; background: var(--light); color: #1e293b; }
+  .header { background: var(--dark); color: white; padding: 24px 32px; }
+  .header h1 { font-size: 24px; font-weight: 700; }
+  .header .meta { font-size: 13px; opacity: 0.7; margin-top: 4px; }
+  .content { max-width: 1200px; margin: 0 auto; padding: 32px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 32px; }
+  .summary-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .summary-card .num { font-size: 36px; font-weight: 700; }
+  .summary-card .label { font-size: 13px; color: var(--gray); margin-top: 4px; }
+  .summary-card.passed .num { color: var(--green); }
+  .summary-card.failed .num { color: var(--red); }
+  .summary-card.coverage .num { color: var(--indigo); }
+  .section { background: white; border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .section h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; color: var(--dark); border-bottom: 2px solid var(--indigo); padding-bottom: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { background: #f1f5f9; padding: 10px 12px; text-align: left; font-weight: 600; color: var(--gray); }
+  td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; }
+  tr.status-failed { background: #fef2f2; }
+  tr.status-skipped { background: #fefce8; }
+  .error-row td { padding: 6px 12px 12px; }
+  .error-row code { background: #fee2e2; color: #b91c1c; padding: 6px 10px; border-radius: 6px; font-size: 12px; display: block; }
+  .severity { padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .sev-critical { background: #fee2e2; color: #b91c1c; }
+  .sev-high { background: #fff7ed; color: #c2410c; }
+  .sev-medium { background: #fefce8; color: #854d0e; }
+  .sev-low { background: #f0fdf4; color: #166534; }
+  .feature-badge { background: #ede9fe; color: #5b21b6; padding: 2px 8px; border-radius: 12px; font-size: 11px; }
+  .test-name { font-weight: 500; }
+  .progress-bar { height: 10px; background: #e2e8f0; border-radius: 99px; overflow: hidden; margin: 6px 0; }
+  .progress-fill { height: 100%; background: var(--indigo); border-radius: 99px; transition: width 0.3s; }
+  .progress-fill.green { background: var(--green); }
+  .module-chip { display: inline-block; background: #ede9fe; color: #5b21b6; padding: 4px 12px; border-radius: 99px; font-size: 12px; margin: 4px 4px 4px 0; font-weight: 500; }
+  .disc-stat { display: inline-flex; align-items: center; gap: 8px; background: #f8fafc; border-radius: 8px; padding: 10px 16px; margin-right: 12px; margin-bottom: 12px; font-weight: 600; }
+  .footer { text-align: center; padding: 24px; font-size: 13px; color: var(--gray); }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🛡️ QA Buddy Report</h1>
+  <div class="meta">https://auth-dev.coredge.internal/auth/realms/coredge-cloud/protocol/openid-connect/auth?client_id=controller&redirect_uri=https%3A%2F%2Fconsole-dev.coredge.internal%2F&state=a8931a9a-e1d0-4e2e-8089-e8cb800b834b&response_mode=fragment&response_type=code&scope=openid&nonce=a4002ed5-b661-4efb-bc04-c539d6ae1729&code_challenge=i9Tr3qxYmMTlcNKpdyFUYRp74Kw3p70ZpDb4-ktJxvc&code_challenge_method=S256 &nbsp;•&nbsp; Run ID: 2c633f56-ac68-4946-89cb-e4a43a03280d &nbsp;•&nbsp; Generated: Mar 28, 2026 23:42:33</div>
+</div>
+<div class="content">
+
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="num">8</div><div class="label">Total Tests</div>
+    </div>
+    <div class="summary-card passed">
+      <div class="num">4</div><div class="label">Passed ✅</div>
+    </div>
+    <div class="summary-card failed">
+      <div class="num">4</div><div class="label">Failed ❌</div>
+    </div>
+    <div class="summary-card">
+      <div class="num">0</div><div class="label">Skipped ⏭️</div>
+    </div>
+    <div class="summary-card coverage">
+      <div class="num">50%</div><div class="label">Pass Rate</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>📊 Discovery Summary</h2>
+    <div>
+      <span class="disc-stat">📄 1 pages discovered</span>
+      <span class="disc-stat">🧩 1 modules</span>
+      <span class="disc-stat">⏱️ 81.1s test duration</span>
+    </div>
+    <div style="margin-top:16px">
+      <strong>Modules discovered:</strong><br><div style="margin-top:8px"><span class="module-chip">project</span></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>📋 Test Results</h2>
+    <table>
+      <thead>
+        <tr><th>Status</th><th>Test Name</th><th>Severity</th><th>Category</th><th>Duration</th><th>Feature</th></tr>
+      </thead>
+      <tbody>
+		<tr class="status-failed">
+			<td>❌</td>
+			<td class="test-name">Search filters results</td>
+			<td><span class="severity sev-critical">critical</span></td>
+			<td>positive</td>
+			<td>11615ms</td>
+			<td><span class="feature-badge">search</span></td>
+		</tr><tr class="error-row"><td colspan="6"><code>step 'Type search term' (fill): playwright: timeout: Timeout 10000ms exceeded.</code></td></tr>
+		<tr class="status-failed">
+			<td>❌</td>
+			<td class="test-name">Tab click switches content</td>
+			<td><span class="severity sev-critical">critical</span></td>
+			<td>positive</td>
+			<td>12090ms</td>
+			<td><span class="feature-badge">tabs</span></td>
+		</tr><tr class="error-row"><td colspan="6"><code>step 'Click second tab' (click): playwright: timeout: Timeout 10000ms exceeded.</code></td></tr>
+		<tr class="status-passed">
+			<td>✅</td>
+			<td class="test-name">Search input is visible</td>
+			<td><span class="severity sev-critical">critical</span></td>
+			<td>positive</td>
+			<td>5442ms</td>
+			<td><span class="feature-badge">search</span></td>
+		</tr>
+		<tr class="status-passed">
+			<td>✅</td>
+			<td class="test-name">Navigation links are visible</td>
+			<td><span class="severity sev-critical">critical</span></td>
+			<td>positive</td>
+			<td>5379ms</td>
+			<td><span class="feature-badge">navigation</span></td>
+		</tr>
+		<tr class="status-passed">
+			<td>✅</td>
+			<td class="test-name">Search can be cleared</td>
+			<td><span class="severity sev-high">high</span></td>
+			<td>positive</td>
+			<td>6926ms</td>
+			<td><span class="feature-badge">search</span></td>
+		</tr>
+		<tr class="status-failed">
+			<td>❌</td>
+			<td class="test-name">Navigation links navigate correctly</td>
+			<td><span class="severity sev-high">high</span></td>
+			<td>positive</td>
+			<td>15304ms</td>
+			<td><span class="feature-badge">navigation</span></td>
+		</tr><tr class="error-row"><td colspan="6"><code>step 'Click first nav link' (click): playwright: timeout: Timeout 10000ms exceeded.</code></td></tr>
+		<tr class="status-passed">
+			<td>✅</td>
+			<td class="test-name">Empty search shows appropriate message</td>
+			<td><span class="severity sev-medium">medium</span></td>
+			<td>edge</td>
+			<td>6945ms</td>
+			<td><span class="feature-badge">search</span></td>
+		</tr>
+		<tr class="status-failed">
+			<td>❌</td>
+			<td class="test-name">Tabs support keyboard navigation</td>
+			<td><span class="severity sev-medium">medium</span></td>
+			<td>positive</td>
+			<td>13804ms</td>
+			<td><span class="feature-badge">tabs</span></td>
+		</tr><tr class="error-row"><td colspan="6"><code>step '' (click): playwright: timeout: Timeout 10000ms exceeded.</code></td></tr></tbody>
+    </table>
+  </div>
+
+</div>
+<div class="footer">Generated by QA Buddy — 2026</div>
+</body>
+</html>

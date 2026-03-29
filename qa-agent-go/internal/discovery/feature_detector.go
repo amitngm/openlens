@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/playwright-community/playwright-go"
 	"github.com/qabuddy/agent/internal/models"
@@ -100,7 +101,139 @@ func (d *FeatureDetector) DetectFeatures(page playwright.Page) (*PageFeatures, e
 		})
 	}
 
+	// Detect resource CRUD pages (list + add + edit + delete)
+	if crudFeature, err := d.detectResourceCRUD(page); err == nil && crudFeature != nil {
+		pf.Features = append(pf.Features, *crudFeature)
+	}
+
 	return pf, nil
+}
+
+// detectResourceCRUD detects pages that manage a resource (list + CRUD actions).
+// These are the most important pages to generate comprehensive tests for.
+func (d *FeatureDetector) detectResourceCRUD(page playwright.Page) (*DetectedFeature, error) {
+	script := `() => {
+		// Must have a data list/table with rows
+		const tableEl = document.querySelector('table tbody tr, [role="grid"] [role="row"], [role="table"] [role="row"]');
+		const listEl  = !tableEl && document.querySelector('.list-group-item, .data-row, [class*="list-item"], [class*="row-item"]');
+		if (!tableEl && !listEl) return null;
+
+		const tableSel = tableEl ? 'table' : (listEl ? listEl.closest('[class]')?.tagName?.toLowerCase() || 'ul' : null);
+
+		// Create/Add button detection
+		const addTexts = ['add', 'create', 'new', 'invite', 'register', 'upload'];
+		let addSel = '';
+		const allBtns = Array.from(document.querySelectorAll('button, a[href], [role="button"]'));
+		for (const el of allBtns) {
+			const txt = (el.textContent || '').trim().toLowerCase();
+			if (addTexts.some(t => txt === t || txt.startsWith(t + ' ') || txt.endsWith(' ' + t))) {
+				if (el.id) addSel = '#' + el.id;
+				else if (el.className) addSel = el.tagName.toLowerCase() + '.' + el.className.trim().split(/\s+/)[0];
+				else addSel = el.tagName.toLowerCase();
+				break;
+			}
+		}
+
+		// Row-level Edit button
+		const editTexts = ['edit', 'modify', 'update', 'rename', 'change'];
+		let editSel = '';
+		const rowBtns = document.querySelectorAll('td button, td a, [role="row"] button, [role="row"] a, [class*="action"] button');
+		for (const el of rowBtns) {
+			const txt = (el.textContent || el.getAttribute('aria-label') || '').trim().toLowerCase();
+			if (editTexts.some(t => txt.includes(t))) {
+				editSel = el.tagName.toLowerCase() + (el.className ? '.' + el.className.trim().split(/\s+/)[0] : '');
+				break;
+			}
+		}
+
+		// Row-level Delete button
+		const deleteTexts = ['delete', 'remove', 'trash', 'archive'];
+		let deleteSel = '';
+		for (const el of rowBtns) {
+			const txt = (el.textContent || el.getAttribute('aria-label') || '').trim().toLowerCase();
+			if (deleteTexts.some(t => txt.includes(t))) {
+				deleteSel = el.tagName.toLowerCase() + (el.className ? '.' + el.className.trim().split(/\s+/)[0] : '');
+				break;
+			}
+		}
+
+		// Search input on the list page
+		const searchEl = document.querySelector('input[type="search"], input[placeholder*="search" i], input[aria-label*="search" i], input[name="q"]');
+		const searchSel = searchEl ? (searchEl.id ? '#' + searchEl.id : searchEl.tagName.toLowerCase() + '[type="' + searchEl.type + '"]') : '';
+
+		// Filter control (select/dropdown)
+		const filterEl = document.querySelector('select[name*="filter"], select[aria-label*="filter" i], [data-testid*="filter"], [class*="filter"] select');
+		const filterSel = filterEl ? (filterEl.id ? '#' + filterEl.id : 'select') : '';
+
+		return {
+			tableSel,
+			addSel,
+			editSel,
+			deleteSel,
+			searchSel,
+			filterSel,
+			hasAdd:    addSel !== '',
+			hasEdit:   editSel !== '',
+			hasDelete: deleteSel !== '',
+			hasSearch: searchSel !== '',
+			hasFilter: filterSel !== '',
+		};
+	}`
+
+	res, err := page.Evaluate(script)
+	if err != nil || res == nil {
+		return nil, nil
+	}
+	m, ok := res.(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+
+	tableSel, _ := m["tableSel"].(string)
+	if tableSel == "" {
+		return nil, nil
+	}
+
+	// Build details map for multi-selector template substitution
+	details := map[string]interface{}{
+		"table_sel":  tableSel,
+		"add_sel":    m["addSel"],
+		"edit_sel":   m["editSel"],
+		"delete_sel": m["deleteSel"],
+		"search_sel": m["searchSel"],
+		"filter_sel": m["filterSel"],
+		"has_add":    m["hasAdd"],
+		"has_edit":   m["hasEdit"],
+		"has_delete": m["hasDelete"],
+		"has_search": m["hasSearch"],
+		"has_filter": m["hasFilter"],
+	}
+
+	label := "Resource list"
+	caps := []string{"list"}
+	if hasAdd, _ := m["hasAdd"].(bool); hasAdd {
+		caps = append(caps, "create")
+	}
+	if hasEdit, _ := m["hasEdit"].(bool); hasEdit {
+		caps = append(caps, "edit")
+	}
+	if hasDelete, _ := m["hasDelete"].(bool); hasDelete {
+		caps = append(caps, "delete")
+	}
+	if hasSearch, _ := m["hasSearch"].(bool); hasSearch {
+		caps = append(caps, "search")
+	}
+	if hasFilter, _ := m["hasFilter"].(bool); hasFilter {
+		caps = append(caps, "filter")
+	}
+	label = fmt.Sprintf("Resource CRUD page (%s)", strings.Join(caps, ", "))
+
+	return &DetectedFeature{
+		Type:     models.FeatureResourceCRUD,
+		Selector: tableSel,
+		Label:    label,
+		Details:  details,
+	}, nil
 }
 
 func (d *FeatureDetector) detectSearch(page playwright.Page) (*DetectedFeature, error) {

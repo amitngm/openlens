@@ -989,6 +989,96 @@
   }
   .reco-item::before { content: '→'; color: var(--indigo); font-weight: 700; flex-shrink: 0; }
 
+  /* ─── Login Credentials Card ─── */
+  .login-creds-card {
+    background: var(--surface);
+    border: 1.5px solid #c7d2fe;
+    border-radius: var(--radius);
+    padding: 18px;
+    box-shadow: var(--shadow);
+  }
+  .lc-header {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+  }
+  .lc-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .lc-fields { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .lc-actions { display: flex; gap: 8px; }
+  .lc-btn {
+    flex: 1;
+    padding: 9px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    transition: opacity .15s, transform .1s;
+  }
+  .lc-btn:hover { opacity: .88; transform: translateY(-1px); }
+  .lc-btn-primary { background: var(--indigo); color: white; }
+  .lc-btn-secondary { background: var(--surface-alt); color: var(--text-secondary); border: 1.5px solid var(--border); }
+
+  /* ─── AI Provider Settings ─── */
+  .ai-provider-settings {
+    margin-top: 6px;
+    padding: 10px;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    animation: fadeIn .2s ease;
+  }
+
+  /* ─── Manual Login Banner ─── */
+  .manual-login-banner {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    background: #fffbeb;
+    border: 1.5px solid #fcd34d;
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .ml-icon { font-size: 28px; flex-shrink: 0; }
+  .ml-body { flex: 1; }
+  .ml-title { font-size: 14px; font-weight: 700; color: #92400e; margin-bottom: 4px; }
+  .ml-desc { font-size: 12px; color: #78350f; line-height: 1.5; margin-bottom: 12px; }
+  .ml-actions { display: flex; gap: 8px; }
+
+  /* ─── Close Browser Bar ─── */
+  .close-browser-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+  }
+  .cb-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    background: white;
+    border: 1.5px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: inherit;
+    transition: border-color .15s, color .15s;
+  }
+  .cb-btn:hover { border-color: var(--red); color: var(--red); }
+
   /* ─── Report Section ─── */
   #section-report {
     padding: 14px 16px;
@@ -1271,12 +1361,57 @@
                 <input id="opt-modules" class="field-input" type="text" placeholder="e.g. /users, /products">
               </div>
 
+              <!-- AI Provider -->
+              <div class="field-group">
+                <label class="field-label">AI Provider</label>
+                <div class="radio-group" id="ai-provider-group">
+                  <div class="radio-chip"><input type="radio" name="ai-provider" id="ai-ollama" value="ollama" checked onchange="onAIProviderChange('ollama')"><label for="ai-ollama">🦙 Ollama</label></div>
+                  <div class="radio-chip"><input type="radio" name="ai-provider" id="ai-openai" value="openai" onchange="onAIProviderChange('openai')"><label for="ai-openai">🤖 OpenAI</label></div>
+                  <div class="radio-chip"><input type="radio" name="ai-provider" id="ai-claude" value="claude" onchange="onAIProviderChange('claude')"><label for="ai-claude">✨ Claude</label></div>
+                  <div class="radio-chip"><input type="radio" name="ai-provider" id="ai-none" value="none" onchange="onAIProviderChange('none')"><label for="ai-none">📋 Rules only</label></div>
+                </div>
+
+                <!-- Ollama settings -->
+                <div id="ai-ollama-settings" class="ai-provider-settings">
+                  <div class="field-row" style="margin-top:8px;">
+                    <input id="opt-ollama-url" class="field-input" type="text" placeholder="http://localhost:11434" value="http://localhost:11434">
+                    <button class="lc-btn lc-btn-secondary" onclick="loadOllamaModels()" style="white-space:nowrap;font-size:11px;">↻ Load</button>
+                  </div>
+                  <select id="opt-ollama-model" class="field-input" style="margin-top:6px;">
+                    <option value="">Loading models...</option>
+                  </select>
+                </div>
+
+                <!-- OpenAI settings -->
+                <div id="ai-openai-settings" class="ai-provider-settings" style="display:none;">
+                  <input id="opt-openai-key" class="field-input" type="password" placeholder="sk-..." style="margin-top:8px;">
+                  <select id="opt-openai-model" class="field-input" style="margin-top:6px;">
+                    <option value="gpt-4o">gpt-4o</option>
+                    <option value="gpt-4o-mini">gpt-4o-mini</option>
+                    <option value="gpt-4-turbo">gpt-4-turbo</option>
+                    <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                  </select>
+                </div>
+
+                <!-- Claude settings -->
+                <div id="ai-claude-settings" class="ai-provider-settings" style="display:none;">
+                  <input id="opt-claude-key" class="field-input" type="password" placeholder="sk-ant-..." style="margin-top:8px;">
+                  <select id="opt-claude-model" class="field-input" style="margin-top:6px;">
+                    <option value="claude-opus-4-5">claude-opus-4-5</option>
+                    <option value="claude-sonnet-4-5">claude-sonnet-4-5</option>
+                    <option value="claude-haiku-3-5">claude-haiku-3-5</option>
+                    <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022</option>
+                    <option value="claude-3-opus-20240229">claude-3-opus-20240229</option>
+                  </select>
+                </div>
+              </div>
+
               <!-- AI Mode -->
               <div class="field-group">
                 <label class="field-label">AI Mode</label>
                 <div class="radio-group">
                   <div class="radio-chip"><input type="radio" name="ai-mode" id="ai-rules" value="rules"><label for="ai-rules">Rules</label></div>
-                  <div class="radio-chip"><input type="radio" name="ai-mode" id="ai-ai" value="ai" checked><label for="ai-ai">AI</label></div>
+                  <div class="radio-chip"><input type="radio" name="ai-mode" id="ai-ai" value="ai" checked><label for="ai-ai">AI+Rules</label></div>
                   <div class="radio-chip"><input type="radio" name="ai-mode" id="ai-hybrid" value="hybrid"><label for="ai-hybrid">Hybrid</label></div>
                 </div>
               </div>
@@ -1410,6 +1545,50 @@
         <div class="reco-list" id="reco-list"></div>
       </div>
 
+      <!-- LOGIN CREDENTIALS FORM (shown in WAIT_LOGIN_INPUT) -->
+      <div id="section-login-creds" class="section">
+        <div class="login-creds-card">
+          <div class="lc-header">🔐 Login Required</div>
+          <p class="lc-desc" id="lc-desc">I found a login form. Please enter credentials to continue.</p>
+          <div class="lc-fields">
+            <input id="lc-username" class="field-input" type="text" placeholder="Username or Email" autocomplete="username">
+            <input id="lc-password" class="field-input" type="password" placeholder="Password" autocomplete="current-password">
+          </div>
+          <div class="lc-actions">
+            <button class="lc-btn lc-btn-primary" onclick="submitCredentials()">Log In</button>
+            <button class="lc-btn lc-btn-secondary" onclick="skipLogin()">Skip (no login)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MANUAL LOGIN BANNER (shown in WAIT_MANUAL_LOGIN) -->
+      <div id="section-manual-login" class="section">
+        <div class="manual-login-banner">
+          <div class="ml-icon">👤</div>
+          <div class="ml-body">
+            <div class="ml-title">Manual Login Required</div>
+            <p class="ml-desc" id="ml-desc">Automated login failed. Please log in manually in the browser window, then click <strong>Done</strong>.</p>
+            <div class="ml-actions">
+              <button class="lc-btn lc-btn-primary" onclick="confirmManualLogin()">✓ Done — I've logged in</button>
+              <button class="lc-btn lc-btn-secondary" onclick="skipLogin()">Skip (continue without login)</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CLOSE BROWSER (shown after DONE) -->
+      <div id="section-close-browser" class="section">
+        <div class="close-browser-bar">
+          <div style="font-size:12px;color:var(--text-secondary);">
+            🌐 Browser stays open for 30 min so you can review results
+          </div>
+          <button class="cb-btn" onclick="closeBrowser()">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Close Browser
+          </button>
+        </div>
+      </div>
+
       <!-- REPORT SECTION -->
       <div id="section-report" class="section">
         <div class="section-title">
@@ -1485,6 +1664,7 @@ const HINTS_BY_STATE = {
   'CONTEXT_DETECT':     ['What did you find?', 'Show app type'],
   'DISCOVERY_RUN':      ['Focus on forms only', 'Skip this page', 'Stop discovery', 'Show progress'],
   'DISCOVERY_SUMMARY':  ['Start testing now', 'Show discovered pages', 'Focus on critical areas'],
+  'CRUD_EXPLORE':       ['Skip CRUD exploration', 'Show what was found', 'Slow down'],
   'WAIT_TEST_INTENT':   ['Run smoke tests', 'Test all forms', 'Check all tables', 'Full exploratory', 'Custom test'],
   'TEST_PLAN_BUILD':    ['Show test plan', 'Modify scope'],
   'TEST_EXECUTE':       ['Skip current test', 'Stop testing', 'Retry failed'],
@@ -1492,25 +1672,29 @@ const HINTS_BY_STATE = {
   'DONE':               ['Show coverage gaps', 'Export test cases', 'Rerun failed tests', 'Start new run'],
   'WAIT_BUDDY_GUIDANCE':['Click Accept', 'Close popup', 'Press Enter', 'Skip this', 'Go to next page'],
   'STUCK':              ['Click Accept', 'Close popup', 'Press Enter', 'Skip this', 'Refresh page'],
+  'WAIT_MANUAL_LOGIN':  ['done', 'skip - continue without login'],
+  'WAIT_LOGIN_INPUT':   ['admin:password', 'user@example.com:secret', 'skip - no login needed'],
 };
 
 const STATE_PROGRESS = {
-  'idle': 0, 'OPEN_URL': 5, 'SESSION_CHECK': 10, 'LOGIN_DETECT': 15,
-  'WAIT_LOGIN_INPUT': 18, 'LOGIN_ATTEMPT': 22, 'POST_LOGIN_VALIDATE': 28,
-  'CONTEXT_DETECT': 35, 'DISCOVERY_RUN': 50, 'DISCOVERY_SUMMARY': 65,
-  'WAIT_TEST_INTENT': 68, 'TEST_PLAN_BUILD': 72, 'TEST_EXECUTE': 88,
-  'REPORT_GENERATE': 95, 'DONE': 100,
+  'idle': 0, 'OPEN_URL': 5, 'SESSION_CHECK': 10, 'LOGIN_DETECT': 13,
+  'WAIT_LOGIN_INPUT': 13, 'WAIT_MANUAL_LOGIN': 13, 'LOGIN_ATTEMPT': 18,
+  'POST_LOGIN_VALIDATE': 22, 'CONTEXT_DETECT': 28, 'DISCOVERY_RUN': 50,
+  'DISCOVERY_SUMMARY': 62, 'CRUD_EXPLORE': 65, 'WAIT_TEST_INTENT': 68, 'TEST_PLAN_BUILD': 72,
+  'TEST_EXECUTE': 88, 'REPORT_GENERATE': 95, 'DONE': 100,
 };
 
 const STATE_LABELS = {
   'idle': 'Idle', 'OPEN_URL': 'Opening URL', 'SESSION_CHECK': 'Checking Session',
-  'LOGIN_DETECT': 'Detecting Login', 'WAIT_LOGIN_INPUT': 'Waiting for Login',
-  'LOGIN_ATTEMPT': 'Logging In', 'POST_LOGIN_VALIDATE': 'Validating Login',
-  'CONTEXT_DETECT': 'Detecting App Type', 'DISCOVERY_RUN': 'Discovering UI',
-  'DISCOVERY_SUMMARY': 'Summarizing Discovery', 'WAIT_TEST_INTENT': 'Awaiting Intent',
-  'TEST_PLAN_BUILD': 'Building Test Plan', 'TEST_EXECUTE': 'Running Tests',
-  'REPORT_GENERATE': 'Generating Report', 'DONE': 'Complete',
-  'STUCK': 'Stuck — Needs Guidance', 'WAIT_BUDDY_GUIDANCE': 'Awaiting Guidance',
+  'LOGIN_DETECT': 'Detecting Login', 'WAIT_LOGIN_INPUT': 'Credentials Needed',
+  'WAIT_MANUAL_LOGIN': 'Manual Login Required', 'LOGIN_ATTEMPT': 'Logging In',
+  'POST_LOGIN_VALIDATE': 'Validating Login', 'CONTEXT_DETECT': 'Detecting App Type',
+  'DISCOVERY_RUN': 'Discovering UI', 'DISCOVERY_SUMMARY': 'Summarizing Discovery',
+  'CRUD_EXPLORE': 'Exploring CRUD Modules',
+  'WAIT_TEST_INTENT': 'Awaiting Intent', 'TEST_PLAN_BUILD': 'Building Test Plan',
+  'TEST_EXECUTE': 'Running Tests', 'REPORT_GENERATE': 'Generating Report',
+  'DONE': 'Complete', 'STUCK': 'Stuck — Needs Guidance',
+  'WAIT_BUDDY_GUIDANCE': 'Awaiting Guidance',
 };
 
 // ══════════════════════════════════════════
@@ -1525,9 +1709,17 @@ async function startFullRun(url, options) {
   if (options.username || options.password) {
     body.auth = { username: options.username || '', password: options.password || '' };
   }
-  if (options.aiMode) {
-    body.ai = { enabled: true, mode: options.aiMode };
+  // AI provider config
+  const aiConfig = { enabled: true, mode: options.aiMode || 'hybrid' };
+  if (options.aiProvider && options.aiProvider !== 'none') {
+    aiConfig.provider = options.aiProvider;
+    aiConfig.model_name = options.aiModel || '';
+    if (options.aiKey) aiConfig.api_key = options.aiKey;
+    if (options.ollamaUrl) aiConfig.base_url = options.ollamaUrl;
+  } else if (options.aiProvider === 'none') {
+    aiConfig.enabled = false;
   }
+  body.ai = aiConfig;
   if (options.scope && options.scope !== 'full') {
     body.discovery_scope = {
       mode: options.scope,
@@ -1632,7 +1824,7 @@ function handleStateChange(data) {
 
   setStatus(
     ['DONE'].includes(state) ? 'done' :
-    ['STUCK','WAIT_BUDDY_GUIDANCE'].includes(state) ? 'waiting' :
+    ['STUCK','WAIT_BUDDY_GUIDANCE','WAIT_LOGIN_INPUT','WAIT_MANUAL_LOGIN'].includes(state) ? 'waiting' :
     state === 'idle' ? 'idle' : 'running',
     label
   );
@@ -1656,15 +1848,34 @@ function handleStateChange(data) {
     showSection('intent');
     showSection('chat');
     showSection('progress');
-  } else if (['STUCK','WAIT_BUDDY_GUIDANCE'].includes(state)) {
-    // stuck alert is shown separately
+  } else if (state === 'WAIT_LOGIN_INPUT') {
+    showSection('login-creds');
     showSection('chat');
+    hideSection('stuck');
+    hideSection('manual-login');
+    focusChatInput();
+    highlightChatInput(true);
+  } else if (state === 'WAIT_MANUAL_LOGIN') {
+    showSection('manual-login');
+    showSection('chat');
+    hideSection('login-creds');
+    hideSection('stuck');
+    focusChatInput();
+    highlightChatInput(true);
+  } else if (['STUCK','WAIT_BUDDY_GUIDANCE'].includes(state)) {
+    // stuck alert shown via showStuckAlert()
+    showSection('chat');
+    hideSection('login-creds');
+    hideSection('manual-login');
     focusChatInput();
     highlightChatInput(true);
   } else if (state === 'DONE') {
     showSection('coverage');
     showSection('report');
+    showSection('close-browser');
     hideSection('intent');
+    hideSection('login-creds');
+    hideSection('manual-login');
     highlightChatInput(false);
   } else if (state === 'TEST_EXECUTE') {
     showSection('results');
@@ -1681,9 +1892,13 @@ function handleDone(data) {
   updateHints('DONE');
   showSection('report');
   showSection('coverage');
+  showSection('close-browser');
+  hideSection('login-creds');
+  hideSection('manual-login');
+  hideSection('stuck');
   if (data?.coverage) updateCoverage(data.coverage);
   if (data?.report_url) { reportUrl = data.report_url; }
-  addBuddyMessage('✅ QA run complete! Check the results and coverage report.', false);
+  addBuddyMessage('✅ QA run complete! Check the results and report below.\n\nThe browser will stay open for 30 minutes so you can review. Use "Close Browser" when done.', false);
   hideSection('intent');
 }
 
@@ -1829,6 +2044,97 @@ function showStuckAlert(data) {
 function hideStuckAlert() {
   hideSection('stuck');
   highlightChatInput(false);
+}
+
+// ══════════════════════════════════════════
+//  LOGIN HELPERS
+// ══════════════════════════════════════════
+async function submitCredentials() {
+  const u = document.getElementById('lc-username').value.trim();
+  const p = document.getElementById('lc-password').value.trim();
+  if (!u) { document.getElementById('lc-username').focus(); return; }
+  addBuddyMessage(`Submitting credentials for "${u}"...`, true);
+  try {
+    await fetch(`/runs/${runID}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: { username: u, password: p } }),
+    });
+    hideSection('login-creds');
+    addBuddyMessage('Credentials received — attempting login...', false);
+  } catch (e) {
+    addBuddyMessage('Error submitting credentials: ' + e.message, false);
+  }
+}
+
+async function skipLogin() {
+  addBuddyMessage('Skipping login — continuing without authentication.', true);
+  try {
+    await fetch(`/runs/${runID}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: 'skip' }),
+    });
+    hideSection('login-creds');
+    hideSection('manual-login');
+  } catch {}
+}
+
+async function confirmManualLogin() {
+  addBuddyMessage('done', true);
+  try {
+    await fetch(`/runs/${runID}/answer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer: 'done' }),
+    });
+    hideSection('manual-login');
+    addBuddyMessage('Got it — continuing with discovery...', false);
+  } catch {}
+}
+
+// ══════════════════════════════════════════
+//  AI PROVIDER SELECTION
+// ══════════════════════════════════════════
+function onAIProviderChange(provider) {
+  document.getElementById('ai-ollama-settings').style.display = provider === 'ollama' ? '' : 'none';
+  document.getElementById('ai-openai-settings').style.display = provider === 'openai' ? '' : 'none';
+  document.getElementById('ai-claude-settings').style.display = provider === 'claude' ? '' : 'none';
+}
+
+async function loadOllamaModels() {
+  const url = document.getElementById('opt-ollama-url').value.trim() || 'http://localhost:11434';
+  const sel = document.getElementById('opt-ollama-model');
+  sel.innerHTML = '<option>Loading...</option>';
+  try {
+    const r = await fetch('/ai/ollama/models?base_url=' + encodeURIComponent(url));
+    const data = await r.json();
+    if (data.available && data.models?.length > 0) {
+      sel.innerHTML = data.models.map(m => `<option value="${m}">${m}</option>`).join('');
+    } else {
+      sel.innerHTML = '<option value="">Ollama not available — check URL</option>';
+    }
+  } catch {
+    sel.innerHTML = '<option value="">Error connecting to Ollama</option>';
+  }
+}
+
+// Auto-load Ollama models when page opens
+window.addEventListener('DOMContentLoaded', () => {
+  loadOllamaModels();
+});
+
+async function closeBrowser() {
+  if (!runID) return;
+  try {
+    await fetch(`/runs/${runID}/close-browser`, { method: 'POST' });
+    hideSection('close-browser');
+    addBuddyMessage('Browser closed.', false);
+    const iframe = document.getElementById('app-iframe');
+    if (iframe) { iframe.src = 'about:blank'; }
+  } catch (e) {
+    addBuddyMessage('Error closing browser: ' + e.message, false);
+  }
 }
 
 async function sendStuckAction(action) {
@@ -2097,12 +2403,26 @@ async function handleStartFull() {
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner"></div> Starting...';
 
+  const aiProvider = document.querySelector('input[name="ai-provider"]:checked')?.value || 'ollama';
+  let aiModel = '', aiKey = '', ollamaUrl = '';
+  if (aiProvider === 'ollama') {
+    aiModel = document.getElementById('opt-ollama-model').value;
+    ollamaUrl = document.getElementById('opt-ollama-url').value.trim();
+  } else if (aiProvider === 'openai') {
+    aiModel = document.getElementById('opt-openai-model').value;
+    aiKey = document.getElementById('opt-openai-key').value.trim();
+  } else if (aiProvider === 'claude') {
+    aiModel = document.getElementById('opt-claude-model').value;
+    aiKey = document.getElementById('opt-claude-key').value.trim();
+  }
+
   const opts = {
     username: document.getElementById('opt-username').value.trim(),
     password: document.getElementById('opt-password').value,
     appType: document.getElementById('opt-app-type').value,
     headless: document.getElementById('opt-headless').checked,
-    aiMode: document.querySelector('input[name="ai-mode"]:checked')?.value || 'ai',
+    aiMode: document.querySelector('input[name="ai-mode"]:checked')?.value || 'hybrid',
+    aiProvider, aiModel, aiKey, ollamaUrl,
     scope: document.querySelector('input[name="scope"]:checked')?.value || 'full',
     moduleTargets: document.getElementById('opt-modules').value.trim() || undefined,
     includeDiscarded: document.getElementById('opt-include-discarded').checked,

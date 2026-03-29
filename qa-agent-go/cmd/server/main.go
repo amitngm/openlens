@@ -53,9 +53,13 @@ func main() {
 	}
 	defer bm.CloseAll()
 
-	// 6. Auto-detect AI provider
+	// 6. Auto-detect AI provider (Ollama → Claude → OpenAI → None)
 	ctx := context.Background()
-	aiProv := ai.AutoDetect(ctx, cfg.OllamaBaseURL, cfg.OllamaModel, cfg.OpenAIAPIKey, cfg.OpenAIModel)
+	aiProv := ai.AutoDetect(ctx,
+		cfg.OllamaBaseURL, cfg.OllamaModel,
+		cfg.OpenAIAPIKey, cfg.OpenAIModel,
+		cfg.AnthropicAPIKey, cfg.ClaudeModel,
+	)
 	log.Info().Str("ai_provider", aiProv.Name()).Msg("AI provider selected")
 
 	// 7. Initialize run store

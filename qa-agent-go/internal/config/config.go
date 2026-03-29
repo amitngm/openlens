@@ -19,6 +19,8 @@ type Config struct {
 	OllamaModel         string
 	OpenAIAPIKey        string
 	OpenAIModel         string
+	AnthropicAPIKey     string
+	ClaudeModel         string
 	StuckTimeoutSec     int
 	MaxBuddySteps       int
 	NaturalDelayMinMs   int
@@ -54,6 +56,8 @@ func Load() *Config {
 		OllamaModel:         envStr("OLLAMA_MODEL", "llama3"),
 		OpenAIAPIKey:        envStr("OPENAI_API_KEY", ""),
 		OpenAIModel:         envStr("OPENAI_MODEL", "gpt-4o"),
+		AnthropicAPIKey:     envStr("ANTHROPIC_API_KEY", ""),
+		ClaudeModel:         envStr("CLAUDE_MODEL", "claude-opus-4-5"),
 		StuckTimeoutSec:     envInt("STUCK_TIMEOUT_SEC", 15),
 		MaxBuddySteps:       envInt("MAX_BUDDY_STEPS", 30),
 		NaturalDelayMinMs:   envInt("NATURAL_DELAY_MIN_MS", 100),

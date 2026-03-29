@@ -16,6 +16,7 @@ const (
 	StateContextDetect     RunState = "CONTEXT_DETECT"
 	StateDiscoveryRun      RunState = "DISCOVERY_RUN"
 	StateDiscoverySummary  RunState = "DISCOVERY_SUMMARY"
+	StateCRUDExplore       RunState = "CRUD_EXPLORE"
 	StateWaitTestIntent    RunState = "WAIT_TEST_INTENT"
 	StateTestPlanBuild     RunState = "TEST_PLAN_BUILD"
 	StateTestExecute       RunState = "TEST_EXECUTE"
@@ -25,6 +26,7 @@ const (
 	StateCancelled         RunState = "CANCELLED"
 	StateStuckDetected     RunState = "STUCK_DETECTED"
 	StateWaitBuddyGuidance RunState = "WAIT_BUDDY_GUIDANCE"
+	StateWaitManualLogin   RunState = "WAIT_MANUAL_LOGIN"
 )
 
 // AppType hints for tailored test generation
@@ -79,9 +81,10 @@ const (
 type AIConfig struct {
 	Enabled   bool   `json:"enabled"`
 	Mode      AIMode `json:"mode"`
-	Provider  string `json:"provider"` // ollama, openai, none
-	ModelName string `json:"model_name,omitempty"`
-	APIKey    string `json:"api_key,omitempty"`
+	Provider  string `json:"provider"`             // ollama, openai, claude, none
+	ModelName string `json:"model_name,omitempty"` // specific model to use
+	APIKey    string `json:"api_key,omitempty"`    // for openai / claude
+	BaseURL   string `json:"base_url,omitempty"`   // for ollama custom endpoint
 	MaxSteps  int    `json:"max_steps,omitempty"`
 }
 

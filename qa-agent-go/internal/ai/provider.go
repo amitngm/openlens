@@ -15,7 +15,7 @@ type Provider interface {
 
 // Config holds configuration for an AI provider
 type Config struct {
-	Provider    string // ollama, openai, none
+	Provider    string // ollama, openai, claude, none
 	ModelName   string
 	APIKey      string
 	BaseURL     string
@@ -35,14 +35,26 @@ func (n *NoneProvider) Name() string                        { return "none" }
 
 // NewProvider creates the appropriate provider based on config
 func NewProvider(cfg Config) (Provider, error) {
+	if cfg.TimeoutSec <= 0 {
+		cfg.TimeoutSec = 30
+	}
 	switch cfg.Provider {
 	case "ollama":
-		return NewOllamaProvider(cfg.BaseURL, cfg.ModelName, cfg.TimeoutSec), nil
+		url := cfg.BaseURL
+		if url == "" {
+			url = "http://localhost:11434"
+		}
+		return NewOllamaProvider(url, cfg.ModelName, cfg.TimeoutSec), nil
 	case "openai":
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("OpenAI API key required")
 		}
 		return NewOpenAIProvider(cfg.APIKey, cfg.ModelName, cfg.TimeoutSec), nil
+	case "claude", "anthropic":
+		if cfg.APIKey == "" {
+			return nil, fmt.Errorf("Anthropic API key required")
+		}
+		return NewClaudeProvider(cfg.APIKey, cfg.ModelName, cfg.TimeoutSec), nil
 	case "none", "":
 		return &NoneProvider{}, nil
 	default:
@@ -50,17 +62,22 @@ func NewProvider(cfg Config) (Provider, error) {
 	}
 }
 
-// AutoDetect tries Ollama first, then OpenAI, falls back to none
-func AutoDetect(ctx context.Context, ollamaURL, ollamaModel, openAIKey, openAIModel string) Provider {
+// AutoDetect tries Ollama first, then OpenAI, then Claude, falls back to none
+func AutoDetect(ctx context.Context, ollamaURL, ollamaModel, openAIKey, openAIModel, anthropicKey, claudeModel string) Provider {
 	detectCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
-	// Try Ollama
+	// Try Ollama first (local — zero cost)
 	if ollamaURL != "" {
 		p := NewOllamaProvider(ollamaURL, ollamaModel, 5)
 		if p.IsAvailable(detectCtx) {
 			return p
 		}
+	}
+
+	// Try Anthropic Claude
+	if anthropicKey != "" {
+		return NewClaudeProvider(anthropicKey, claudeModel, 30)
 	}
 
 	// Try OpenAI
